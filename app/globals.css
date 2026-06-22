@@ -933,6 +933,16 @@ button:disabled {
   padding: 16px;
 }
 
+.archived-project-card,
+.archived-project-row {
+  opacity: 0.62;
+  filter: grayscale(0.35);
+}
+
+.archived-project-row td {
+  background: var(--panel-muted);
+}
+
 .project-card-head {
   display: flex;
   align-items: flex-start;

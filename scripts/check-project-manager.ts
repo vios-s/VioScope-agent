@@ -365,6 +365,24 @@ async function main() {
     assert.equal(archiveResponse.status, 200, archiveBody.error || 'Project archive failed.');
     assert.equal(archiveBody.project?.lifecycle, 'archived');
 
+    const afterArchiveList = await bodyOf<{ projects?: any[] }>(
+      await projectsRoute.GET(getRequest('/api/projects?includeArchived=true', pi)),
+    );
+    const activeDuplicateIndex = afterArchiveList.projects?.findIndex((nextProject) => nextProject.id === differentOwnerDuplicateBody.project?.id) ?? -1;
+    const archivedIndex = afterArchiveList.projects?.findIndex((nextProject) => nextProject.id === project.id) ?? -1;
+    assert.ok(archivedIndex >= 0, 'Archived project should still be visible when archived projects are included.');
+    assert.equal(afterArchiveList.projects?.[archivedIndex]?.lifecycle, 'archived');
+    assert.ok(activeDuplicateIndex >= 0 && activeDuplicateIndex < archivedIndex, 'Archived projects should be ranked below active projects.');
+
+    const unarchiveResponse = await projectRoute.PATCH(
+      jsonRequest(`/api/projects/${project.id}`, { lifecycle: 'active' }, pi, 'PATCH'),
+      projectContext(project.id),
+    );
+    const unarchiveBody = await bodyOf<{ project?: any }>(unarchiveResponse);
+    assert.equal(unarchiveResponse.status, 200, unarchiveBody.error || 'Project unarchive failed.');
+    assert.equal(unarchiveBody.project?.lifecycle, 'active', 'Unarchive should restore the project to active lifecycle.');
+    assert.equal(unarchiveBody.project?.archivedAt, null, 'Unarchive should clear archivedAt.');
+
     const actions = await auditActionsForProject(project.id);
     for (const action of ['project.create', 'project.update', 'project.update_add', 'project.update_comment', 'project.archive']) {
       assert.ok(actions.includes(action), `Expected audit action ${action}. Saw ${actions.join(', ')}`);
@@ -377,6 +395,8 @@ async function main() {
           projectVisibility: 'passed',
           coordinatorVisibility: 'passed',
           piEdit: 'passed',
+          archiveRank: 'passed',
+          unarchive: 'passed',
           artifactCurrentVersion: 'passed',
           timelineComment: 'passed',
           auditActions: actions,

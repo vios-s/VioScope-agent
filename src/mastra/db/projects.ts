@@ -534,7 +534,7 @@ export async function listProjectsForUser(user: AuthUser, input: { includeArchiv
           watch_path, notes, archived_at, created_at, updated_at
         FROM project_records
         WHERE ($1::boolean OR lifecycle <> 'archived')
-        ORDER BY updated_at DESC
+        ORDER BY (lifecycle = 'archived') ASC, updated_at DESC
       `,
       [Boolean(input.includeArchived)],
     );

@@ -22,6 +22,7 @@ import {
   Plus,
   Power,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Send,
@@ -1925,6 +1926,7 @@ function ProjectDetailModal({
   onSaved,
   onChanged,
   onArchive,
+  onUnarchive,
 }: {
   project: ManagedProject;
   viewer: CurrentUser;
@@ -1934,6 +1936,7 @@ function ProjectDetailModal({
   onSaved: (project: ManagedProject) => Promise<void>;
   onChanged: (project: ManagedProject) => Promise<void>;
   onArchive: (project: ManagedProject) => Promise<void>;
+  onUnarchive: (project: ManagedProject) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(defaultTimelineDraft);
   const [editDraft, setEditDraft] = useState(() => projectDraftFromProject(project, viewer));
@@ -2230,6 +2233,12 @@ function ProjectDetailModal({
                 <button className="ops-secondary" type="button" onClick={() => void onArchive(project)}>
                   <X aria-hidden="true" />
                   Archive
+                </button>
+              )}
+              {project.access.canArchive && project.lifecycle === 'archived' && (
+                <button className="ops-secondary" type="button" onClick={() => void onUnarchive(project)}>
+                  <RotateCcw aria-hidden="true" />
+                  Unarchive
                 </button>
               )}
             </div>
@@ -2846,6 +2855,25 @@ function DashboardView({
     }
   }
 
+  async function unarchiveProject(project: ManagedProject) {
+    setActionError(null);
+    try {
+      const response = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lifecycle: 'active' }),
+      });
+      const body = (await response.json()) as ProjectsPayload;
+      if (!response.ok || !body.project) {
+        throw new Error(body.error || 'Could not unarchive project.');
+      }
+      setDetailProject(body.project);
+      await onProjectsChanged();
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Could not unarchive project.');
+    }
+  }
+
   return (
     <ConsolePageFrame
       title="Dashboard"
@@ -2983,15 +3011,21 @@ function DashboardView({
               </div>
               <div className="attention-grid">
                 {archivedProjects.map((project) => (
-                  <article className="attention-card" key={project.id}>
+                  <article className="attention-card archived-project-card" key={project.id}>
                     <div>
                       <h3>{project.title}</h3>
                       <p>{project.ownerUsername} / archived {project.archivedAt ? formatDate(project.archivedAt.slice(0, 10)) : ''}</p>
                     </div>
-                    <button className="ops-secondary" type="button" onClick={() => setDetailProject(project)}>
-                      <FileText aria-hidden="true" />
-                      Details
-                    </button>
+                    <div className="button-row compact">
+                      <button className="ops-secondary icon-only-button" type="button" onClick={() => setDetailProject(project)} aria-label={`View ${project.title}`} title="Details">
+                        <FileText aria-hidden="true" />
+                      </button>
+                      {project.access.canArchive && (
+                        <button className="ops-secondary icon-only-button" type="button" onClick={() => void unarchiveProject(project)} aria-label={`Unarchive ${project.title}`} title="Unarchive">
+                          <RotateCcw aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
                   </article>
                 ))}
               </div>
@@ -3077,7 +3111,7 @@ function DashboardView({
                 </thead>
                 <tbody>
                   {projects.map((project) => (
-                    <tr key={project.id}>
+                    <tr key={project.id} className={project.lifecycle === 'archived' ? 'archived-project-row' : undefined}>
                       <td>{project.ownerUsername}</td>
                       <td>{project.title}</td>
                       <td>{project.track}</td>
@@ -3135,6 +3169,7 @@ function DashboardView({
           onSaved={handleProjectChanged}
           onChanged={handleProjectChanged}
           onArchive={archiveProject}
+          onUnarchive={unarchiveProject}
         />
       )}
       </div>
