@@ -43,6 +43,7 @@ const users = {
   disabled: { username: 'account.smoke.disabled', role: 'member' as const, password: 'Disabled123!' },
   profileOnly: { username: 'account.smoke.profile', role: 'viewer' as const },
   piBlockedAdmin: { username: 'account.smoke.pi.blocked.admin', role: 'administrator' as const },
+  noEmailInvite: { username: 'account.smoke.no.email', role: 'member' as const },
 };
 
 function email(username: string): string {
@@ -214,6 +215,27 @@ async function setStatus(username: string, status: 'active' | 'disabled'): Promi
   }
 }
 
+async function cleanupAuditLogs(usernames: string[]): Promise<void> {
+  const postgres = createPostgresClient('account-management-audit-cleanup');
+
+  try {
+    await postgres.pool.query(
+      `
+        DELETE FROM audit_log
+        WHERE actor_username = ANY($1::text[])
+          OR target_id = ANY($1::text[])
+          OR target_id LIKE 'account.smoke.%'
+          OR metadata::text LIKE '%account.smoke.%'
+      `,
+      [usernames],
+    );
+  } catch {
+    // audit_log may not exist if the check failed before audit setup.
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
 function jsonRequest(path: string, body: unknown, cookie?: string): Request {
   const headers = new Headers({ 'content-type': 'application/json' });
   if (cookie) headers.set('cookie', cookie);
@@ -264,6 +286,7 @@ async function main() {
     const usersRoute = await import('../app/api/users/route');
     const userRoute = await import('../app/api/users/[userId]/route');
     const accountRoute = await import('../app/api/account/route');
+    const auditRoute = await import('../app/api/audit-log/route');
     const labStateRoute = await import('../app/api/lab-state/route');
 
     const badLogin = await loginRoute.POST(jsonRequest('/api/auth/login', {
@@ -305,7 +328,7 @@ async function main() {
     assert.equal(goodChange.status, 200, 'Medium password should be accepted.');
     assert.equal((await jsonBody(goodChange)).user.passwordResetRequired, false);
 
-    const logout = await logoutRoute.POST();
+    const logout = await logoutRoute.POST(jsonRequest('/api/auth/logout', {}, resetLogin.cookie || undefined));
     assert.equal(logout.status, 200, 'Logout should succeed.');
     const logoutCookie = logout.headers.get('set-cookie') || '';
     assert.ok(logoutCookie.includes(`${sessionCookieName}=`), 'Logout should clear session cookie.');
@@ -318,6 +341,30 @@ async function main() {
     assert.ok(member);
     const memberList = await usersRoute.GET(getRequest('/api/users', cookieFor(member)));
     assert.equal(memberList.status, 403, 'Member should not list users.');
+
+    const noEmailCreate = await usersRoute.POST(jsonRequest('/api/users', {
+      username: users.noEmailInvite.username,
+      role: users.noEmailInvite.role,
+    }, cookieFor(admin)));
+    assert.equal(noEmailCreate.status, 200, 'Admin should create first-login account without email.');
+    const noEmailLogin = await login(users.noEmailInvite.username, users.noEmailInvite.username);
+    assert.equal(noEmailLogin.response.status, 200, 'Username temporary password should log in.');
+    assert.equal(noEmailLogin.body.user.email, null);
+    assert.equal(noEmailLogin.body.user.passwordResetRequired, true);
+    const noEmailBlockedChange = await changePasswordRoute.POST(jsonRequest('/api/auth/change-password', {
+      currentPassword: users.noEmailInvite.username,
+      newPassword: 'NoEmail1!',
+    }, noEmailLogin.cookie || undefined));
+    assert.equal(noEmailBlockedChange.status, 400, 'First-login password change should require email when missing.');
+    const noEmailGoodChange = await changePasswordRoute.POST(jsonRequest('/api/auth/change-password', {
+      currentPassword: users.noEmailInvite.username,
+      email: email(users.noEmailInvite.username),
+      newPassword: 'NoEmail1!',
+    }, noEmailLogin.cookie || undefined));
+    assert.equal(noEmailGoodChange.status, 200, 'First-login email and password should be accepted.');
+    const noEmailChangedUser = (await jsonBody(noEmailGoodChange)).user;
+    assert.equal(noEmailChangedUser.email, email(users.noEmailInvite.username));
+    assert.equal(noEmailChangedUser.passwordResetRequired, false);
 
     const piCreatesAdmin = await usersRoute.POST(jsonRequest('/api/users', {
       username: users.piBlockedAdmin.username,
@@ -347,9 +394,31 @@ async function main() {
     assert.equal(goodEmail.status, 200, 'Valid account email should be accepted.');
     assert.equal((await jsonBody(goodEmail)).user.email, nextEmail);
 
+    const memberAudit = await auditRoute.GET(getRequest('/api/audit-log', cookieFor(member)));
+    assert.equal(memberAudit.status, 403, 'Members should not read audit logs.');
+
+    const auditDay = new Date().toISOString().slice(0, 10);
+    const adminAudit = await auditRoute.GET(getRequest(`/api/audit-log?day=${auditDay}`, cookieFor(admin)));
+    assert.equal(adminAudit.status, 200, 'Administrators should read audit logs.');
+    const auditBody = await jsonBody(adminAudit);
+    assert.equal(auditBody.fileName, `audit-${auditDay}.jsonl`);
+    assert.ok(
+      (auditBody.days || []).some((logDay: { day: string; fileName: string }) => (
+        logDay.day === auditDay && logDay.fileName === `audit-${auditDay}.jsonl`
+      )),
+      'Audit log should list available daily log files.',
+    );
+    const auditActions = new Set((auditBody.logs || []).map((log: { action: string }) => log.action));
+    assert.ok(auditActions.has('auth.login_failure'), 'Audit log should include failed login.');
+    assert.ok(auditActions.has('auth.login_success'), 'Audit log should include successful login.');
+    assert.ok(auditActions.has('auth.logout'), 'Audit log should include logout.');
+    assert.ok(auditActions.has('account.password_change'), 'Audit log should include password change.');
+    assert.ok(auditActions.has('account.update'), 'Audit log should include account update.');
+
     console.log('Account management check passed.');
   } finally {
     await restoreUsers(snapshots);
+    await cleanupAuditLogs(usernames);
   }
 }
 

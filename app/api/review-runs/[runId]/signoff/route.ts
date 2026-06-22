@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, requireSessionUser } from '../../../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../../../src/mastra/db/audit-log';
 import {
   updateReviewCheckSignoff,
   type ReviewSignoffStatus,
@@ -46,6 +47,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ runId
       signedOffBy: text(body.signedOffBy) || user.displayName,
     });
 
+    await recordAuditLog({
+      actor: user,
+      action: 'review_run.signoff_update',
+      targetType: 'review_run',
+      targetId: runId,
+      summary: 'Review check signoff updated.',
+      metadata: {
+        skillName,
+        signoffStatus,
+        hasReviewerNote: Boolean(text(body.reviewerNote)),
+      },
+    });
     return NextResponse.json({ run });
   } catch (error) {
     return errorResponse(error, error instanceof AuthError ? error.status : 400);

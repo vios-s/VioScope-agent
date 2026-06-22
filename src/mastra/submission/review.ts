@@ -1,5 +1,6 @@
 import { generateObject } from 'ai';
 import { elmChatModel } from '../llm';
+import { runtimeEnvNumber } from '../runtime-config';
 import { readViosSkill, type ViosSkill } from '../skills/loader';
 import { readDraftFile, type DraftSource } from './draft';
 import {
@@ -40,8 +41,8 @@ export type SubmissionReviewResult = {
   finishReason: string;
 };
 
-const defaultMaxDraftChars = Number.parseInt(process.env.SUBMISSION_REVIEW_MAX_DRAFT_CHARS || '60000', 10);
-const defaultMaxOutputTokens = Number.parseInt(process.env.SUBMISSION_REVIEW_MAX_OUTPUT_TOKENS || '5000', 10);
+const defaultMaxDraftChars = runtimeEnvNumber('SUBMISSION_REVIEW_MAX_DRAFT_CHARS', 60000);
+const defaultMaxOutputTokens = runtimeEnvNumber('SUBMISSION_REVIEW_MAX_OUTPUT_TOKENS', 5000);
 
 function normalizeSkillNames(skills?: string[]): string[] {
   const names = skills?.length ? skills : [...defaultSubmissionReviewSkills];

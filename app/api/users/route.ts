@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { isUserRole, listUsersForAdmin, upsertLocalUser, type AuthUser, type UserRole } from '../../../src/mastra/db/users';
 
 export const runtime = 'nodejs';
@@ -65,15 +66,15 @@ export async function POST(request: Request) {
     const body = (await request.json()) as Record<string, unknown>;
     const username = text(body.username);
     const email = text(body.email);
-    const temporaryPassword = text(body.temporaryPassword);
     const nextRole = parseRole(body.role);
-    if (!username || !email || !temporaryPassword) {
-      throw new Error('Username, email, and temporary password are required.');
+    if (!username) {
+      throw new Error('Username is required.');
     }
+    const temporaryPassword = text(body.temporaryPassword) || username;
     validateEmail(email);
     assertAssignableRole(actor, nextRole);
 
-    await upsertLocalUser({
+    const createdUser = await upsertLocalUser({
       username,
       password: temporaryPassword,
       email,
@@ -84,6 +85,18 @@ export async function POST(request: Request) {
       metadata: { aliases: textArray(body.aliases), email, created_by: 'admin-ui' },
     });
 
+    await recordAuditLog({
+      actor,
+      action: 'admin.user_create',
+      targetType: 'user',
+      targetId: createdUser.username,
+      summary: 'Admin created local user.',
+      metadata: {
+        role: createdUser.role,
+        provisioningStatus: createdUser.provisioningStatus,
+        passwordResetRequired: createdUser.passwordResetRequired,
+      },
+    });
     return NextResponse.json({ users: await listUsersForAdmin() });
   } catch (error) {
     return errorResponse(error, error instanceof AuthError ? error.status : 400);

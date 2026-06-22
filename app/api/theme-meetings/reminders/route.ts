@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import { buildThemeMeetingPlan, buildThemeMeetingReminderRun } from '../../../../src/mastra/theme-meetings/planner';
 import { themeReminderActionSchema } from '../../../../src/mastra/theme-meetings/schema';
@@ -41,6 +42,18 @@ export async function POST(request: Request) {
       themeId,
     });
 
+    await recordAuditLog({
+      actor: user,
+      action: 'theme_meeting.reminder_run',
+      targetType: 'theme_meeting',
+      targetId: themeId,
+      summary: 'Theme meeting reminder run built.',
+      metadata: {
+        meetingDate: meetingDate || null,
+        reminderAction: run.action,
+        notificationCount: run.notifications.length,
+      },
+    });
     return NextResponse.json({
       action: run.action,
       plan: run.plan,

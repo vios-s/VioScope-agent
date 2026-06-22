@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve } from 'node:path';
 import type { AuthUser } from '../db/users';
+import { runtimeEnv } from '../runtime-config';
 
 export type UserDatastoreContext = {
   slug: string;
@@ -18,7 +19,7 @@ export type UserDatastoreContext = {
 const maxContextChars = 6000;
 
 function datastoreRoot(): string | undefined {
-  const configured = process.env.DATASTORE_DIR?.trim();
+  const configured = runtimeEnv('DATASTORE_DIR').trim();
   return configured ? resolve(/* turbopackIgnore: true */ process.cwd(), configured) : undefined;
 }
 

@@ -11,12 +11,14 @@ type CliOptions = {
 };
 
 function printUsage() {
-  console.log(`Usage: npm run users:create -- <username> <password> <role> [options]
+  console.log(`Usage:
+  npm run users:create -- <username> <role> [options]
+  npm run users:create -- <username> <password> <role> [options]
 
 Options:
-  --email <email>             Required email address for notifications.
+  --email <email>             Optional first-login email address for notifications.
   --display-name <name>       Display name to store in the users table.
-  --force-password-change     Allow a temporary weak password and require reset on first login.
+  --force-password-change     Require reset on first login.
 `);
 }
 
@@ -75,11 +77,19 @@ function parseArgs(args: string[]): CliOptions {
     positional.push(arg);
   }
 
-  const [username, password, role] = positional;
-  options.username = username;
-  options.password = password;
-  if (role) {
+  if (positional.length === 2) {
+    const [username, role] = positional;
+    options.username = username;
+    options.password = username;
     options.role = parseRole(role);
+    options.forcePasswordChange = true;
+  } else {
+    const [username, password, role] = positional;
+    options.username = username;
+    options.password = password;
+    if (role) {
+      options.role = parseRole(role);
+    }
   }
 
   return options;
@@ -87,10 +97,11 @@ function parseArgs(args: string[]): CliOptions {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (!options.username || !options.password || !options.role || !options.email) {
+  if (!options.username || !options.password || !options.role) {
     printUsage();
-    throw new Error('username, password, role, and --email are required.');
+    throw new Error('username and role are required.');
   }
+  const passwordResetRequired = options.forcePasswordChange || !options.email;
 
   await ensureUsersTable();
   const user = await upsertLocalUser({
@@ -99,7 +110,7 @@ async function main() {
     email: options.email,
     role: options.role,
     displayName: options.displayName,
-    passwordResetRequired: options.forcePasswordChange,
+    passwordResetRequired,
     source: 'manual',
     metadata: { created_by: 'scripts/create-local-user.ts' },
   });

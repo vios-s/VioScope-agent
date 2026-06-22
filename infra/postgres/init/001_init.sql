@@ -30,12 +30,40 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (email = '' OR email ~* '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'),
-  CHECK (provisioning_status <> 'active' OR email <> '')
+  CHECK (provisioning_status <> 'active' OR email <> '' OR password_reset_required)
 );
 
 CREATE INDEX IF NOT EXISTS users_role_idx ON users (role);
 CREATE INDEX IF NOT EXISTS users_provisioning_status_idx ON users (provisioning_status);
 CREATE INDEX IF NOT EXISTS users_source_idx ON users (source);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS app_settings_updated_at_idx ON app_settings (updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+  event_day DATE NOT NULL DEFAULT CURRENT_DATE,
+  actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  actor_username TEXT,
+  actor_role TEXT,
+  action TEXT NOT NULL,
+  target_type TEXT NOT NULL DEFAULT '',
+  target_id TEXT,
+  summary TEXT NOT NULL DEFAULT '',
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS audit_log_event_time_idx ON audit_log (event_time DESC);
+CREATE INDEX IF NOT EXISTS audit_log_event_day_idx ON audit_log (event_day, event_time DESC);
+CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log (actor_user_id, event_time DESC);
+CREATE INDEX IF NOT EXISTS audit_log_action_idx ON audit_log (action, event_time DESC);
 
 CREATE TABLE IF NOT EXISTS review_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

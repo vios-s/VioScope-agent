@@ -1,6 +1,7 @@
 import { createVectorQueryTool } from '@mastra/rag';
 import { wikiVectorIndexName } from '../config';
 import { elmEmbeddingModel } from '../llm';
+import { runtimeEnvNumber } from '../runtime-config';
 import { createWikiVectorStore } from '../vector';
 
 const wikiVectorStore = createWikiVectorStore();
@@ -15,7 +16,7 @@ export const wikiSearchTool = createVectorQueryTool({
   includeSources: true,
   databaseConfig: {
     pgvector: {
-      minScore: Number.parseFloat(process.env.WIKI_MIN_SCORE || '0.35'),
+      minScore: runtimeEnvNumber('WIKI_MIN_SCORE', 0.35),
     },
   },
 });

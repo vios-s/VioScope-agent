@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 const source = readFileSync('app/api/chat/route.ts', 'utf8');
 const uiSource = readFileSync('app/operations-console.tsx', 'utf8');
 const iconSource = readFileSync('app/dot-matrix-icon.tsx', 'utf8');
-const agentSource = readFileSync('src/mastra/agents/vioscope.ts', 'utf8');
+const agentPromptSource = readFileSync('src/mastra/agents/vioscope.prompt.yaml', 'utf8');
 const checks = [
   ['disables OpenAI response storage', /store:\s*false/.test(source)],
   ['detects ZDR persistence errors', /Items are not persisted for Zero Data Retention/.test(source)],
@@ -13,8 +13,8 @@ const checks = [
   ['blocks obvious out-of-scope chat', /isClearlyOutOfScope\(message\)/.test(source)],
   ['allows leave-like wiki questions through RAG', /annual leave/.test(source) && /return false/.test(source)],
   ['loads user datastore context', /loadUserDatastoreContext\(user\)/.test(source)],
-  ['states lab-only scope in agent prompt', /VioScope only helps with VIOS lab work/.test(agentSource)],
-  ['searches wiki before rejecting local procedure questions', /Search the wiki before deciding they are out of scope/.test(agentSource)],
+  ['states lab-only scope in agent prompt', /VioScope only helps with VIOS lab work/.test(agentPromptSource)],
+  ['searches wiki before rejecting local procedure questions', /Search the wiki before deciding they are out of scope/.test(agentPromptSource)],
   ['returns source links', /const sources = extractSources\(response\.toolResults \|\| \[\]\)/.test(source)],
   ['keeps chat history', /useState<ChatMessage\[\]>\(\[\]\)/.test(uiSource)],
   ['stores local chat sessions', /window\.localStorage\.setItem/.test(uiSource)],

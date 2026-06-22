@@ -5,11 +5,13 @@ import { Mastra } from '@mastra/core/mastra';
 import { LibSQLStore } from '@mastra/libsql';
 import { PinoLogger } from '@mastra/loggers';
 import { vioscopeAgent } from './agents/vioscope';
+import { runtimeEnv } from './runtime-config';
 
 const logLevel = ['debug', 'info', 'warn', 'error'] as const;
 const configuredLogLevel = logLevel.find((level) => level === process.env.LOG_LEVEL) || 'info';
-const storagePath = process.env.DATASTORE_DIR
-  ? resolve(process.cwd(), process.env.DATASTORE_DIR, 'runtime', 'mastra.db')
+const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
+const storagePath = datastoreDir
+  ? resolve(process.cwd(), datastoreDir, 'runtime', 'mastra.db')
   : resolve(tmpdir(), 'vioscope-agent', 'mastra.db');
 
 if (!process.env.MASTRA_STORAGE_URL) {

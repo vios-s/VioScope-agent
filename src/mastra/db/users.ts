@@ -293,10 +293,14 @@ async function ensureUsersTableOnce(): Promise<void> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         CHECK (email = '' OR email ~* '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'),
-        CHECK (provisioning_status <> 'active' OR email <> '')
+        CHECK (provisioning_status <> 'active' OR email <> '' OR password_reset_required)
       )
     `);
     await postgres.pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''");
+    await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN DEFAULT false');
+    await postgres.pool.query('UPDATE users SET password_reset_required = false WHERE password_reset_required IS NULL');
+    await postgres.pool.query('ALTER TABLE users ALTER COLUMN password_reset_required SET DEFAULT false');
+    await postgres.pool.query('ALTER TABLE users ALTER COLUMN password_reset_required SET NOT NULL');
     await postgres.pool.query(`
       UPDATE users
       SET email = lower(trim(COALESCE(NULLIF(email, ''), metadata->>'email', '')))
@@ -317,15 +321,11 @@ async function ensureUsersTableOnce(): Promise<void> {
       DO $$
       BEGIN
         ALTER TABLE users ADD CONSTRAINT users_active_email_required_check
-          CHECK (provisioning_status <> 'active' OR email <> '') NOT VALID;
+          CHECK (provisioning_status <> 'active' OR email <> '' OR password_reset_required) NOT VALID;
       EXCEPTION WHEN duplicate_object THEN
         NULL;
       END $$;
     `);
-    await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN DEFAULT false');
-    await postgres.pool.query('UPDATE users SET password_reset_required = false WHERE password_reset_required IS NULL');
-    await postgres.pool.query('ALTER TABLE users ALTER COLUMN password_reset_required SET DEFAULT false');
-    await postgres.pool.query('ALTER TABLE users ALTER COLUMN password_reset_required SET NOT NULL');
     await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ');
     await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ');
     await postgres.pool.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check');
@@ -484,12 +484,14 @@ export async function changeLocalUserPassword(
   userId: string,
   currentPassword: string,
   newPassword: string,
+  email?: string | null,
 ): Promise<AuthUser> {
   assertMediumPassword(newPassword);
   const record = await getAuthUserBy('id', userId);
   if (!record || record.user.provisioningStatus !== 'active') {
     throw new Error('User is not active.');
   }
+  const nextEmail = record.user.email || assertRequiredEmail(email);
 
   if (!(await verifyPassword(currentPassword, record.passwordHash))) {
     throw new Error('Current password is incorrect.');
@@ -503,6 +505,8 @@ export async function changeLocalUserPassword(
         UPDATE users
         SET
           password_hash = $2,
+          email = $3,
+          metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{email}', to_jsonb($3::text), true),
           password_reset_required = false,
           password_changed_at = now(),
           updated_at = now()
@@ -522,7 +526,7 @@ export async function changeLocalUserPassword(
           password_changed_at::text,
           last_login_at::text
       `,
-      [userId, passwordHash],
+      [userId, passwordHash, nextEmail],
     );
     const row = result.rows[0];
     if (!row) {
@@ -625,9 +629,15 @@ export async function updateOwnUserProfile(input: {
 export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRecord> {
   const username = normalizeUsername(input.username);
   assertUsername(username);
-  const email = assertRequiredEmail(input.email);
+  const email = normalizeEmail(input.email);
 
   const passwordResetRequired = input.passwordResetRequired ?? false;
+  if (!email && !passwordResetRequired) {
+    throw new Error('A valid email address is required.');
+  }
+  if (email && !isValidEmail(email)) {
+    throw new Error('A valid email address is required.');
+  }
   if (!passwordResetRequired) {
     assertMediumPassword(input.password);
   }
@@ -638,7 +648,10 @@ export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRe
 
   const displayName = input.displayName?.trim() || username;
   const passwordHash = await hashPassword(input.password);
-  const metadata = { ...(input.metadata || {}), email };
+  const metadata = { ...(input.metadata || {}) };
+  if (email) {
+    metadata.email = email;
+  }
   const postgres = createPostgresClient('vioscope-users');
 
   try {
@@ -751,10 +764,13 @@ export async function updateUserByAdmin(input: {
     const nextRole = input.role || current.role;
     const nextStatus = input.provisioningStatus || current.provisioning_status;
     const nextDisplayName = input.displayName?.trim() || current.display_name;
+    const temporaryPassword = input.temporaryPassword?.trim();
+    const nextPasswordResetRequired = temporaryPassword ? true : input.passwordResetRequired ?? current.password_reset_required;
     const nextEmail = input.email === undefined ? current.email || '' : normalizeEmail(input.email);
-    if (nextStatus === 'active') {
-      assertRequiredEmail(nextEmail);
-    } else if (nextEmail && !isValidEmail(nextEmail)) {
+    if (nextStatus === 'active' && !nextEmail && !nextPasswordResetRequired) {
+      throw new Error('A valid email address is required.');
+    }
+    if (nextEmail && !isValidEmail(nextEmail)) {
       throw new Error('Enter a valid email address.');
     }
     const nextMetadata = metadataObject(current.metadata);
@@ -774,7 +790,6 @@ export async function updateUserByAdmin(input: {
       }
     }
 
-    const temporaryPassword = input.temporaryPassword?.trim();
     const nextPasswordHash = temporaryPassword ? await hashPassword(temporaryPassword) : current.password_hash;
     if (nextStatus === 'active' && !nextPasswordHash) {
       throw new Error('Set a temporary password before activating this user.');
@@ -818,7 +833,7 @@ export async function updateUserByAdmin(input: {
         nextEmail,
         JSON.stringify(nextMetadata),
         nextPasswordHash,
-        temporaryPassword ? true : input.passwordResetRequired ?? current.password_reset_required,
+        nextPasswordResetRequired,
         Boolean(temporaryPassword),
       ],
     );

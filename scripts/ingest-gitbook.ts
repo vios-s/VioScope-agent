@@ -5,10 +5,11 @@ import { chunkWikiPage } from '../src/mastra/gitbook/chunk';
 import { pageToWikiPage } from '../src/mastra/gitbook/extract';
 import type { WikiChunk } from '../src/mastra/gitbook/types';
 import { elmEmbeddingModel } from '../src/mastra/llm';
+import { runtimeEnvNumber } from '../src/mastra/runtime-config';
 import { createWikiVectorStore, ensureWikiVectorIndex } from '../src/mastra/vector';
 import { wikiVectorIndexName } from '../src/mastra/config';
 
-const batchSize = Number.parseInt(process.env.WIKI_EMBED_BATCH_SIZE || '32', 10);
+const batchSize = runtimeEnvNumber('WIKI_EMBED_BATCH_SIZE', 32);
 
 async function main() {
   const client = new GitBookClient();

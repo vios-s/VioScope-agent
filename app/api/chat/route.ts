@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
 import { mastra } from '../../../src/mastra';
+import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import type { AuthUser } from '../../../src/mastra/db/users';
 import {
   saveChatTurn,
@@ -217,9 +218,24 @@ async function persistChatAndMentions(input: {
     assistantStatus: input.status,
     sources: input.sources,
   });
-  return shareChatSessionWithMentions({
+  const mentions = await shareChatSessionWithMentions({
     sessionId: input.threadId,
     actor: input.user,
     message: input.message,
   });
+  await recordAuditLog({
+    actor: input.user,
+    action: 'chat.turn',
+    targetType: 'chat_session',
+    targetId: input.threadId,
+    summary: 'User sent chat message.',
+    metadata: {
+      status: input.status,
+      messageLength: input.message.length,
+      sourceCount: input.sources.length,
+      sharedCount: mentions.shared.length,
+      unknownMentionCount: mentions.unknown.length,
+    },
+  });
+  return mentions;
 }

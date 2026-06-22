@@ -1,5 +1,6 @@
 import { access, readdir, readFile, stat } from 'node:fs/promises';
 import { basename, delimiter, dirname, join, relative, resolve } from 'node:path';
+import { runtimeEnv } from '../runtime-config';
 
 export const defaultViosSkillsDir = '';
 
@@ -225,12 +226,14 @@ function validateFrontmatter(
 }
 
 function configuredSkillRootSpecs(): string[] {
+  const skillsDir = runtimeEnv('VIOS_SKILLS_DIR').trim();
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
   const config =
-    process.env.VIOS_SKILLS_DIR ||
-    (process.env.DATASTORE_DIR
+    skillsDir ||
+    (datastoreDir
       ? [
-          join(process.env.DATASTORE_DIR, 'skills', 'vios-research-skills'),
-          join(process.env.DATASTORE_DIR, 'skills', 'vios-private-skills'),
+          join(datastoreDir, 'skills', 'vios-research-skills'),
+          join(datastoreDir, 'skills', 'vios-private-skills'),
         ].join(delimiter)
       : defaultViosSkillsDir);
   return config

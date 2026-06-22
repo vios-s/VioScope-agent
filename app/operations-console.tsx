@@ -182,8 +182,60 @@ type UsersPayload = {
   error?: string;
 };
 
+type AuditLogRecord = {
+  id: string;
+  eventTime: string;
+  eventDay: string;
+  actorUsername: string | null;
+  actorRole: string | null;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  summary: string;
+  metadata: Record<string, unknown>;
+};
+
+type AuditLogDay = {
+  day: string;
+  fileName: string;
+  count: number;
+};
+
+type AuditLogPayload = {
+  day?: string;
+  fileName?: string;
+  logs?: AuditLogRecord[];
+  days?: AuditLogDay[];
+  error?: string;
+};
+
+type AdminConfigSetting = {
+  key: string;
+  label: string;
+  section: 'model' | 'rag' | 'paths' | 'submission' | 'operations';
+  valueType: 'string' | 'number' | 'path';
+  value: string;
+  defaultValue: string;
+  source: 'database' | 'env' | 'default';
+  storedValue: string | null;
+  description: string;
+  restartRequired: boolean;
+  optional?: boolean;
+  status?: {
+    state: 'ok' | 'missing' | 'not_configured';
+    detail: string;
+  };
+};
+
+type AdminConfigPayload = {
+  settings?: AdminConfigSetting[];
+  secrets?: Array<{ key: string; label: string; configured: boolean }>;
+  restart?: { configured: boolean };
+  error?: string;
+};
+
 type ConsoleTheme = 'light' | 'dark' | 'system';
-type SettingsTab = 'general' | 'notifications' | 'integrations' | 'users' | 'about';
+type SettingsTab = 'general' | 'notifications' | 'integrations' | 'users' | 'config' | 'audit' | 'about';
 type PasswordStrength = 'weak' | 'medium' | 'strong';
 type ChecklistTemplateId = 'idea' | 'skeleton' | 'pdra' | 'red';
 type ChecklistTag = 'Core' | 'Required' | 'Advisory';
@@ -410,6 +462,88 @@ function chatSessionTitle(messages: ChatMessage[]) {
 
 function chatSessionTime(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+}
+
+function compactJson(value: Record<string, unknown>) {
+  const text = JSON.stringify(value);
+  return text.length > 72 ? `${text.slice(0, 72)}...` : text;
+}
+
+function auditLogJson(log: AuditLogRecord) {
+  return JSON.stringify({
+    id: log.id,
+    eventTime: log.eventTime,
+    eventDay: log.eventDay,
+    actorUsername: log.actorUsername,
+    actorRole: log.actorRole,
+    action: log.action,
+    targetType: log.targetType,
+    targetId: log.targetId,
+    summary: log.summary,
+    metadata: log.metadata,
+  }, null, 2);
+}
+
+function highlightedJson(json: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const pattern = /("(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|\btrue\b|\bfalse\b|\bnull\b)/g;
+  let lastIndex = 0;
+  let tokenIndex = 0;
+
+  for (const match of json.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      nodes.push(json.slice(lastIndex, index));
+    }
+    const token = match[0];
+    const isKey = token.startsWith('"') && /^\s*:/.test(json.slice(index + token.length));
+    const className = isKey
+      ? 'json-key'
+      : token.startsWith('"')
+        ? 'json-string'
+        : token === 'true' || token === 'false'
+          ? 'json-boolean'
+          : token === 'null'
+            ? 'json-null'
+            : 'json-number';
+    nodes.push(<span className={className} key={`json-${tokenIndex}`}>{token}</span>);
+    lastIndex = index + token.length;
+    tokenIndex += 1;
+  }
+
+  if (lastIndex < json.length) {
+    nodes.push(json.slice(lastIndex));
+  }
+  return nodes;
+}
+
+function auditMonthLabel(monthKey: string) {
+  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date(`${monthKey}-01T00:00:00Z`));
+}
+
+function groupedAuditDays(days: AuditLogDay[]) {
+  const groups = new Map<string, AuditLogDay[]>();
+  for (const logDay of days) {
+    const key = logDay.day.slice(0, 7);
+    groups.set(key, [...(groups.get(key) || []), logDay]);
+  }
+  return Array.from(groups, ([key, groupDays]) => ({ key, label: auditMonthLabel(key), days: groupDays }));
+}
+
+const configSectionLabels: Record<AdminConfigSetting['section'], string> = {
+  model: 'Model',
+  rag: 'RAG',
+  paths: 'Paths',
+  submission: 'Submission',
+  operations: 'Operations',
+};
+
+function groupedConfigSettings(settings: AdminConfigSetting[]) {
+  return (Object.keys(configSectionLabels) as AdminConfigSetting['section'][]).map((section) => ({
+    section,
+    label: configSectionLabels[section],
+    settings: settings.filter((setting) => setting.section === section),
+  })).filter((group) => group.settings.length);
 }
 
 function activeMentionQuery(value: string): string | null {
@@ -819,6 +953,7 @@ function ChangePasswordView({
   onLogout: () => Promise<void>;
 }) {
   const [currentPassword, setCurrentPassword] = useState('');
+  const [email, setEmail] = useState(user.email || '');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -836,13 +971,17 @@ function ChangePasswordView({
       setError('Password must be 8+ characters with a letter, number, and special character.');
       return;
     }
+    if (!user.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
 
     setBusy(true);
     try {
       const response = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({ currentPassword, newPassword, email }),
       });
       const body = (await response.json()) as AuthPayload;
       if (!response.ok || !body.user) {
@@ -860,8 +999,12 @@ function ChangePasswordView({
     <AuthFrame>
       <form className="auth-form" onSubmit={submit}>
         <div>
-          <h1>Change password</h1>
-          <p>{user.displayName} needs a medium or stronger password before continuing.</p>
+          <h1>Complete account setup</h1>
+          <p>
+            {user.email
+              ? `${user.displayName} needs a medium or stronger password before continuing.`
+              : `${user.displayName} needs an email and a medium or stronger password before continuing.`}
+          </p>
         </div>
         <label>
           <span>Current password</span>
@@ -872,6 +1015,19 @@ function ChangePasswordView({
             onChange={(event) => setCurrentPassword(event.target.value)}
           />
         </label>
+        {!user.email && (
+          <label>
+            <span>Email</span>
+            <input
+              autoComplete="email"
+              required
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="name@university.ac.uk"
+            />
+          </label>
+        )}
         <label>
           <span>New password</span>
           <input
@@ -2435,6 +2591,434 @@ function provisioningLabel(value: string) {
   return value === 'profile_only' ? 'Profile only' : titleCase(value);
 }
 
+function AdminConfigurationPanel() {
+  const [payload, setPayload] = useState<AdminConfigPayload | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [restartBusy, setRestartBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const settings = payload?.settings || [];
+  const configGroups = useMemo(() => groupedConfigSettings(settings), [settings]);
+  const changedKeys = settings
+    .filter((setting) => drafts[setting.key] !== undefined && drafts[setting.key] !== setting.value)
+    .map((setting) => setting.key);
+
+  const applyPayload = useCallback((nextPayload: AdminConfigPayload) => {
+    setPayload(nextPayload);
+    setDrafts(Object.fromEntries((nextPayload.settings || []).map((setting) => [setting.key, setting.value])));
+  }, []);
+
+  const loadConfig = useCallback(async () => {
+    setError(null);
+    try {
+      const response = await fetch('/api/admin/config');
+      const body = (await response.json()) as AdminConfigPayload;
+      if (!response.ok || !body.settings) {
+        throw new Error(body.error || 'Could not load configuration.');
+      }
+      applyPayload(body);
+      setLoaded(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not load configuration.');
+      setLoaded(true);
+    }
+  }, [applyPayload]);
+
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
+
+  async function saveConfig() {
+    const settingsPatch = Object.fromEntries(
+      settings
+        .filter((setting) => changedKeys.includes(setting.key))
+        .map((setting) => [setting.key, drafts[setting.key] || null]),
+    );
+    if (!Object.keys(settingsPatch).length) return;
+
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/admin/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: settingsPatch }),
+      });
+      const body = (await response.json()) as AdminConfigPayload;
+      if (!response.ok || !body.settings) {
+        throw new Error(body.error || 'Could not save configuration.');
+      }
+      applyPayload(body);
+      setMessage('Configuration saved. Restart required for runtime changes.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save configuration.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetConfig(key: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/admin/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: { [key]: null } }),
+      });
+      const body = (await response.json()) as AdminConfigPayload;
+      if (!response.ok || !body.settings) {
+        throw new Error(body.error || 'Could not reset configuration.');
+      }
+      applyPayload(body);
+      setMessage('Configuration reset. Restart required for runtime changes.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not reset configuration.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function requestRestart() {
+    setRestartBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/admin/config/restart', { method: 'POST' });
+      const body = (await response.json()) as { ok?: boolean; error?: string };
+      if (!response.ok || !body.ok) {
+        throw new Error(body.error || 'Could not request restart.');
+      }
+      setMessage('Restart requested.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not request restart.');
+    } finally {
+      setRestartBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-section settings-section-config">
+      <div className="settings-section-heading">
+        <h2>Configuration</h2>
+        <p>Runtime settings, secret status, and service restart controls.</p>
+      </div>
+      {error && <div className="form-message error">{error}</div>}
+      {message && <div className="form-message">{message}</div>}
+      {!loaded ? (
+        <div className="members-loading">
+          <DotMatrixIcon variant="loading" size={24} />
+          <span>Loading configuration</span>
+        </div>
+      ) : (
+        <>
+          <section className="ops-panel config-panel">
+            <div className="ops-panel-head">
+              <div>
+                <h2>Secrets</h2>
+                <p>Values stay in the deployment environment.</p>
+              </div>
+            </div>
+            <div className="config-secret-grid">
+              {(payload?.secrets || []).map((secret) => (
+                <div className="config-secret" key={secret.key}>
+                  <span>{secret.label}</span>
+                  <strong className={secret.configured ? 'configured' : 'missing'}>
+                    {secret.configured ? 'Configured' : 'Missing'}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="ops-panel config-panel">
+            <div className="ops-panel-head">
+              <div>
+                <h2>Runtime settings</h2>
+                <p>{changedKeys.length ? `${changedKeys.length} pending change(s)` : 'No pending changes'}</p>
+              </div>
+              <button className="ops-primary" type="button" onClick={() => void saveConfig()} disabled={busy || !changedKeys.length}>
+                <Save aria-hidden="true" />
+                {busy ? 'Saving' : 'Save changes'}
+              </button>
+            </div>
+            <div className="config-groups">
+              {configGroups.map((group) => (
+                <section className="config-group" key={group.section}>
+                  <h3>{group.label}</h3>
+                  {group.settings.map((setting) => (
+                    <div className="config-row" key={setting.key}>
+                      <div>
+                        <strong>{setting.label}</strong>
+                        <p>{setting.description}</p>
+                        <div className="config-badges">
+                          <span className={`config-source source-${setting.source}`}>{setting.source}</span>
+                          {setting.restartRequired && <span className="config-restart">Restart required</span>}
+                          {setting.status && (
+                            <span className={`config-status status-${setting.status.state}`}>{setting.status.detail}</span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="config-control">
+                        <input
+                          type={setting.valueType === 'number' ? 'number' : 'text'}
+                          value={drafts[setting.key] ?? ''}
+                          onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
+                          placeholder={setting.optional ? 'optional' : undefined}
+                        />
+                        <button
+                          className="tiny-button"
+                          type="button"
+                          disabled={busy || setting.source !== 'database'}
+                          onClick={() => void resetConfig(setting.key)}
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+              ))}
+            </div>
+          </section>
+
+          <section className="ops-panel config-panel">
+            <div className="ops-panel-head config-restart-head">
+              <div>
+                <h2>Service restart</h2>
+                <p>{payload?.restart?.configured ? 'Restart command configured.' : 'Restart command not configured.'}</p>
+              </div>
+              <button
+                className="ops-secondary"
+                type="button"
+                disabled={restartBusy || !payload?.restart?.configured}
+                onClick={() => {
+                  if (window.confirm('Request a VioScope service restart?')) {
+                    void requestRestart();
+                  }
+                }}
+              >
+                <Power aria-hidden="true" />
+                {restartBusy ? 'Requesting' : 'Restart'}
+              </button>
+            </div>
+          </section>
+        </>
+      )}
+    </section>
+  );
+}
+
+function AuditLogSettingsPanel() {
+  const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [logs, setLogs] = useState<AuditLogRecord[]>([]);
+  const [days, setDays] = useState<AuditLogDay[]>([]);
+  const [fileName, setFileName] = useState(`audit-${day}.jsonl`);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedLog, setSelectedLog] = useState<AuditLogRecord | null>(null);
+  const logGroups = useMemo(() => groupedAuditDays(days), [days]);
+
+  const loadLogs = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/audit-log?day=${encodeURIComponent(day)}`);
+      const body = (await response.json()) as AuditLogPayload;
+      if (!response.ok || !body.logs) {
+        throw new Error(body.error || 'Could not load audit log.');
+      }
+      setLogs(body.logs);
+      setDays(body.days || []);
+      setFileName(body.fileName || `audit-${day}.jsonl`);
+      setLoaded(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not load audit log.');
+      setLoaded(true);
+    } finally {
+      setBusy(false);
+    }
+  }, [day]);
+
+  useEffect(() => {
+    void loadLogs();
+  }, [loadLogs]);
+
+  return (
+    <section className="settings-section settings-section-audit">
+      <div className="settings-section-heading">
+        <h2>Audit log</h2>
+        <p>Administrative trace of account, chat, meeting, notification, and review actions.</p>
+      </div>
+      <div className="audit-browser">
+        <aside className="ops-panel audit-file-list" aria-label="Audit log files">
+          <div className="ops-panel-head">
+            <div>
+              <h2>Log files</h2>
+              <p>{days.length} days</p>
+            </div>
+          </div>
+          {!loaded ? (
+            <div className="members-loading audit-file-loading">
+              <DotMatrixIcon variant="loading" size={22} />
+              <span>Loading files</span>
+            </div>
+          ) : !logGroups.length ? (
+            <p className="audit-file-empty">No audit log files yet.</p>
+          ) : (
+            <div className="audit-file-groups">
+              {logGroups.map((group) => (
+                <div className="audit-file-group" key={group.key}>
+                  <h3>{group.label}</h3>
+                  {group.days.map((logDay) => (
+                    <button
+                      className={logDay.day === day ? 'active' : ''}
+                      type="button"
+                      key={logDay.day}
+                      onClick={() => setDay(logDay.day)}
+                    >
+                      <FileText aria-hidden="true" />
+                      <span>{logDay.fileName}</span>
+                      <small>{logDay.count}</small>
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+        </aside>
+        <section className="ops-panel audit-panel">
+          <div className="ops-panel-head audit-panel-head">
+            <div>
+              <h2>Daily log</h2>
+              <p>{fileName}</p>
+            </div>
+            <div className="audit-toolbar">
+              <label>
+                <span>Date</span>
+                <input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+              </label>
+              <button className="ops-secondary" type="button" onClick={() => void loadLogs()} disabled={busy}>
+                <History aria-hidden="true" />
+                {busy ? 'Loading' : 'Refresh'}
+              </button>
+            </div>
+          </div>
+          {error && <div className="form-message error">{error}</div>}
+          {!loaded ? (
+            <div className="members-loading">
+              <DotMatrixIcon variant="loading" size={24} />
+              <span>Loading audit log</span>
+            </div>
+          ) : !logs.length ? (
+            <div className="members-empty audit-empty">
+              <ClipboardList aria-hidden="true" />
+              <h3>No log entries</h3>
+              <p>No audited actions were recorded for this day.</p>
+            </div>
+          ) : (
+            <div className="ops-table-wrap">
+              <table className="ops-table audit-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Target</th>
+                    <th>Summary</th>
+                    <th aria-label="JSON details" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {logs.map((log) => (
+                    <tr
+                      className="audit-log-row"
+                      key={log.id}
+                      onClick={() => setSelectedLog(log)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedLog(log);
+                        }
+                      }}
+                      tabIndex={0}
+                    >
+                      <td>{chatSessionTime(log.eventTime)}</td>
+                      <td>
+                        {log.actorUsername ? (
+                          <span>
+                            {log.actorUsername}
+                            {log.actorRole ? <small>{roleLabel(log.actorRole as CurrentUser['role'])}</small> : null}
+                          </span>
+                        ) : (
+                          'System'
+                        )}
+                      </td>
+                      <td className="mono-cell">{log.action}</td>
+                      <td className="mono-cell">{log.targetId ? `${log.targetType}/${log.targetId}` : log.targetType}</td>
+                      <td>{log.summary || '-'}</td>
+                      <td className="audit-json-cell">
+                        <button
+                          className="tiny-button"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setSelectedLog(log);
+                          }}
+                          title={compactJson(log.metadata)}
+                        >
+                          <FileText aria-hidden="true" />
+                          View JSON
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+      <p className="settings-footnote">
+        The daily filename is for review/export naming; Postgres remains the source of truth for filtering and access control.
+      </p>
+      {selectedLog && (
+        <div className="audit-modal-backdrop" role="presentation" onClick={() => setSelectedLog(null)}>
+          <section
+            className="audit-json-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="audit-json-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <h2 id="audit-json-title">Audit entry</h2>
+                <p>{selectedLog.action} · {chatSessionTime(selectedLog.eventTime)}</p>
+              </div>
+              <button type="button" aria-label="Close" onClick={() => setSelectedLog(null)}>
+                <X aria-hidden="true" />
+              </button>
+            </header>
+            <div className="audit-log-fields">
+              <div><span>Actor</span><strong>{selectedLog.actorUsername || 'System'}</strong></div>
+              <div><span>Target</span><strong>{selectedLog.targetId ? `${selectedLog.targetType}/${selectedLog.targetId}` : selectedLog.targetType}</strong></div>
+              <div><span>Summary</span><strong>{selectedLog.summary || '-'}</strong></div>
+            </div>
+            <pre className="audit-json-viewer"><code>{highlightedJson(auditLogJson(selectedLog))}</code></pre>
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function UsersView({
   user,
   onUserChanged,
@@ -2478,6 +3062,8 @@ function UsersView({
   const [error, setError] = useState<string | null>(null);
   const editingUser = users.find((user) => user.id === editingUserId) || null;
   const editingDraft = editingUser ? drafts[editingUser.id] || draftFromUser(editingUser) : null;
+  const canViewAudit = user.role === 'administrator';
+  const canViewConfig = user.role === 'administrator';
 
   const filteredUsers = useMemo(() => {
     const query = userQuery.trim().toLowerCase();
@@ -2533,10 +3119,14 @@ function UsersView({
   }, [applyUsers, canManageUsers]);
 
   useEffect(() => {
-    if (!canManageUsers && settingsTab === 'users') {
+    if (
+      (!canManageUsers && settingsTab === 'users') ||
+      (!canViewAudit && settingsTab === 'audit') ||
+      (!canViewConfig && settingsTab === 'config')
+    ) {
       setSettingsTab('general');
     }
-  }, [canManageUsers, settingsTab]);
+  }, [canManageUsers, canViewAudit, canViewConfig, settingsTab]);
 
   useEffect(() => {
     setSettingsTab('general');
@@ -2670,12 +3260,13 @@ function UsersView({
     { key: 'meeting', title: 'Meeting reminders', desc: 'A nudge before each theme meeting cutoff.' },
   ];
   const integrationRows = [
-    { mark: 'OL', name: 'Overleaf', desc: 'Pull LaTeX drafts for checklist runs.', connected: true },
-    { mark: 'DS', name: 'Edinburgh DataStore', desc: 'Encrypted storage for study media.', connected: true },
-    { mark: 'ZM', name: 'Zoom', desc: 'Attach hybrid meeting links to theme meetings.', connected: false },
-    { mark: 'SL', name: 'Slack', desc: 'Optional lab-channel reminders after web notifications.', connected: false },
+    { mark: 'OL', name: 'Overleaf', desc: 'Import LaTeX drafts for checklist runs.', status: 'Backlog' },
   ];
-  const settingsBadge = settingsTab === 'users' ? 'Admin / PI' : titleCase(settingsTab);
+  const settingsBadge = settingsTab === 'users'
+    ? 'Admin / PI'
+    : settingsTab === 'audit' || settingsTab === 'config'
+      ? 'Admin'
+      : titleCase(settingsTab);
 
   return (
     <ConsolePageFrame
@@ -2683,7 +3274,7 @@ function UsersView({
       className="users-page settings-page"
       wide
       badge={
-        <span className={settingsTab === 'users' ? 'prototype-pill admin-access' : 'prototype-pill'}>
+        <span className={settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'prototype-pill admin-access' : 'prototype-pill'}>
           <Settings aria-hidden="true" />
           {settingsBadge}
         </span>
@@ -2703,15 +3294,31 @@ function UsersView({
             <FileText aria-hidden="true" />
             <span>Integrations</span>
           </button>
-          {canManageUsers && (
+          {(canManageUsers || canViewAudit || canViewConfig) && (
             <>
               <div className="settings-sidebar-rule" />
               <div className="settings-sidebar-label">Administration</div>
-              <button className={settingsTab === 'users' ? 'active' : ''} type="button" onClick={() => setSettingsTab('users')}>
-                <Users aria-hidden="true" />
-                <span>User management</span>
-                <KeyRound className="settings-lock-icon" aria-hidden="true" />
-              </button>
+              {canManageUsers && (
+                <button className={settingsTab === 'users' ? 'active' : ''} type="button" onClick={() => setSettingsTab('users')}>
+                  <Users aria-hidden="true" />
+                  <span>User management</span>
+                  <KeyRound className="settings-lock-icon" aria-hidden="true" />
+                </button>
+              )}
+              {canViewConfig && (
+                <button className={settingsTab === 'config' ? 'active' : ''} type="button" onClick={() => setSettingsTab('config')}>
+                  <Settings aria-hidden="true" />
+                  <span>Configuration</span>
+                  <KeyRound className="settings-lock-icon" aria-hidden="true" />
+                </button>
+              )}
+              {canViewAudit && (
+                <button className={settingsTab === 'audit' ? 'active' : ''} type="button" onClick={() => setSettingsTab('audit')}>
+                  <History aria-hidden="true" />
+                  <span>Audit log</span>
+                  <KeyRound className="settings-lock-icon" aria-hidden="true" />
+                </button>
+              )}
             </>
           )}
           <button className={settingsTab === 'about' ? 'active' : ''} type="button" onClick={() => setSettingsTab('about')}>
@@ -2720,7 +3327,7 @@ function UsersView({
           </button>
         </aside>
 
-        <div className={`settings-main ${settingsTab === 'users' ? 'settings-main-wide' : ''}`}>
+        <div className={`settings-main ${settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'settings-main-wide' : ''}`}>
           {settingsTab === 'general' ? (
             <div className="settings-section">
               <div className="settings-section-heading">
@@ -2795,7 +3402,7 @@ function UsersView({
             <section className="settings-section">
               <div className="settings-section-heading">
                 <h2>Integrations</h2>
-                <p>Connect the lab's tools so VioScope can reference and check them.</p>
+                <p>Track the Overleaf draft import planned for checklist runs.</p>
               </div>
               <div className="ops-panel settings-list-panel">
                 {integrationRows.map((row) => (
@@ -2805,13 +3412,15 @@ function UsersView({
                       <strong>{row.name}</strong>
                       <p>{row.desc}</p>
                     </div>
-                    <span className={`integration-status ${row.connected ? 'connected' : ''}`}>
-                      {row.connected ? 'Connected' : 'Connect'}
-                    </span>
+                    <span className="integration-status">{row.status}</span>
                   </div>
                 ))}
               </div>
             </section>
+          ) : settingsTab === 'config' ? (
+            <AdminConfigurationPanel />
+          ) : settingsTab === 'audit' ? (
+            <AuditLogSettingsPanel />
           ) : settingsTab === 'about' ? (
             <section className="settings-section">
               <div className="settings-section-heading">
@@ -2990,11 +3599,10 @@ function UsersView({
             <label>
               <span>Email</span>
               <input
-                required
                 type="email"
                 value={createDraft.email}
                 onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))}
-                placeholder="name@university.ac.uk"
+                placeholder="optional on first login"
               />
             </label>
             <label>
@@ -3026,10 +3634,11 @@ function UsersView({
                 type="password"
                 value={createDraft.temporaryPassword}
                 onChange={(event) => setCreateDraft((current) => ({ ...current, temporaryPassword: event.target.value }))}
-                placeholder="temporary password"
+                placeholder="defaults to username"
               />
             </label>
             <p>New local accounts must change the temporary password on first login.</p>
+            <p>If no temporary password is set, the username is used once for first login.</p>
             <footer>
               <button className="ops-secondary" type="button" onClick={() => setCreateOpen(false)}>
                 Cancel
@@ -3080,11 +3689,10 @@ function UsersView({
               <label>
                 <span>Email</span>
                 <input
-                  required
                   type="email"
                   value={editingDraft.email}
                   onChange={(event) => setDraft(editingUser.id, { email: event.target.value })}
-                  placeholder="name@university.ac.uk"
+                  placeholder="optional until first login"
                 />
               </label>
               <label>

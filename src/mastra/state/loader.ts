@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, extname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { runtimeEnv } from '../runtime-config';
 import { deriveLabState, type DeriveLabStateOptions } from './derive';
 import { labStateProjectSchema, labStateSchema, type DerivedLabState, type LabState, type LabStateProject } from './schema';
 
@@ -28,18 +29,20 @@ function isInside(parent: string, child: string): boolean {
 
 function candidateStatePaths(): string[] {
   const candidates: string[] = [];
+  const labStatePath = runtimeEnv('LAB_STATE_PATH').trim();
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
 
-  if (process.env.LAB_STATE_PATH) {
-    candidates.push(process.env.LAB_STATE_PATH);
+  if (labStatePath) {
+    candidates.push(labStatePath);
   }
 
-  if (process.env.DATASTORE_DIR) {
+  if (datastoreDir) {
     candidates.push(
-      join(process.env.DATASTORE_DIR, 'lab-state.yaml'),
-      join(process.env.DATASTORE_DIR, 'lab-state.yml'),
-      join(process.env.DATASTORE_DIR, 'lab-state', 'lab-state.yaml'),
-      join(process.env.DATASTORE_DIR, 'lab-state', 'lab-state.yml'),
-      join(process.env.DATASTORE_DIR, 'lab-state'),
+      join(datastoreDir, 'lab-state.yaml'),
+      join(datastoreDir, 'lab-state.yml'),
+      join(datastoreDir, 'lab-state', 'lab-state.yaml'),
+      join(datastoreDir, 'lab-state', 'lab-state.yml'),
+      join(datastoreDir, 'lab-state'),
     );
   }
 
@@ -57,11 +60,11 @@ async function pathExists(path: string): Promise<boolean> {
 
 async function resolveStatePath(inputPath?: string): Promise<string> {
   if (inputPath) {
-    return resolve(process.cwd(), inputPath);
+    return resolve(/* turbopackIgnore: true */ process.cwd(), inputPath);
   }
 
   for (const candidate of candidateStatePaths()) {
-    const resolved = resolve(process.cwd(), candidate);
+    const resolved = resolve(/* turbopackIgnore: true */ process.cwd(), candidate);
     if (await pathExists(resolved)) {
       return resolved;
     }
@@ -71,10 +74,11 @@ async function resolveStatePath(inputPath?: string): Promise<string> {
 }
 
 function assertAllowedStatePath(path: string) {
-  const allowedRoots = [process.cwd()];
+  const allowedRoots = [/* turbopackIgnore: true */ process.cwd()];
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
 
-  if (process.env.DATASTORE_DIR) {
-    allowedRoots.push(resolve(process.cwd(), process.env.DATASTORE_DIR));
+  if (datastoreDir) {
+    allowedRoots.push(resolve(/* turbopackIgnore: true */ process.cwd(), datastoreDir));
   }
 
   if (!allowedRoots.some((root) => isInside(root, path))) {

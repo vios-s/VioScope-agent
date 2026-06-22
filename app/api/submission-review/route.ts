@@ -4,15 +4,17 @@ import { tmpdir } from 'node:os';
 import { extname, join, resolve } from 'node:path';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../src/mastra/db/audit-log';
+import { runtimeEnv } from '../../../src/mastra/runtime-config';
 import { defaultSubmissionReviewSkills, reviewSubmission } from '../../../src/mastra/submission/review';
 
 export const runtime = 'nodejs';
 export const maxDuration = 180;
 
 const uploadRoot = resolve(
-  /* turbopackIgnore: true */ process.env.SUBMISSION_REVIEW_UPLOAD_DIR ||
-    (process.env.DATASTORE_DIR
-      ? join(process.env.DATASTORE_DIR, 'uploads', 'submission-review')
+  /* turbopackIgnore: true */ runtimeEnv('SUBMISSION_REVIEW_UPLOAD_DIR') ||
+    (runtimeEnv('DATASTORE_DIR')
+      ? join(runtimeEnv('DATASTORE_DIR'), 'uploads', 'submission-review')
       : join(tmpdir(), 'vioscope-agent', 'uploads', 'submission-review')),
 );
 const allowedUploadExtensions = new Set(['.md', '.markdown', '.txt', '.tex', '.latex', '.rst', '.pptx']);
@@ -71,7 +73,7 @@ async function saveUploadedDraft(file: File): Promise<string> {
 
 export async function POST(request: Request) {
   try {
-    await requireSessionUser(request);
+    const user = await requireSessionUser(request);
     const formData = await request.formData();
     const uploaded = formData.get('draftFile');
     const draftText = valueFromForm(formData, 'draftText');
@@ -96,6 +98,25 @@ export async function POST(request: Request) {
       maxOutputTokens: maxOutputTokensFromForm(formData),
     });
 
+    await recordAuditLog({
+      actor: user,
+      action: 'submission_review.run',
+      targetType: 'submission_review',
+      targetId: result.draftName,
+      summary: 'Submission review completed.',
+      metadata: {
+        draftName: result.draftName,
+        draftSource: draftPath ? 'upload' : 'inline_text',
+        draftTruncated: result.draftTruncated,
+        draftChars: result.draftChars,
+        skillCount: result.skills.length,
+        verdict: result.structured.verdict,
+        findingCount: result.structured.findings.length,
+        finishReason: result.finishReason,
+        hasTargetVenue: Boolean(valueFromForm(formData, 'targetVenue')),
+        hasDeadline: Boolean(valueFromForm(formData, 'deadline')),
+      },
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Submission review failed.';

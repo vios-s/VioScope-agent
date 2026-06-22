@@ -115,6 +115,12 @@ Dry-run public team profile import:
 npm run users:import-team
 ```
 
+Create a first-login local account. With no password argument, the username is used once and the user must add email and reset password before normal app access:
+
+```bash
+npm run users:create -- alice member
+```
+
 Run a local B2 pre-submission review:
 
 ```bash
@@ -188,6 +194,7 @@ Keep private skill implementations under the external private skills root config
 - Build a small evaluation set from real user questions, expected source pages, and refusal cases.
 - Tune wiki retrieval with that evaluation set, especially acronym-heavy queries such as RDS.
 - Add UI-level model switching and per-user ELM API key configuration.
+- Explore Overleaf draft import for checklist runs; keep other external integrations out unless they become easy and necessary.
 
 ## Development AI Helpers
 

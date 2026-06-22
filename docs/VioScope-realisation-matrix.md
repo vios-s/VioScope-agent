@@ -30,36 +30,38 @@ Status key:
 
 | Status | ID | Check | Expected behaviour | Evidence / notes |
 |---|---|---|---|---|
-| [ ] | I1.1 | ELM chat is configured. | The agent can answer through the ELM OpenAI-compatible API. | |
-| [ ] | I1.2 | ELM embeddings are configured. | Embedding calls work with `ELM_EMBED_MODEL`. | |
-| [~] | I1.3 | Postgres is available. | App data persists across restarts. | `npm run check:account-management` creates, authenticates, updates, and restores temporary users through Postgres; restart persistence still not checked. |
-| [ ] | I1.4 | pgvector is available if retrieval is enabled. | Vector index/search can run. | |
-| [ ] | I1.5 | `DATASTORE_DIR` is configured. | Internal state/materials can be read from outside public code. | |
-| [ ] | I1.6 | Secrets are not in git. | `.env` is ignored and `.env.example` contains only placeholders. | |
-| [ ] | I1.7 | The app can run on EIDF. | Service starts using documented EIDF paths/config. | |
-| [ ] | I1.8 | Audit/trace data exists for important agent actions. | You can inspect what action happened, when, and for whom. | |
+| [x] | I1.1 | ELM chat is configured. | The agent can answer through the ELM OpenAI-compatible API. | `npm run check:elm` passed for chat completion. |
+| [x] | I1.2 | ELM embeddings are configured. | Embedding calls work with `ELM_EMBED_MODEL`. | `npm run check:elm` passed for embeddings. |
+| [x] | I1.3 | Postgres is available. | App data persists across restarts. | Direct DB ping passed; `npm run check:account-management` creates, authenticates, updates, and restores temporary users through Postgres; a temporary `app_settings` marker persisted across `vioscope-web.service` restart. |
+| [x] | I1.4 | pgvector is available if retrieval is enabled. | Vector index/search can run. | The `vector` extension is installed in Postgres and `npm run check:wiki-search -- "VIOS theme meeting"` returned 4 cited wiki results. |
+| [~] | I1.5 | `DATASTORE_DIR` is configured. | Internal state/materials can be read from outside public code. | `DATASTORE_DIR=/Public` exists; theme meeting files and VIOS skill roots read successfully (`npm run check:vios-skills` loaded 21 skills). `/Public/lab-state.yaml` is still missing, so real state model readback remains blocked. |
+| [x] | I1.6 | Secrets are not in git. | `.env` is ignored and `.env.example` contains only placeholders. | `.env` is git-ignored; `AUTH_SECRET` and `VIOSCOPE_RESTART_COMMAND` are configured locally; Admin Configuration shows only configured/missing secret status. Tracked-file secret scan found only README placeholders/dev examples. |
+| [x] | I1.7 | The app can run on EIDF. | Service starts using documented EIDF paths/config. | `vioscope-web.service` is installed as a `systemd --user` service, enabled, active, and serving `http://localhost:3000`; `npm run check:service-restart` verifies admin-triggered restart and audit. No sudo required. |
+| [x] | I1.8 | Audit/trace data exists for important agent actions. | You can inspect what action happened, when, and for whom. | `audit_log` table/API and Settings -> Audit log viewer are implemented. `npm run check:audit-log`, `npm run check:audit-coverage`, `npm run check:audit-retention`, Playwright UX, and live chat smoke verify previous-day readback, route coverage, retention pruning, admin-only UI access, and metadata-only chat audit. |
+| [x] | I1.9 | Admin runtime configuration exists. | Administrators can view/edit operational settings without exposing secrets. | `app_settings` table, admin-only config API, Settings -> Configuration, restart endpoint, runtime cache, and `AUDIT_LOG_RETENTION_DAYS` are implemented. `npm run check:admin-config` verifies save, revert, cache sync, masked secrets, restart request audit, and retention setting visibility. Most runtime changes still require restart. |
 
 ## 2. Accounts, Roles, And Access
 
 | Status | ID | Check | Expected behaviour | Evidence / notes |
 |---|---|---|---|---|
-| [~] | A2.1 | User can log in. | Valid username/password opens the app. | Backend login verified with a temporary member using `123456`; browser UX still needs manual check. |
+| [x] | A2.1 | User can log in. | Valid username/password opens the app. | Backend login and Playwright UX verify valid login; wrong password shows generic `Invalid username or password.` |
 | [x] | A2.2 | Invalid login fails safely. | Wrong credentials do not reveal sensitive details. | `npm run check:account-management` verifies wrong password returns the generic invalid-login error. |
-| [x] | A2.3 | Account DB stores username, email, password hash, and role. | Email is required for active accounts; no plaintext passwords. | `users.email` added to schema/helper/API; `npm run typecheck` and `npm run check:users` pass. |
+| [x] | A2.3 | Account DB stores username, email, password hash, and role. | First-login accounts may start without email; usable accounts must add email before reset is cleared; no plaintext passwords. | `users.email` added to schema/helper/API; `npm run typecheck` and account smoke pass. |
 | [x] | A2.4 | Session resolves `user_id`. | User-specific actions are tied to the logged-in account. | `check:users` verifies signed token `sub`; `check:account-management` verifies route access via session cookie. |
 | [x] | A2.5 | Member permissions work. | A member edits only their own update/status where allowed. | `npm run check:theme-meeting-auth` passes member update permission check. |
 | [x] | A2.6 | Coordinator permissions work. | Coordinator manages only their own theme. | `npm run check:theme-meeting-auth` passes A/B/C/D coordinator checks. |
 | [x] | A2.7 | PI permissions work. | PI can review/manage all themes. | `npm run check:theme-meeting-auth` covers PI all-theme visibility/manage path. |
 | [x] | A2.8 | Admin permissions work. | Admin can manage all permissions and roles. | `check:account-management` verifies admin user listing and self-protection for disable/demotion. |
 | [ ] | A2.9 | Inactive or missing users are rejected in theme config. | `coordinator_user` and `member_users` must match active `users.username`. | |
-| [x] | A2.10 | Active accounts require email. | Email is mandatory and editable for notifications. | Schema/API enforce valid email for active accounts; Settings -> General exposes email editing. |
+| [x] | A2.10 | Usable accounts require email. | New first-login accounts can start without email, then must add email while changing password. | Schema/API allow `active + password_reset_required` without email, then require email before reset clears; Settings -> General exposes email editing. |
 | [x] | A2.11 | Password minimum is enforced. | User passwords require 8+ chars, 1 letter, 1 digit, and 1 special character. | `123456` and `Password1` rejected; `Password1!` accepted in account-flow smoke. |
-| [x] | A2.12 | Temporary weak password supports first-login reset. | Admin can issue a weak temporary password only when forced reset is required. | Temporary member created with `123456`, then forced to change password before normal use. |
-| [~] | A2.13 | Settings -> General account edits work. | User can change display name, email, and password; avatar uses upload icon only. | Code/build verified; needs manual browser check in Settings -> General. |
-| [~] | A2.14 | User management profile edit matches General. | Edit member uses display name, required email, and avatar upload icon only; admin-only role/status/password controls remain separate. | Code/typecheck verified; needs manual browser check in User management. |
+| [x] | A2.12 | Temporary weak password supports first-login reset. | Admin can omit temporary password to use username once, then user must add email and choose a stronger password. | Account smoke verifies no-email first-login account, username temporary password, email-required reset, and final password reset clearance. |
+| [x] | A2.13 | Settings -> General account edits work. | User can change display name, email, and password; avatar uses upload icon only. | Playwright UX verifies display name/email save, password strength meter, and avatar upload icon with no Avatar URL field. |
+| [x] | A2.14 | User management profile edit matches General. | Edit member uses display name, optional first-login email, and avatar upload icon only; admin-only role/status/password controls remain separate. | Playwright UX verifies Edit member profile details, upload icon/no Avatar URL, and separate access-control section. |
 | [x] | A2.15 | Disabled and profile-only users cannot log in. | Only active provisioned accounts can authenticate. | `check:account-management` verifies disabled and `profile_only` users return login failure. |
 | [x] | A2.16 | Password-reset-required users are gated. | They can read `/me` and change password, but cannot use normal app APIs before reset. | `check:account-management` verifies normal app API returns `403` until password reset succeeds. |
 | [x] | A2.17 | Logout clears the session cookie. | Logout response expires `vioscope_session`. | `check:account-management` verifies logout sets `Max-Age=0`. |
+| [x] | A2.18 | Account and auth events are auditable. | Login success/failure, logout, password change, profile update, and admin user changes create audit records. | `check:account-management` verifies admin-only audit API access and required account/auth actions in the daily log. |
 
 ## 3. Memory
 
@@ -139,7 +141,7 @@ Status key:
 
 | Status | ID | Check | Expected behaviour | Evidence / notes |
 |---|---|---|---|---|
-| [ ] | PS8.1 | Draft input works. | User can provide PDF, LaTeX, or GitLab link. | |
+| [ ] | PS8.1 | Draft input works. | User can provide PDF, LaTeX upload, or Overleaf link. | Overleaf import is backlog; do not imply GitLab/DataStore/Drive integrations for this slice. |
 | [ ] | PS8.2 | Skeleton Lock checklist runs. | Output includes evidence-backed checklist results. | |
 | [ ] | PS8.3 | PDRA meta-review runs. | Output includes review observations and evidence. | |
 | [ ] | PS8.4 | Red-team prompt runs. | Output identifies risks/weaknesses with evidence. | |
@@ -185,10 +187,11 @@ Status key:
 | Status | ID | Check | Expected behaviour | Evidence / notes |
 |---|---|---|---|---|
 | [ ] | O11.1 | Backups exist. | Postgres data can be backed up and restored. | |
-| [ ] | O11.2 | Logs avoid secrets/private content. | Logs are useful without leaking sensitive material. | |
-| [ ] | O11.3 | Important actions are auditable. | State changes, notifications, shares, and verdicts have audit records. | |
+| [x] | O11.2 | Logs avoid secrets/private content. | Logs are useful without leaking sensitive material. | Audit entries use metadata-only summaries/counts/status/IDs/field names. Live chat smoke verifies `chat.turn` audit records message length/source count but not full prompt or response. Retention is configurable with `AUDIT_LOG_RETENTION_DAYS`. |
+| [x] | O11.3 | Important actions are auditable. | State changes, notifications, shares, and verdicts have audit records. | Auth/account/user management, chat turns/imports, theme meeting updates/members/reminders, notification read actions, submission review runs, admin config changes/restart requests, and review save/signoff write `audit_log`; `npm run check:audit-coverage`, `check:audit-log`, `check:audit-retention`, and `check:service-restart` pass. |
 | [ ] | O11.4 | Public exposure is controlled. | Internal/VPN mode works before public IP/TLS work begins. | |
 | [ ] | O11.5 | Email is clearly backlog. | Browser/web notifications work before local email is attempted. | |
+| [ ] | O11.6 | Overleaf integration is clearly backlog. | Settings lists only Overleaf under integrations and marks it as backlog until implementation starts. | |
 
 ## Suggested Manual Walkthroughs
 
@@ -201,7 +204,9 @@ Status key:
 | [ ] | Coordinator review | Log in as coordinator and manage members/reminders for own theme. | Own theme works; other themes are blocked. | |
 | [ ] | PI review | Log in as PI and review all themes. | PI can see/manage all theme agendas. | |
 | [ ] | Chat mention | User A sends prompt with `@userB`. | User B gets alert and shared session; no extra permissions are granted. | |
-| [ ] | Wiki supported answer | Ask a known KB question. | Answer cites correct source. | |
+| [x] | Admin configuration | Log in as administrator, open Settings -> Configuration, edit one safe value, save, reset it, then check Audit log. | Config saves/reverts, secrets remain masked, restart button reflects command availability, and audit log records the changes. | `npm run check:admin-config` and Playwright UX pass; service restart is configured and audited. |
+| [x] | Audit log viewer | Log in as administrator, open Settings -> Audit log, choose a daily log file from the Year/Month list or use the date input, then perform one account/chat action and refresh. | Daily log shows the action with actor, target, summary, and safe metadata; member accounts cannot open the viewer. | Playwright UX verifies Year/Month log file list and admin-only access; `npm run check:audit-log` verifies previous-day readback. |
+| [x] | Wiki supported answer | Ask a known KB question. | Answer cites correct source. | `npm run check:wiki-search -- "VIOS theme meeting"` returns cited source metadata; `npm run check:chat-live` returns a chat answer with 2 sources. |
 | [ ] | Wiki unsupported answer | Ask an uncovered but relevant question. | App refuses honestly and logs a gap. | |
 | [ ] | Pre-submission review | Submit a draft or test fixture. | Agent returns evidence-backed verdict suggestion pending human approval. | |
 

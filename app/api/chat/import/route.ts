@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { importLocalChatSessions, type ChatSourceRecord, type ImportedChatSession } from '../../../../src/mastra/db/chat';
 
 export const runtime = 'nodejs';
@@ -72,6 +73,13 @@ export async function POST(request: Request) {
     const body = (await request.json()) as Record<string, unknown>;
     const sessions = cleanSessions(body.sessions);
     const imported = await importLocalChatSessions({ actor: user, sessions });
+    await recordAuditLog({
+      actor: user,
+      action: 'chat.import',
+      targetType: 'chat_history',
+      summary: 'User imported browser-local chat history.',
+      metadata: { submittedSessions: sessions.length, imported },
+    });
     return NextResponse.json({ imported });
   } catch (error) {
     return errorResponse(error, error instanceof AuthError ? error.status : 400);

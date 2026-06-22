@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { embed } from 'ai';
 import { wikiVectorIndexName } from '../src/mastra/config';
 import { elmEmbeddingModel } from '../src/mastra/llm';
+import { runtimeEnvNumber } from '../src/mastra/runtime-config';
 import { createWikiVectorStore } from '../src/mastra/vector';
 
 async function main() {
@@ -19,7 +20,7 @@ async function main() {
       queryVector: embedding,
       topK: 5,
       includeVector: false,
-      minScore: Number.parseFloat(process.env.WIKI_MIN_SCORE || '0.35'),
+      minScore: runtimeEnvNumber('WIKI_MIN_SCORE', 0.35),
     });
 
     console.log(`Wiki search check passed: ${results.length} result(s).`);

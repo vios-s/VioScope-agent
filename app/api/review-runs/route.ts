@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import type { AuthUser } from '../../../src/mastra/db/users';
 import { listReviewRuns, saveReviewRun, type ReviewSignoffStatus, type ReviewVerdict } from '../../../src/mastra/db/review-runs';
 import type { ReviewRunSummary } from '../../../src/mastra/db/review-runs';
@@ -105,6 +106,20 @@ export async function POST(request: Request) {
       checks: parsedChecks,
     });
 
+    await recordAuditLog({
+      actor: user,
+      action: 'review_run.save',
+      targetType: 'review_run',
+      targetId: run.id,
+      summary: 'Review run saved.',
+      metadata: {
+        draftName: run.draftName,
+        projectName: run.projectName,
+        checkCount: run.checks.length,
+        verdicts: run.checks.map((check) => check.verdict),
+        signoffStatuses: run.checks.map((check) => check.signoffStatus),
+      },
+    });
     return NextResponse.json({ run });
   } catch (error) {
     return errorResponse(error, error instanceof AuthError ? error.status : 400);

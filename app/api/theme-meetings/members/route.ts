@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import { buildThemeMeetingPlan, updateThemeMeetingMember } from '../../../../src/mastra/theme-meetings/planner';
 
@@ -41,6 +42,18 @@ export async function POST(request: Request) {
       meetingDate,
     });
 
+    await recordAuditLog({
+      actor: user,
+      action: `theme_meeting.member_${action}`,
+      targetType: 'theme_meeting',
+      targetId: themeId,
+      summary: `Theme meeting member ${action === 'add' ? 'added' : 'removed'}.`,
+      metadata: {
+        meetingDate: meetingDate || null,
+        memberUsername: result.user.username,
+        memberUserId: result.user.id,
+      },
+    });
     return NextResponse.json({
       user: result.user,
       plan: result.plan,

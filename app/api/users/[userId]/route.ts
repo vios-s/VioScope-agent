@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import {
   isUserProvisioningStatus,
   isUserRole,
@@ -116,6 +117,28 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
       passwordResetRequired: typeof body.passwordResetRequired === 'boolean' ? body.passwordResetRequired : undefined,
     });
 
+    const changedFields = [
+      body.displayName !== undefined ? 'displayName' : null,
+      nextRole ? 'role' : null,
+      nextStatus ? 'provisioningStatus' : null,
+      email !== undefined ? 'email' : null,
+      body.aliases !== undefined ? 'aliases' : null,
+      avatarUrl !== undefined ? 'avatar' : null,
+      body.temporaryPassword !== undefined ? 'temporaryPassword' : null,
+      body.passwordResetRequired !== undefined ? 'passwordResetRequired' : null,
+    ].filter((field): field is string => Boolean(field));
+    await recordAuditLog({
+      actor: admin,
+      action: 'admin.user_update',
+      targetType: 'user',
+      targetId: user.username,
+      summary: 'Admin updated user.',
+      metadata: {
+        changedFields,
+        role: user.role,
+        provisioningStatus: user.provisioningStatus,
+      },
+    });
     return NextResponse.json({ user });
   } catch (error) {
     return errorResponse(error, error instanceof AuthError ? error.status : 400);

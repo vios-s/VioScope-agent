@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser, setSessionCookie } from '../../../src/mastra/auth/session';
+import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { updateOwnUserProfile } from '../../../src/mastra/db/users';
 
 export const runtime = 'nodejs';
@@ -53,6 +54,20 @@ export async function PATCH(request: Request) {
       email,
       aliases: textArray(body.aliases),
       avatarUrl,
+    });
+    const changedFields = [
+      nextUser.displayName !== user.displayName ? 'displayName' : null,
+      nextUser.email !== user.email ? 'email' : null,
+      nextUser.aliases.join('\n') !== user.aliases.join('\n') ? 'aliases' : null,
+      (nextUser.profile?.avatarUrl || null) !== (user.profile?.avatarUrl || null) ? 'avatar' : null,
+    ].filter((field): field is string => Boolean(field));
+    await recordAuditLog({
+      actor: user,
+      action: 'account.update',
+      targetType: 'user',
+      targetId: user.username,
+      summary: changedFields.length ? 'User updated account details.' : 'User saved account details.',
+      metadata: { changedFields },
     });
     const response = NextResponse.json({ user: nextUser });
     setSessionCookie(response, nextUser);

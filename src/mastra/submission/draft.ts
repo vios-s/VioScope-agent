@@ -1,5 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+import { runtimeEnv, runtimeEnvNumber } from '../runtime-config';
 import { extractPptx } from './pptx';
 
 export type DraftSource = {
@@ -9,7 +10,7 @@ export type DraftSource = {
 
 const supportedDraftExtensions = new Set(['.txt', '.md', '.markdown', '.tex', '.latex', '.rst']);
 const maxDraftBytes = 2 * 1024 * 1024;
-const maxDeckBytes = Number.parseInt(process.env.SUBMISSION_REVIEW_MAX_DECK_BYTES || `${25 * 1024 * 1024}`, 10);
+const maxDeckBytes = runtimeEnvNumber('SUBMISSION_REVIEW_MAX_DECK_BYTES', 25 * 1024 * 1024);
 
 export function supportedDraftExtensionList() {
   return [...supportedDraftExtensions, '.pptx'].sort().join(', ');
@@ -37,8 +38,9 @@ export async function readDraftFile(path: string): Promise<DraftSource> {
     throw new Error(`Unsupported draft extension "${extension || '(none)'}". Supported: ${supportedDraftExtensionList()}`);
   }
 
-  const datastoreDir = process.env.DATASTORE_DIR
-    ? resolve(/* turbopackIgnore: true */ process.cwd(), process.env.DATASTORE_DIR)
+  const configuredDatastoreDir = runtimeEnv('DATASTORE_DIR').trim();
+  const datastoreDir = configuredDatastoreDir
+    ? resolve(/* turbopackIgnore: true */ process.cwd(), configuredDatastoreDir)
     : undefined;
   const allowedRoots = [process.cwd(), datastoreDir].filter((root): root is string => Boolean(root));
   const allowed = allowedRoots.some((root) => isInside(root, resolvedPath));

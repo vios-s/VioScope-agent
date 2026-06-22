@@ -2,6 +2,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { runtimeEnv } from '../runtime-config';
 import {
   themeMeetingConfigSchema,
   themeMeetingNotificationsFileSchema,
@@ -37,15 +38,17 @@ function fallbackRuntimePath(fileName: string): string {
 
 function candidateConfigPaths(): string[] {
   const candidates: string[] = [];
+  const configPath = runtimeEnv('THEME_MEETING_CONFIG_PATH').trim();
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
 
-  if (process.env.THEME_MEETING_CONFIG_PATH) {
-    candidates.push(process.env.THEME_MEETING_CONFIG_PATH);
+  if (configPath) {
+    candidates.push(configPath);
   }
 
-  if (process.env.DATASTORE_DIR) {
+  if (datastoreDir) {
     candidates.push(
-      join(process.env.DATASTORE_DIR, 'theme-meeting-config.yaml'),
-      join(process.env.DATASTORE_DIR, 'theme-meetings', 'config.yaml'),
+      join(datastoreDir, 'theme-meeting-config.yaml'),
+      join(datastoreDir, 'theme-meetings', 'config.yaml'),
     );
   }
 
@@ -77,12 +80,14 @@ export function resolveThemeMeetingUpdatesPath(updatesPath?: string): string {
     return resolveFromCwd(updatesPath);
   }
 
-  if (process.env.THEME_MEETING_UPDATES_PATH) {
-    return resolveFromCwd(process.env.THEME_MEETING_UPDATES_PATH);
+  const configuredUpdatesPath = runtimeEnv('THEME_MEETING_UPDATES_PATH').trim();
+  if (configuredUpdatesPath) {
+    return resolveFromCwd(configuredUpdatesPath);
   }
 
-  if (process.env.DATASTORE_DIR) {
-    return resolveFromCwd(join(process.env.DATASTORE_DIR, 'theme-meeting-updates.yaml'));
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
+  if (datastoreDir) {
+    return resolveFromCwd(join(datastoreDir, 'theme-meeting-updates.yaml'));
   }
 
   return fallbackRuntimePath('theme-meeting-updates.yaml');
@@ -93,12 +98,14 @@ export function resolveThemeMeetingNotificationsPath(notificationsPath?: string)
     return resolveFromCwd(notificationsPath);
   }
 
-  if (process.env.THEME_MEETING_NOTIFICATIONS_PATH) {
-    return resolveFromCwd(process.env.THEME_MEETING_NOTIFICATIONS_PATH);
+  const configuredNotificationsPath = runtimeEnv('THEME_MEETING_NOTIFICATIONS_PATH').trim();
+  if (configuredNotificationsPath) {
+    return resolveFromCwd(configuredNotificationsPath);
   }
 
-  if (process.env.DATASTORE_DIR) {
-    return resolveFromCwd(join(process.env.DATASTORE_DIR, 'theme-meeting-notifications.yaml'));
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
+  if (datastoreDir) {
+    return resolveFromCwd(join(datastoreDir, 'theme-meeting-notifications.yaml'));
   }
 
   return fallbackRuntimePath('theme-meeting-notifications.yaml');

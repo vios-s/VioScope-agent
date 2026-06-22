@@ -168,6 +168,21 @@ async function restoreUsers(snapshots: Map<string, UserSnapshot>): Promise<void>
   }
 }
 
+async function cleanupAuditLogs(testRunId: string): Promise<void> {
+  const postgres = createPostgresClient('theme-meeting-auth-audit-cleanup');
+
+  try {
+    await postgres.pool.query(
+      "DELETE FROM audit_log WHERE metadata->>'testRunId' = $1",
+      [testRunId],
+    );
+  } catch {
+    // audit_log may not exist if the check failed before audit setup.
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
 async function activateTemporaryUsers(snapshots: Map<string, UserSnapshot>): Promise<void> {
   for (const user of temporaryUsers) {
     await upsertLocalUser({
@@ -211,6 +226,8 @@ async function expectJson<T = any>(label: string, response: Response, status = 2
 }
 
 async function main() {
+  const auditTestRunId = `theme-meeting-auth-${Date.now()}`;
+  process.env.VIOSCOPE_AUDIT_TEST_RUN_ID = auditTestRunId;
   process.env.THEME_MEETING_CONFIG_PATH = configPath;
   process.env.THEME_MEETING_UPDATES_PATH = updatesPath;
   process.env.THEME_MEETING_NOTIFICATIONS_PATH = notificationsPath;
@@ -399,6 +416,8 @@ async function main() {
     await rm(resolve(updatesPath), { force: true });
     await rm(resolve(notificationsPath), { force: true });
     await restoreUsers(snapshots);
+    await cleanupAuditLogs(auditTestRunId);
+    delete process.env.VIOSCOPE_AUDIT_TEST_RUN_ID;
   }
 }
 
