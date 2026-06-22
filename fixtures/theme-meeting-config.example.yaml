@@ -1,0 +1,119 @@
+timezone: Europe/London
+cycle:
+  weekday: Wednesday
+  rotation:
+    - AB
+    - CD
+  anchor_date: 2026-06-24
+
+pis:
+  - PI One
+  - PI Two
+
+administrator: Admin User
+
+themes:
+  - theme_id: A
+    title: Example Theme A
+    cycle_group: AB
+    weekday: Wednesday
+    time: "10:00"
+    duration_minutes: 60
+    coordinator: Coordinator A
+    coordinator_user: coordinator.a
+    members:
+      - Alice
+      - Bob
+    member_users:
+      - alice
+      - bob
+
+  - theme_id: B
+    title: Example Theme B
+    cycle_group: AB
+    weekday: Wednesday
+    time: "11:00"
+    duration_minutes: 60
+    coordinator: Coordinator B
+    coordinator_user: coordinator.b
+    members:
+      - Carla
+      - Dan
+    member_users:
+      - carla
+      - dan
+
+  - theme_id: C
+    title: Example Theme C
+    cycle_group: CD
+    weekday: Wednesday
+    time: "10:00"
+    duration_minutes: 60
+    coordinator: Coordinator C
+    coordinator_user: coordinator.c
+    members:
+      - Erin
+      - Farah
+    member_users:
+      - erin
+      - farah
+
+  - theme_id: D
+    title: Example Theme D
+    cycle_group: CD
+    weekday: Wednesday
+    time: "11:00"
+    duration_minutes: 60
+    coordinator: Coordinator D
+    coordinator_user: coordinator.d
+    members:
+      - Gabe
+      - Hana
+    member_users:
+      - gabe
+      - hana
+
+submission:
+  progress_word_target: 30
+  update_types:
+    nothing_to_report:
+      duration_minutes: 0
+      questions_required: false
+    short_update:
+      duration_minutes: 10
+      questions_required: true
+    deep_dive:
+      duration_minutes: 30
+      questions_required: true
+
+reminders:
+  - name: first_reminder
+    weekday: Monday
+    time: "08:00"
+    channel: browser
+  - name: gentle_missing_update_reminder
+    weekday: Tuesday
+    time: "04:00"
+    channel: browser
+    only_if_missing_update: true
+  - name: agenda_cutoff
+    weekday: Wednesday
+    time: "08:00"
+    action: mark_missing_as_not_submitted_and_build_agenda
+
+permissions:
+  member:
+    - edit_own_update
+    - review_own_theme_dashboard
+  coordinator:
+    - manage_own_theme
+    - skip_own_theme_meeting
+    - send_missing_update_reminders_for_own_theme
+    - add_remove_members_for_own_theme
+  pi:
+    - review_all_theme_dashboards
+    - manage_all_theme_meetings
+    - skip_any_theme_meeting
+    - change_coordinator_roles
+  administrator:
+    - all_permissions

@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+if ! command -v npm >/dev/null 2>&1; then
+  node_version="$(cat .nvmrc 2>/dev/null || true)"
+  if [ -n "$node_version" ] && [ -x "$HOME/.nvm/versions/node/v$node_version/bin/npm" ]; then
+    PATH="$HOME/.nvm/versions/node/v$node_version/bin:$PATH"
+    export PATH
+  elif [ -n "${NVM_DIR:-}" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
+    . "$NVM_DIR/nvm.sh"
+    nvm use --silent >/dev/null
+  elif [ -s "$HOME/.nvm/nvm.sh" ]; then
+    NVM_DIR="$HOME/.nvm"
+    export NVM_DIR
+    . "$HOME/.nvm/nvm.sh"
+    nvm use --silent >/dev/null
+  fi
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "pre-commit: npm not found. Run 'nvm use' or add npm to PATH before committing." >&2
+  exit 127
+fi
+
+npm run precommit

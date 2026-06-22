@@ -1,0 +1,46 @@
+meta:
+  updated: 2026-06-20
+  stages:
+    "1": idea/proposal
+    "2": design/scoping
+    "3": build/experiments
+    "4": writing/submission
+    "5": revision
+projects:
+  - project: toy-segmentation
+    owner: alice
+    track: A
+    stage: 3
+    status: on_track
+    stage_since: 2026-06-10
+    last_update: 2026-06-18
+    blocker: null
+    target: ToyConf abstract 2026-09-15
+    watch_path: gitlab://vios/toy-segmentation
+    artifacts:
+      - gitlab://vios/toy-segmentation/design-v1.md
+
+  - project: causal-widget
+    owner: bob
+    track: B
+    stage: 3
+    status: blocked
+    stage_since: 2026-05-20
+    last_update: 2026-06-01
+    blocker: waiting for compute allocation
+    target: internal demo
+    watch_path: gitlab://vios/causal-widget
+    artifacts:
+      - gitlab://vios/causal-widget/demo-plan.md
+
+  - project: report-assistant
+    owner: charlie
+    track: C
+    stage: 4
+    status: needs_input
+    stage_since: 2026-06-01
+    last_update: 2026-06-02
+    blocker: null
+    target: journal draft
+    watch_path: gitlab://vios/report-assistant
+    artifacts: []

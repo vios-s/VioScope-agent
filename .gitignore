@@ -1,0 +1,69 @@
+# Local agent/context docs
+AGENTS.md
+CLAUDE.md
+docs/VioScope-plan.md
+docs/VioScope-ClaudeDesign-Brief.md
+docs/*.docx
+.agents/
+skills-lock.json
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+.tokens/
+
+# Internal/lab-specific content checked out locally
+/DATASTORE_DIR/
+/Public/
+/datastore/
+/internal/
+/lab-state/
+/materials/
+.local/
+docs/design/
+
+# Node / Mastra / TypeScript
+node_modules/
+.next/
+dist/
+build/
+out/
+.vercel/
+.turbo/
+.cache/
+.mastra/
+src/mastra/public/
+mastra.db
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.tsbuildinfo
+
+# Logs and reports
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+tmp/
+temp/
+
+# Editors and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,202 @@
+# VioScope Agent
+
+Mastra + TypeScript scaffold for the VioScope agent system. The active slice is A2/B1: a GitLab-backed lab state model and theme-meeting support. B3 cited Wiki Q&A and B2 pre-submission review are also scaffolded.
+
+## Setup
+
+### Prerequisites
+
+- Node.js matching `.nvmrc` or any compatible Node `>=22.13.0`.
+- Docker Compose for the local Postgres + pgvector database.
+- External runtime/config storage outside this repository, for example `/Public` on EIDF.
+
+### Install
+
+```bash
+nvm use
+npm install
+cp .env.example .env
+git config core.hooksPath .githooks
+```
+
+Edit `.env` before running the app. Keep `.env`, internal state, skills, and lab materials out of git.
+
+The Git hook runs `npm run precommit`, which currently performs the TypeScript check before each commit.
+
+Minimum useful local values:
+
+```bash
+ELM_API_KEY=...
+AUTH_SECRET=...
+DATABASE_URL=postgresql://vioscope:vioscope_dev@localhost:5432/vioscope
+DATASTORE_DIR=/Public
+VIOS_SKILLS_DIR=/Public/skills/vios-research-skills:/Public/skills/vios-private-skills
+```
+
+For wiki ingestion, also set `GITBOOK_TOKEN` and `GITBOOK_SPACE`. `GITBOOK_SPACE` is the app space id from `https://app.gitbook.com/o/<org_id>/s/<space_id>`, not the public docs URL.
+
+### External Data
+
+Keep site-specific files under `DATASTORE_DIR` or another internal repo, not this code repo. Useful optional paths:
+
+```text
+/Public/lab-state.yaml
+/Public/theme-meeting-config.yaml
+/Public/theme-meeting-updates.yaml
+/Public/theme-meeting-notifications.yaml
+/Public/team/vios-team-public.md
+/Public/skills/vios-research-skills/
+/Public/skills/vios-private-skills/
+/Public/runtime/mastra.db
+/Public/uploads/submission-review/
+```
+
+If your paths differ, set `LAB_STATE_PATH`, `THEME_MEETING_CONFIG_PATH`, `TEAM_PROFILE_MARKDOWN`, `MASTRA_STORAGE_URL`, or `SUBMISSION_REVIEW_UPLOAD_DIR` in `.env`.
+
+### Database
+
+Start the local database:
+
+```bash
+npm run db:up
+```
+
+Stop it when needed:
+
+```bash
+npm run db:down
+```
+
+### Verify
+
+Run the cheap checks first:
+
+```bash
+npm run typecheck
+npm run check:users
+npm run check:lab-state
+npm run check:theme-meetings
+npm run check:vios-skills
+```
+
+Checks that require configured services:
+
+```bash
+npm run check:elm
+npm run check:gitbook
+npm run ingest:gitbook
+npm run check:wiki-search -- "induction"
+npm run check:vioscope
+```
+
+### Run
+
+Start the Next.js web UI:
+
+```bash
+npm run web:dev
+```
+
+Open `http://localhost:3000`.
+
+Start Mastra Studio separately when needed:
+
+```bash
+npm run dev
+```
+
+Studio is typically served at `http://localhost:4111`.
+
+### Optional Workflows
+
+Dry-run public team profile import:
+
+```bash
+npm run users:import-team
+```
+
+Run a local B2 pre-submission review:
+
+```bash
+npm run review:submission -- ./draft.md --target "NeurIPS" --deadline "2026-09-15"
+```
+
+Supported v1 draft formats are text-like files (`.md`, `.txt`, `.tex`, `.latex`, `.rst`) and PowerPoint `.pptx` decks. Export PDFs and legacy `.ppt` files to one of those formats first.
+
+## Repository Posture
+
+- Public code stays generic and Apache-2.0.
+- Internal content is read from `DATASTORE_DIR` and must stay outside this repository.
+- Secrets live in local environment configuration or an EIDF secrets store.
+- Agent output is advisory and should cite supporting evidence once retrieval is wired in.
+- Unsupported wiki/lab questions can be logged to `kb_gaps` for triage; this is not an authoritative knowledge store.
+- Runtime skills are loaded from `VIOS_SKILLS_DIR` and must stay outside this repository unless they are generic enough to publish.
+- Public team profiles can seed `users` as `profile_only`, but account activation, roles, and passwords require human confirmation.
+
+## Lab State
+
+The A2 state model supports a single `lab-state.yaml` file or a directory of project Markdown files with YAML frontmatter. The canonical copy should live in the private University GitLab clone referenced by `DATASTORE_DIR`.
+
+Core fields per project:
+
+```yaml
+project: toy-segmentation
+owner: alice
+track: A
+stage: 3
+status: on_track
+stage_since: 2026-06-10
+last_update: 2026-06-18
+blocker: null
+target: ToyConf abstract 2026-09-15
+watch_path: gitlab://vios/toy-segmentation
+artifacts:
+  - gitlab://vios/toy-segmentation/design-v1.md
+```
+
+The loader derives `weeks_in_stage`, `days_since_update`, `signals`, and `recommendation` (`deep_dive`, `nudge`, `none`). Thresholds are controlled by `THEME_MEETING_STALE_DAYS` and `THEME_MEETING_DEEP_DIVE_WEEKS`.
+
+## Runtime Skills
+
+`VIOS_SKILLS_DIR` can point at a clone of `vios-s/Vios-Research-Skills`, a private fork, or a path-delimited list of roots. Each root may be a repository containing `skills/<name>/SKILL.md`, a directory containing skill folders, or a single skill folder. Later roots override earlier roots by skill name.
+
+Recommended external shape:
+
+```bash
+git clone https://github.com/vios-s/Vios-Research-Skills /Public/skills/vios-research-skills
+mkdir -p /Public/skills/vios-private-skills
+VIOS_SKILLS_DIR=/Public/skills/vios-research-skills:/Public/skills/vios-private-skills npm run check:vios-skills
+```
+
+Keep VIOS OS checklist skills private until they are sanitized. Generic, reusable versions can be contributed upstream to `vios-s/Vios-Research-Skills`.
+
+Current B2 private skill names:
+
+- `vios-skeleton-lock`
+- `vios-pdra-meta-review`
+- `vios-revision-lock`
+- `vios-internal-red-team`
+
+Keep private skill implementations under the external private skills root configured by `VIOS_SKILLS_DIR`. They are intentionally kept out of this repository.
+
+## Acknowledgements
+
+- The chat and loading dot-matrix animation treatment is inspired by [icantcodefyi/dot-matrix-animations](https://github.com/icantcodefyi/dot-matrix-animations).
+
+## Backlog
+
+- Build a small evaluation set from real user questions, expected source pages, and refusal cases.
+- Tune wiki retrieval with that evaluation set, especially acronym-heavy queries such as RDS.
+- Add UI-level model switching and per-user ELM API key configuration.
+
+## Development AI Helpers
+
+Mastra coding-agent skills may be installed locally under `.agents/skills/mastra` from `mastra-ai/skills`, but `.agents/` and `skills-lock.json` are intentionally ignored and should not be committed.
+
+For live Mastra documentation lookup, Codex can use the Mastra MCP docs server:
+
+```bash
+codex mcp add mastra-docs -- npx -y @mastra/mcp-docs-server@latest
+```
+
+After adding or updating skills/MCP servers, restart Codex so the new tools are picked up.

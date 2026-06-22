@@ -1,0 +1,123 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS kb_gaps (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  question TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'wiki_qa',
+  session_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  username TEXT NOT NULL UNIQUE CHECK (username ~ '^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$'),
+  display_name TEXT NOT NULL,
+  email TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('administrator', 'pi', 'organizer', 'member', 'viewer', 'service')),
+  password_hash TEXT,
+  password_reset_required BOOLEAN NOT NULL DEFAULT false,
+  password_changed_at TIMESTAMPTZ,
+  last_login_at TIMESTAMPTZ,
+  auth_provider TEXT NOT NULL DEFAULT 'local',
+  provisioning_status TEXT NOT NULL DEFAULT 'profile_only' CHECK (
+    provisioning_status IN ('profile_only', 'invited', 'active', 'disabled')
+  ),
+  source TEXT NOT NULL DEFAULT 'manual',
+  source_url TEXT,
+  source_profile_id TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK (email = '' OR email ~* '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$'),
+  CHECK (provisioning_status <> 'active' OR email <> '')
+);
+
+CREATE INDEX IF NOT EXISTS users_role_idx ON users (role);
+CREATE INDEX IF NOT EXISTS users_provisioning_status_idx ON users (provisioning_status);
+CREATE INDEX IF NOT EXISTS users_source_idx ON users (source);
+
+CREATE TABLE IF NOT EXISTS review_runs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_name TEXT,
+  draft_name TEXT NOT NULL,
+  target_venue TEXT,
+  deadline TEXT,
+  initiator TEXT,
+  pi_or_senior_reviewer TEXT,
+  cooperators TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  reviewer TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS review_check_results (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  run_id UUID NOT NULL REFERENCES review_runs(id) ON DELETE CASCADE,
+  skill_name TEXT NOT NULL,
+  skill_label TEXT NOT NULL,
+  verdict TEXT NOT NULL CHECK (verdict IN ('CLEARED', 'CONDITIONAL', 'SLIDE')),
+  report_markdown TEXT NOT NULL,
+  result_json JSONB NOT NULL,
+  signoff_status TEXT NOT NULL DEFAULT 'pending' CHECK (
+    signoff_status IN ('pending', 'accepted', 'needs_revision', 'rejected')
+  ),
+  reviewer_note TEXT NOT NULL DEFAULT '',
+  signed_off_by TEXT,
+  signed_off_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (run_id, skill_name)
+);
+
+CREATE INDEX IF NOT EXISTS review_runs_created_at_idx ON review_runs (created_at DESC);
+CREATE INDEX IF NOT EXISTS review_runs_project_name_idx ON review_runs (project_name);
+CREATE INDEX IF NOT EXISTS review_check_results_run_id_idx ON review_check_results (run_id);
+CREATE INDEX IF NOT EXISTS review_check_results_signoff_status_idx ON review_check_results (signoff_status);
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id TEXT PRIMARY KEY,
+  owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title TEXT NOT NULL DEFAULT 'New chat',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS chat_session_members (
+  session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  shared_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  membership_kind TEXT NOT NULL DEFAULT 'shared' CHECK (membership_kind IN ('owner', 'shared')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (session_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  status TEXT CHECK (status IN ('answer', 'refusal')),
+  sources JSONB NOT NULL DEFAULT '[]'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS chat_notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  actor_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL DEFAULT 'chat_mention' CHECK (type IN ('chat_mention')),
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+  read_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS chat_sessions_updated_at_idx ON chat_sessions (updated_at DESC);
+CREATE INDEX IF NOT EXISTS chat_session_members_user_idx ON chat_session_members (user_id);
+CREATE INDEX IF NOT EXISTS chat_messages_session_idx ON chat_messages (session_id, created_at);
+CREATE INDEX IF NOT EXISTS chat_notifications_recipient_idx ON chat_notifications (recipient_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS chat_notifications_unread_idx ON chat_notifications (recipient_user_id) WHERE read_at IS NULL;
