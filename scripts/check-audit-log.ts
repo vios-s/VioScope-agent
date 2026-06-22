@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { createSessionToken, sessionCookieName } from '../src/mastra/auth/session';
-import { ensureAuditLogTable } from '../src/mastra/db/audit-log';
+import { auditLogDateKey, ensureAuditLogTable } from '../src/mastra/db/audit-log';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { getUserByUsername, upsertLocalUser, type AuthUser, type UserRole } from '../src/mastra/db/users';
 
@@ -99,6 +99,8 @@ async function cleanup(): Promise<void> {
 }
 
 async function main() {
+  assert.equal(auditLogDateKey('2026-06-21T23:30:00.000Z'), '2026-06-22', 'Audit day should follow UK summer time.');
+
   const admin = await seedUser(users.admin);
   const member = await seedUser(users.member);
   const mockLogId = await insertMockPreviousLog(admin);

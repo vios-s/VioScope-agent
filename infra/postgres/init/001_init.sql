@@ -49,7 +49,7 @@ CREATE INDEX IF NOT EXISTS app_settings_updated_at_idx ON app_settings (updated_
 CREATE TABLE IF NOT EXISTS audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_time TIMESTAMPTZ NOT NULL DEFAULT now(),
-  event_day DATE NOT NULL DEFAULT CURRENT_DATE,
+  event_day DATE NOT NULL DEFAULT ((now() AT TIME ZONE 'Europe/London')::date),
   actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   actor_username TEXT,
   actor_role TEXT,
@@ -64,6 +64,71 @@ CREATE INDEX IF NOT EXISTS audit_log_event_time_idx ON audit_log (event_time DES
 CREATE INDEX IF NOT EXISTS audit_log_event_day_idx ON audit_log (event_day, event_time DESC);
 CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log (actor_user_id, event_time DESC);
 CREATE INDEX IF NOT EXISTS audit_log_action_idx ON audit_log (action, event_time DESC);
+
+CREATE TABLE IF NOT EXISTS project_records (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  owner_username TEXT NOT NULL,
+  collaborator_usernames TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+  track TEXT NOT NULL DEFAULT 'A' CHECK (track IN ('A', 'B')),
+  stage INTEGER NOT NULL DEFAULT 1 CHECK (stage BETWEEN 1 AND 5),
+  lifecycle TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active', 'paused', 'finished', 'archived')),
+  status TEXT NOT NULL DEFAULT 'on_track' CHECK (status IN ('on_track', 'blocked', 'stale', 'needs_input')),
+  stage_since DATE,
+  last_update DATE,
+  blocker TEXT,
+  target TEXT,
+  venue TEXT,
+  submission_deadline DATE,
+  watch_path TEXT,
+  notes TEXT,
+  archived_at TIMESTAMPTZ,
+  created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS project_artifacts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID NOT NULL REFERENCES project_records(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'other',
+  path TEXT,
+  summary TEXT NOT NULL DEFAULT '',
+  artifact_key TEXT NOT NULL,
+  is_current BOOLEAN NOT NULL DEFAULT true,
+  source_update_id UUID,
+  uploaded_by_username TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  deleted_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS project_updates (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id UUID NOT NULL REFERENCES project_records(id) ON DELETE CASCADE,
+  update_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  by_username TEXT NOT NULL,
+  update_type TEXT NOT NULL DEFAULT 'progress' CHECK (update_type IN ('progress', 'note', 'decision', 'blocker', 'artifact')),
+  text TEXT NOT NULL,
+  artifact_ids UUID[] NOT NULL DEFAULT ARRAY[]::UUID[],
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS project_update_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  update_id UUID NOT NULL REFERENCES project_updates(id) ON DELETE CASCADE,
+  by_username TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS project_records_owner_idx ON project_records (owner_username);
+CREATE UNIQUE INDEX IF NOT EXISTS project_records_owner_slug_idx ON project_records (lower(owner_username), slug);
+CREATE INDEX IF NOT EXISTS project_records_track_idx ON project_records (track);
+CREATE INDEX IF NOT EXISTS project_records_lifecycle_idx ON project_records (lifecycle);
+CREATE INDEX IF NOT EXISTS project_updates_project_idx ON project_updates (project_id, update_date DESC);
+CREATE INDEX IF NOT EXISTS project_artifacts_project_idx ON project_artifacts (project_id, is_current);
 
 CREATE TABLE IF NOT EXISTS review_runs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

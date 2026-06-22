@@ -1,12 +1,12 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireAdministrator } from '../../../src/mastra/auth/session';
-import { auditLogFileName, listAuditLogDays, listAuditLogs } from '../../../src/mastra/db/audit-log';
+import { auditLogDateKey, auditLogFileName, listAuditLogDays, listAuditLogs } from '../../../src/mastra/db/audit-log';
 
 export const runtime = 'nodejs';
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return auditLogDateKey();
 }
 
 function errorResponse(error: unknown, status = 500) {

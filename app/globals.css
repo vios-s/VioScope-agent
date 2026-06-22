@@ -1102,6 +1102,7 @@ button:disabled {
   padding: 0 12px;
   border-radius: 7px;
   font-weight: 850;
+  text-decoration: none;
 }
 
 .ops-primary {
@@ -1120,6 +1121,16 @@ button:disabled {
 .ops-secondary svg {
   width: 15px;
   height: 15px;
+}
+
+.icon-only-button {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+}
+
+.danger-action {
+  color: var(--danger-fg);
 }
 
 .library-list,
@@ -2529,14 +2540,319 @@ button:disabled {
 }
 
 .users-modal input,
-.users-modal select {
+.users-modal select,
+.users-modal textarea {
   width: 100%;
-  min-height: 38px;
   padding: 0 11px;
   border: 1px solid var(--field-border);
   border-radius: 8px;
   background: var(--field);
   color: var(--text);
+}
+
+.users-modal input,
+.users-modal select {
+  min-height: 38px;
+}
+
+.users-modal textarea {
+  min-height: 82px;
+  padding: 10px 11px;
+  resize: vertical;
+}
+
+.button-row.compact {
+  display: flex;
+  gap: 6px;
+}
+
+.button-row.compact .ops-secondary {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.project-modal {
+  width: min(920px, 100%);
+}
+
+.project-modal .modal-fieldset {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.project-modal .modal-fieldset h3,
+.project-modal .modal-fieldset.full,
+.project-modal .modal-fieldset .full,
+.project-update-form .full,
+.project-update-form .form-message {
+  grid-column: 1 / -1;
+}
+
+.project-detail-modal {
+  gap: 14px;
+}
+
+.project-manage-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+  padding: 14px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.project-manage-form .full {
+  grid-column: 1 / -1;
+}
+
+.collaborator-field {
+  position: relative;
+}
+
+.collaborator-suggestions {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.collaborator-suggestions button {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--border-row);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.collaborator-suggestions button:hover {
+  background: var(--surface-3);
+}
+
+.collaborator-suggestions span {
+  color: var(--muted);
+}
+
+.project-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.project-detail-grid div,
+.artifact-row,
+.timeline-body,
+.project-detail-notes {
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.project-detail-grid div {
+  display: grid;
+  gap: 5px;
+  padding: 11px;
+}
+
+.project-detail-grid span,
+.artifact-row small,
+.timeline-head span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.project-detail-grid strong,
+.timeline-head strong {
+  color: var(--ink);
+}
+
+.project-detail-notes {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.project-artifact-panel,
+.project-timeline-panel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.artifact-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.artifact-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.artifact-row > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.artifact-row p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.upload-progress {
+  position: relative;
+  overflow: hidden;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-3);
+}
+
+.upload-progress span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--teal-tint);
+}
+
+.upload-progress strong {
+  position: relative;
+  display: block;
+  padding: 7px 10px;
+  color: var(--ink-3);
+  font-size: 0.74rem;
+}
+
+.project-timeline {
+  display: grid;
+  gap: 0;
+  padding: 12px;
+}
+
+.timeline-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  padding-bottom: 12px;
+}
+
+.timeline-marker {
+  width: 10px;
+  height: 10px;
+  margin-top: 14px;
+  border: 2px solid var(--teal-ink);
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.timeline-body {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+}
+
+.timeline-head,
+.timeline-comment,
+.timeline-comment-form,
+.project-update-form {
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.timeline-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.timeline-comment {
+  padding: 9px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.timeline-comment span {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.timeline-comment-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.project-update-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.project-update-form h3 {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.artifact-upload-field {
+  display: grid;
+  gap: 7px;
+  color: var(--ink-3);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.artifact-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+}
+
+.artifact-upload-row input[type="file"] {
+  display: none;
+}
+
+.artifact-upload-row .ops-secondary {
+  width: 38px;
+  min-height: 38px;
+  padding: 0;
+}
+
+.artifact-upload-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-upload-row small {
+  color: var(--muted);
 }
 
 .role-picker {
@@ -3768,6 +4084,18 @@ button:disabled {
   }
 
   .dashboard-split {
+    grid-template-columns: 1fr;
+  }
+
+  .project-detail-grid,
+  .project-modal .modal-fieldset,
+  .project-update-form,
+  .project-manage-form {
+    grid-template-columns: 1fr;
+  }
+
+  .timeline-head,
+  .timeline-comment-form {
     grid-template-columns: 1fr;
   }
 

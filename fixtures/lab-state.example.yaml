@@ -9,19 +9,26 @@ meta:
 projects:
   - project: toy-segmentation
     owner: alice
+    collaborators:
+      - bob
+      - charlie
     track: A
     stage: 3
     status: on_track
     stage_since: 2026-06-10
     last_update: 2026-06-18
     blocker: null
-    target: ToyConf abstract 2026-09-15
+    target: finish ablation study
+    venue: ToyConf
+    submission_deadline: 2026-09-15
     watch_path: gitlab://vios/toy-segmentation
     artifacts:
       - gitlab://vios/toy-segmentation/design-v1.md
 
   - project: causal-widget
     owner: bob
+    collaborators:
+      - alice
     track: B
     stage: 3
     status: blocked
@@ -29,12 +36,16 @@ projects:
     last_update: 2026-06-01
     blocker: waiting for compute allocation
     target: internal demo
+    venue: internal demo
+    submission_deadline: 2026-07-01
     watch_path: gitlab://vios/causal-widget
     artifacts:
       - gitlab://vios/causal-widget/demo-plan.md
 
   - project: report-assistant
     owner: charlie
+    collaborators:
+      - bob
     track: C
     stage: 4
     status: needs_input
@@ -42,5 +53,7 @@ projects:
     last_update: 2026-06-02
     blocker: null
     target: journal draft
+    venue: Journal of Report Systems
+    submission_deadline: 2026-08-30
     watch_path: gitlab://vios/report-assistant
     artifacts: []

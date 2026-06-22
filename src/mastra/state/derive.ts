@@ -118,7 +118,10 @@ export function renderThemeMeetingSummary(state: DerivedLabState, summary = summ
       const weeks = project.derived.weeks_in_stage === null ? 'unknown' : `${project.derived.weeks_in_stage}w`;
       const updateAge =
         project.derived.days_since_update === null ? 'unknown' : `${project.derived.days_since_update}d`;
-      return `- ${project.project} (${project.owner}): ${project.derived.recommendation}, stage ${project.stage}, in-stage ${weeks}, last update ${updateAge}, signals ${project.derived.signals.join(', ') || 'none'}`;
+      const collaborators = project.collaborators.length ? `, collaborators ${project.collaborators.join(', ')}` : '';
+      const venue = project.venue ? `, venue ${project.venue}` : '';
+      const deadline = project.submission_deadline ? `, deadline ${project.submission_deadline}` : '';
+      return `- ${project.project} (${project.owner}${collaborators}${venue}${deadline}): ${project.derived.recommendation}, stage ${project.stage}, in-stage ${weeks}, last update ${updateAge}, signals ${project.derived.signals.join(', ') || 'none'}`;
     })
     .join('\n');
 

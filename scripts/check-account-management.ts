@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { createSessionToken, sessionCookieName } from '../src/mastra/auth/session';
+import { auditLogDateKey } from '../src/mastra/db/audit-log';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import {
   ensureUsersTable,
@@ -397,7 +398,7 @@ async function main() {
     const memberAudit = await auditRoute.GET(getRequest('/api/audit-log', cookieFor(member)));
     assert.equal(memberAudit.status, 403, 'Members should not read audit logs.');
 
-    const auditDay = new Date().toISOString().slice(0, 10);
+    const auditDay = auditLogDateKey();
     const adminAudit = await auditRoute.GET(getRequest(`/api/audit-log?day=${auditDay}`, cookieFor(admin)));
     assert.equal(adminAudit.status, 200, 'Administrators should read audit logs.');
     const auditBody = await jsonBody(adminAudit);

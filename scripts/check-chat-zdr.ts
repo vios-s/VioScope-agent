@@ -8,7 +8,12 @@ const checks = [
   ['disables OpenAI response storage', /store:\s*false/.test(source)],
   ['detects ZDR persistence errors', /Items are not persisted for Zero Data Retention/.test(source)],
   ['detects missing item references', /Item with id \.\* not found/.test(source)],
-  ['retries without thread memory', /agent\.generate\(agentMessage,\s*\{\s*maxSteps:\s*5,\s*providerOptions:\s*openAIProviderOptions,\s*\}\)/s.test(source)],
+  [
+    'retries without thread memory',
+    /isZdrItemReferenceError\(error\)/.test(source) &&
+      /responseThreadId\s*=\s*`web-\$\{Date\.now\(\)\}`/.test(source) &&
+      /response\s*=\s*await agent\.generate\(agentMessage,[\s\S]*?requestContext,[\s\S]*?\);/.test(source),
+  ],
   ['includes user context', /messageWithUserContext\(message,\s*user,\s*userDatastoreContext\)/.test(source)],
   ['blocks obvious out-of-scope chat', /isClearlyOutOfScope\(message\)/.test(source)],
   ['allows leave-like wiki questions through RAG', /annual leave/.test(source) && /return false/.test(source)],

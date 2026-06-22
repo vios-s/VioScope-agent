@@ -29,7 +29,7 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 function resolveFromCwd(path: string): string {
-  return resolve(process.cwd(), path);
+  return resolve(/* turbopackIgnore: true */ process.cwd(), path);
 }
 
 function fallbackRuntimePath(fileName: string): string {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createSessionToken, sessionCookieName } from '../src/mastra/auth/session';
+import { auditLogDateKey } from '../src/mastra/db/audit-log';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { getUserByUsername, upsertLocalUser, type AuthUser, type UserRole } from '../src/mastra/db/users';
 import { runtimeConfigCachePath } from '../src/mastra/runtime-config';
@@ -236,7 +237,7 @@ async function main() {
     const expectedRestartStatus = process.env.VIOSCOPE_RESTART_COMMAND?.trim() ? 200 : 409;
     assert.equal(restartResponse.status, expectedRestartStatus, 'Restart status should match VIOSCOPE_RESTART_COMMAND availability.');
 
-    const auditDay = new Date().toISOString().slice(0, 10);
+    const auditDay = auditLogDateKey();
     const auditResponse = await auditRoute.GET(request(`/api/audit-log?day=${auditDay}`, admin));
     assert.equal(auditResponse.status, 200, 'Admin should read audit logs.');
     const auditPayload = await auditResponse.json();

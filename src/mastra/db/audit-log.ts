@@ -41,8 +41,24 @@ type AuditLogDayRow = {
   entry_count: number | string;
 };
 
+export const auditLogTimeZone = 'Europe/London';
+
 let ensureAuditLogTablePromise: Promise<void> | null = null;
 let lastPruneDay: string | null = null;
+
+const auditLogDateFormatter = new Intl.DateTimeFormat('en-GB', {
+  timeZone: auditLogTimeZone,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+export function auditLogDateKey(value: Date | string = new Date()): string {
+  const parts = Object.fromEntries(
+    auditLogDateFormatter.formatToParts(new Date(value)).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
 
 function metadataObject(value: Record<string, unknown> | string | null): Record<string, unknown> {
   if (!value) return {};
@@ -82,7 +98,7 @@ async function ensureAuditLogTableOnce(): Promise<void> {
       CREATE TABLE IF NOT EXISTS audit_log (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         event_time TIMESTAMPTZ NOT NULL DEFAULT now(),
-        event_day DATE NOT NULL DEFAULT CURRENT_DATE,
+        event_day DATE NOT NULL DEFAULT ((now() AT TIME ZONE 'Europe/London')::date),
         actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
         actor_username TEXT,
         actor_role TEXT,
@@ -93,6 +109,7 @@ async function ensureAuditLogTableOnce(): Promise<void> {
         metadata JSONB NOT NULL DEFAULT '{}'::jsonb
       )
     `);
+    await postgres.pool.query("ALTER TABLE audit_log ALTER COLUMN event_day SET DEFAULT ((now() AT TIME ZONE 'Europe/London')::date)");
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS audit_log_event_time_idx ON audit_log (event_time DESC)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS audit_log_event_day_idx ON audit_log (event_day, event_time DESC)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log (actor_user_id, event_time DESC)');
@@ -128,6 +145,7 @@ export async function recordAuditLog(input: {
     await postgres.pool.query(
       `
         INSERT INTO audit_log (
+          event_day,
           actor_user_id,
           actor_username,
           actor_role,
@@ -137,7 +155,7 @@ export async function recordAuditLog(input: {
           summary,
           metadata
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+        VALUES ((now() AT TIME ZONE 'Europe/London')::date, $1, $2, $3, $4, $5, $6, $7, $8::jsonb)
       `,
       [
         input.actor?.id || null,
@@ -183,7 +201,7 @@ export async function pruneAuditLogs(input: { retentionDays?: number } = {}): Pr
 }
 
 async function pruneAuditLogsOncePerDay(): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = auditLogDateKey();
   if (lastPruneDay === today) {
     return;
   }

@@ -67,26 +67,38 @@ Status key:
 
 | Status | ID | Check | Expected behaviour | Evidence / notes |
 |---|---|---|---|---|
-| [ ] | M3.1 | Session memory works. | Follow-up questions remember the current conversation. | |
-| [ ] | M3.2 | Personal memory is isolated. | Two users do not see each other's private memory. | |
-| [ ] | M3.3 | Public memory is shared. | Shared lab facts are visible to allowed users. | |
-| [ ] | M3.4 | Role gates memory access. | Members cannot access PI/admin-only memory or checks. | |
-| [ ] | M3.5 | Shared chat does not share personal memory. | A mentioned user sees the chat, not the owner's private memory. | |
+| [x] | M3.1 | Session memory works. | Follow-up questions remember the current conversation. | `npm run check:memory` uses live `/api/chat` + LLM generation; same `threadId` recalls a unique prior session code. |
+| [x] | M3.2 | Personal memory is isolated. | Two users do not see each other's private memory. | `npm run check:memory` creates separate `DATASTORE_DIR/users/<slug>/memory.md` files; Alice and Bob each retrieve only their own unique code. |
+| [x] | M3.3 | Public memory is shared. | Shared lab facts are visible to allowed users. | `npm run check:memory` verifies two PI users can read the same shared lab-state facts through the lab-state route, including venue/deadline fields from the fixture fallback. |
+| [x] | M3.4 | Role gates memory access. | Members cannot access PI/admin-only memory or checks. | No separate shared PI/admin memory store exists yet; personal datastore memory is isolated by signed-in user in `npm run check:memory`. Admin-only settings/audit APIs remain route-gated. Project tools use server-side request context and DB visibility filters, not model-supplied user IDs. |
+| [~] | M3.5 | Shared chat does not share personal memory. | A mentioned user sees the chat, not the owner's private memory. | `npm run check:memory` verifies a mentioned user cannot directly retrieve the owner's private user-path memory from a shared session. Still needs product rule for explicit disclosure: if the owner asks the assistant to reveal private memory inside a shared chat, the answer text itself can be shared. |
+
+## 3.5 Project Management
+
+| Status | ID | Check | Expected behaviour | Evidence / notes |
+|---|---|---|---|---|
+| [x] | PM3.5.1 | Project Manager has persistent DB/API records. | Projects are stored outside lab-state with full title, slug, owner, collaborators, track, stage, lifecycle, status, blocker, target, venue, deadline, watch path, notes, artifacts, updates, and comments. | `project_records`, `project_artifacts`, `project_updates`, and `project_update_comments` tables plus `/api/projects` routes are implemented. Track is limited to A/B, stage is 1-5, watch path is generated from owner/slug, and duplicate full project names are blocked per owner. `npm run check:projects` passes. |
+| [x] | PM3.5.2 | Project visibility follows collaboration rules. | Owner, collaborators, coordinators, PI/admin can see the right projects; outsiders cannot. | `npm run check:projects` verifies owner/collaborator/coordinator/PI visibility, outsider denial, and that coordinator visibility alone does not grant edit permission. |
+| [~] | PM3.5.3 | Dashboard project UI follows the operations-console design. | Member dashboard shows own/visible projects with Add project and one icon-only Manage action; PI/admin sees a lab-wide table with one icon-only Manage action and the same detail editor. | Dashboard now loads Project Manager records, uses full project name before generated slug, collaborator hints allow comma-separated internal/external names, Manage combines edit/details/update, Collaborators spans the full manage form row, editable lifecycle/status/venue/deadline/collaborators/watch path/target/blocker/notes are present, and artifact update uses a single upload control with inferred kind/path. `npm run typecheck` and a temporary Playwright member/PI/admin desktop smoke pass; still needs manual/mobile UX pass before marking complete. |
+| [~] | PM3.5.4 | Agent can read project details safely. | Chat can fetch only projects visible to the signed-in user. | `list-visible-projects` and `get-project-detail` Mastra tools are registered and use server-side `RequestContext` user data. Needs live chat/tool-call smoke before marking complete. |
+| [x] | PM3.5.5 | Artifacts do not crowd agent context. | Old files are retained, but the agent sees current summaries by default. | Artifact rows keep all versions; same artifact key marks older versions `is_current=false`. `npm run check:projects` verifies two versions retained and only the latest is current. Project tools return current artifact summaries by default, not file bodies. |
+| [x] | PM3.5.6 | Project operations are auditable without content leakage. | Create/edit/archive/update/comment actions write safe metadata only. | Project APIs record `project.create`, `project.update`, `project.archive`, `project.update_add`, and `project.update_comment`; `npm run check:projects` verifies actions and `npm run check:audit-coverage` covers mutating routes. |
+| [x] | PM3.5.7 | Artifact upload pipeline exists. | Uploads can store files, extract zip files, generate artifact summaries automatically, and support artifact lifecycle actions. | Implemented for `.docx`, `.pptx`, `.pdf`, `.zip`, and text-like files with a 20 MB per-file limit. Files store under `PROJECT_ARTIFACT_UPLOAD_DIR` or `DATASTORE_DIR/uploads/projects`; zip uploads are extracted to a sibling `.extracted` folder; ELM generates concise artifact digests with local fallback. UI supports download, soft-remove, manual digest regeneration, and upload progress. `npm run check:project-artifacts` creates mock `Educational Agent with Memory` uploads for docx/pptx/pdf/zip and verifies LLM digests, zip extraction, download, remove, manual digest, audit metadata, and the 20 MB limit. |
 
 ## 4. Chat Collaboration
 
 | Status | ID | Check | Expected behaviour | Evidence / notes |
 |---|---|---|---|---|
-| [ ] | C4.1 | Chat sessions are server-side records. | History survives browser refresh/device change. | |
-| [ ] | C4.2 | User owns their own chat sessions. | Own sessions appear under `History`. | |
-| [ ] | C4.3 | Mention autocomplete lists active usernames. | Typing `@` shows active `users.username` values. | |
-| [ ] | C4.4 | `@username` shares the current session. | Mentioned active user becomes a member of that chat session. | |
-| [ ] | C4.5 | Mention creates a notification. | Receiver gets a web notification with a prompt snippet. | |
-| [ ] | C4.6 | Shared sessions are separate. | Receiver sees shared chats under `Shared sessions`, not mixed into own `History`. | |
-| [ ] | C4.7 | Alert action opens the shared chat. | Clicking the notification takes the receiver to the right session. | |
-| [ ] | C4.8 | Alerts support read/unread state. | Read state persists and historical alerts remain visible. | |
-| [ ] | C4.9 | Importing legacy local chat does not send mention notifications. | Imported old messages do not notify mentioned users. | |
-| [ ] | C4.10 | Chat sharing does not grant write permissions. | Receiver cannot write state/wiki/datastore merely because a chat was shared. | |
+| [x] | C4.1 | Chat sessions are server-side records. | History survives browser refresh/device change. | `npm run check:chat-collaboration` verifies `chat_sessions`, `chat_messages`, `chat_session_members`, and `/api/chat/sessions` return server-side sessions. |
+| [x] | C4.2 | User owns their own chat sessions. | Own sessions appear under `History`. | `npm run check:chat-collaboration` verifies the owner sees the saved thread with `membershipKind=owner`. |
+| [x] | C4.3 | Mention autocomplete lists active usernames. | Typing `@` shows active `users.username` values. | `npm run check:chat-collaboration` verifies `listMentionableUsers` includes active users and excludes disabled users; the Chat UI uses the same active-user feed for `@` suggestions. |
+| [x] | C4.4 | `@username` shares the current session. | Mentioned active user becomes a member of that chat session. | `npm run check:chat-collaboration` verifies `shareChatSessionWithMentions` adds the mentioned active user and reports unknown mentions separately. |
+| [x] | C4.5 | Mention creates a notification. | Receiver gets a web notification with a prompt snippet. | `npm run check:chat-collaboration` verifies a mention creates one unread notification for the receiver. |
+| [x] | C4.6 | Shared sessions are separate. | Receiver sees shared chats under `Shared sessions`, not mixed into own `History`. | `npm run check:chat-collaboration` verifies the receiver sees the thread with `membershipKind=shared`, not as owned history. |
+| [~] | C4.7 | Alert action opens the shared chat. | Clicking the notification takes the receiver to the right session. | Frontend path exists: Alerts calls `openChatSessionFromNotification`, which switches to Chat, opens the target thread, and marks the notification read. Needs a Playwright click-through check before marking complete. |
+| [x] | C4.8 | Alerts support read/unread state. | Read state persists and historical alerts remain visible. | `npm run check:chat-collaboration` verifies mark-read persists and read notifications remain historically visible. |
+| [x] | C4.9 | Importing legacy local chat does not send mention notifications. | Imported old messages do not notify mentioned users. | `npm run check:chat-collaboration` imports a legacy message containing `@username` and verifies no new notification is sent. |
+| [x] | C4.10 | Chat sharing does not grant write permissions. | Receiver cannot write state/wiki/datastore merely because a chat was shared. | `npm run check:chat-collaboration` verifies a shared-chat receiver cannot see or update the owner's private project. |
 
 ## 5. A1 Shared Materials Store
 
@@ -94,7 +106,7 @@ Status key:
 |---|---|---|---|---|
 | [ ] | S5.1 | Shared materials are discoverable. | Slides, proposals, demos, and artifacts can be listed or linked. | |
 | [ ] | S5.2 | Materials stay outside public code. | Lab-specific files live in internal GitLab or `DATASTORE_DIR`. | |
-| [ ] | S5.3 | State model links to artifacts. | Project records include useful `artifacts` references. | |
+| [x] | S5.3 | State model links to artifacts. | Project records include useful `artifacts` references. | Project Manager records include artifact title/kind/path/summary/key/current-version metadata. `npm run check:projects` verifies versioned artifact retention. Legacy lab-state fixture still has artifact references. |
 | [ ] | S5.4 | Large files have a policy. | GitLab LFS or overflow storage is documented/usable. | |
 
 ## 6. A2 State Model
@@ -102,7 +114,7 @@ Status key:
 | Status | ID | Check | Expected behaviour | Evidence / notes |
 |---|---|---|---|---|
 | [ ] | ST6.1 | State model file exists. | YAML/Markdown state can be found under external config or `DATASTORE_DIR`. | |
-| [ ] | ST6.2 | State model has required human fields. | `owner`, `track`, `stage`, `status`, `stage_since`, `last_update`, `blocker`, `target`, `artifacts`, `watch_path`. | |
+| [~] | ST6.2 | State model has required human fields. | `owner`, `collaborators`, `track`, `stage`, `status`, `stage_since`, `last_update`, `blocker`, `target`, `venue`, `submission_deadline`, `artifacts`, `watch_path`. | Fixture schema/readback covers collaborators, venue, and submission deadline; `npm run check:lab-state` passes. Real `/Public/lab-state.yaml` still needed before marking complete. |
 | [ ] | ST6.3 | State model has derived fields. | `weeks_in_stage`, `recommendation`, and `signals` are present or computed. | |
 | [ ] | ST6.4 | Valid statuses are enforced. | Only `on_track`, `blocked`, `stale`, `needs_input` are accepted. | |
 | [ ] | ST6.5 | Stage values are aligned to VIOS OS. | Stages 1-5 match the real theme-meeting stages. | |
@@ -135,7 +147,7 @@ Status key:
 | [ ] | T7.17 | Coordinator can manage members. | Coordinator adds/removes members only for their own theme. | |
 | [ ] | T7.18 | Coordinator can send manual reminders. | Manual missing-update reminder works before cutoff. | |
 | [ ] | T7.19 | Skip is per theme meeting. | Skipping A does not automatically skip B/C/D. | |
-| [ ] | T7.20 | Dashboard shows the useful board. | Person/project stage, status, time-in-stage, who should update, and deep-dive recommendations are visible. | |
+| [~] | T7.20 | Dashboard shows the useful board. | Person/project stage, status, time-in-stage, who should update, and deep-dive recommendations are visible. | Dashboard now shows Project Manager project cards/table with owner, collaborators, track, stage, lifecycle, status, target, blocker, deadline, artifacts, details, and timeline. Temporary Playwright desktop smoke passes; still needs mobile/manual UX and tighter theme-meeting deep-dive integration. |
 
 ## 8. B2 Pre-Submission Agent
 
@@ -174,7 +186,7 @@ Status key:
 | [ ] | UX10.1 | Login screen is clear. | User understands how to enter the app. | |
 | [ ] | UX10.2 | Streaming chat works. | Responses appear progressively and recover gracefully on errors. | |
 | [ ] | UX10.3 | Navigation is obvious. | User can find Chat, History, Shared sessions, Alerts, and Theme meetings. | |
-| [ ] | UX10.4 | Dashboard is scannable. | Important meeting/status information is visible without hunting. | |
+| [~] | UX10.4 | Dashboard is scannable. | Important meeting/status information is visible without hunting. | Dashboard layout follows the design direction with summary strip, project cards, attention panel, project table, detail modal, and timeline. Temporary Playwright desktop smoke passes; still needs mobile/manual viewport pass before marking complete. |
 | [ ] | UX10.5 | Forms are short and forgiving. | Member update form supports fast completion and useful validation. | |
 | [ ] | UX10.6 | Empty states are useful. | No meetings/alerts/history states tell the user what is true, not marketing copy. | |
 | [ ] | UX10.7 | Error states are actionable. | User sees what failed and what they can do next. | |
@@ -188,7 +200,7 @@ Status key:
 |---|---|---|---|---|
 | [ ] | O11.1 | Backups exist. | Postgres data can be backed up and restored. | |
 | [x] | O11.2 | Logs avoid secrets/private content. | Logs are useful without leaking sensitive material. | Audit entries use metadata-only summaries/counts/status/IDs/field names. Live chat smoke verifies `chat.turn` audit records message length/source count but not full prompt or response. Retention is configurable with `AUDIT_LOG_RETENTION_DAYS`. |
-| [x] | O11.3 | Important actions are auditable. | State changes, notifications, shares, and verdicts have audit records. | Auth/account/user management, chat turns/imports, theme meeting updates/members/reminders, notification read actions, submission review runs, admin config changes/restart requests, and review save/signoff write `audit_log`; `npm run check:audit-coverage`, `check:audit-log`, `check:audit-retention`, and `check:service-restart` pass. |
+| [x] | O11.3 | Important actions are auditable. | State changes, notifications, shares, and verdicts have audit records. | Auth/account/user management, project create/edit/archive/update/comment, chat turns/imports, theme meeting updates/members/reminders, notification read actions, submission review runs, admin config changes/restart requests, and review save/signoff write `audit_log`; `npm run check:audit-coverage`, `check:audit-log`, `check:audit-retention`, `check:service-restart`, and `check:projects` pass. |
 | [ ] | O11.4 | Public exposure is controlled. | Internal/VPN mode works before public IP/TLS work begins. | |
 | [ ] | O11.5 | Email is clearly backlog. | Browser/web notifications work before local email is attempted. | |
 | [ ] | O11.6 | Overleaf integration is clearly backlog. | Settings lists only Overleaf under integrations and marks it as backlog until implementation starts. | |

@@ -129,6 +129,16 @@ export const appSettingDefinitions = [
     optional: true,
   },
   {
+    key: 'PROJECT_ARTIFACT_UPLOAD_DIR',
+    label: 'Project artifact directory',
+    section: 'paths',
+    valueType: 'path',
+    envName: 'PROJECT_ARTIFACT_UPLOAD_DIR',
+    description: 'Optional upload directory for Project Manager artifacts.',
+    restartRequired: true,
+    optional: true,
+  },
+  {
     key: 'THEME_MEETING_CONFIG_PATH',
     label: 'Theme config path',
     section: 'paths',

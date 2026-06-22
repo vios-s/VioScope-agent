@@ -55,7 +55,7 @@ async function insertLogs(): Promise<{ oldId: string; currentId: string }> {
         INSERT INTO audit_log (event_time, event_day, action, target_type, target_id, summary, metadata)
         VALUES
           ('2000-01-01T00:00:00Z'::timestamptz, '2000-01-01'::date, 'audit.retention_old', 'audit_log', $1, 'Old retention smoke log.', $3::jsonb),
-          (now(), CURRENT_DATE, 'audit.retention_current', 'audit_log', $2, 'Current retention smoke log.', $3::jsonb)
+          (now(), (now() AT TIME ZONE 'Europe/London')::date, 'audit.retention_current', 'audit_log', $2, 'Current retention smoke log.', $3::jsonb)
         RETURNING id::text, target_id
       `,
       [`${testRunId}-old`, `${testRunId}-current`, JSON.stringify({ testRunId })],

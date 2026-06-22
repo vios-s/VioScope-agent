@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { RequestContext } from '@mastra/core/request-context';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
 import { mastra } from '../../../src/mastra';
@@ -17,6 +18,10 @@ type ChatSource = {
   title: string;
   url: string;
   path?: string;
+};
+
+type VioScopeRequestContext = {
+  'vioscope-user': AuthUser;
 };
 
 function text(value: unknown): string | undefined {
@@ -152,6 +157,8 @@ export async function POST(request: Request) {
     const agent = mastra.getAgent('vioscopeAgent');
     const userDatastoreContext = await loadUserDatastoreContext(user);
     const agentMessage = messageWithUserContext(message, user, userDatastoreContext);
+    const requestContext = new RequestContext<VioScopeRequestContext>();
+    requestContext.set('vioscope-user', user);
     let response: Awaited<ReturnType<typeof agent.generate>>;
     let responseThreadId = threadId;
 
@@ -159,6 +166,7 @@ export async function POST(request: Request) {
       response = await agent.generate(agentMessage, {
         maxSteps: 5,
         providerOptions: openAIProviderOptions,
+        requestContext,
         memory: {
           thread: threadId,
           resource: user.id,
@@ -173,6 +181,7 @@ export async function POST(request: Request) {
       response = await agent.generate(agentMessage, {
         maxSteps: 5,
         providerOptions: openAIProviderOptions,
+        requestContext,
       });
     }
 

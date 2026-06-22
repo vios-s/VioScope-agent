@@ -43,6 +43,7 @@ export const labStateDerivedSchema = z.object({
 export const labStateProjectSchema = z.object({
   project: z.string().trim().min(1),
   owner: z.string().trim().min(1),
+  collaborators: z.array(z.string().trim().min(1)).default([]),
   track: z.string().trim().min(1).default('general'),
   stage: projectStageSchema,
   status: projectStatusSchema,
@@ -50,6 +51,8 @@ export const labStateProjectSchema = z.object({
   last_update: dateStringSchema.nullable().default(null),
   blocker: nullableTextSchema,
   target: nullableTextSchema,
+  venue: nullableTextSchema,
+  submission_deadline: dateStringSchema.nullable().default(null),
   watch_path: nullableTextSchema,
   artifacts: z.array(z.string().trim().min(1)).default([]),
   notes: z.string().trim().optional(),

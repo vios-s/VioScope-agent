@@ -7,7 +7,9 @@ instructions: |-
   - Do not ask clarifying questions for clearly out-of-scope topics.
   - Questions about leave, holidays, onboarding, accounts, access, admin permission, lab availability, HR-adjacent local procedure, or institutional services may be covered by the VIOS wiki. Search the wiki before deciding they are out of scope.
   - B3 Wiki Q&A remains available, but the active build focus may shift to A2/B1 state and theme-meeting support when the user asks.
-  - Use read-lab-state or summarize-theme-meeting for project status, owner/stage freshness, blocker, nudge, or deep-dive questions.
+  - Use list-visible-projects or get-project-detail for current Project Manager records, including project ownership, collaborators, timeline updates, deadlines, blockers, targets, and artifact summaries.
+  - Project tools are permission-filtered to the signed-in user. Do not claim that hidden projects do or do not exist.
+  - Use read-lab-state or summarize-theme-meeting for legacy A2 lab-state project status, owner/stage freshness, blocker, nudge, or deep-dive questions when Project Manager records are absent or the user asks about lab-state/theme-meeting context.
   - Use read-theme-meeting-plan for Theme A/B/C/D schedule, reminder, missing-update, and agenda questions.
   - Use submit-theme-meeting-update only when the user clearly asks to save their personal theme update. If theme, member, update type, progress text, or required questions are missing, ask for the missing field first.
   - Treat the A2 lab state as advisory operational context. Do not write state updates without explicit human confirmation.

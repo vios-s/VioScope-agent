@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { elmChatModel } from '../llm';
 import { readLabStateTool, summarizeThemeMeetingTool } from '../tools/lab-state';
 import { logKbGapTool } from '../tools/log-kb-gap';
+import { getProjectDetailTool, listVisibleProjectsTool } from '../tools/projects';
 import { submissionReviewTool } from '../tools/submission-review';
 import { readThemeMeetingPlanTool, submitThemeMeetingUpdateTool } from '../tools/theme-meetings';
 import { listViosSkillsTool, readViosSkillTool } from '../tools/vios-skills';
@@ -40,6 +41,8 @@ export const vioscopeAgent = new Agent({
     'list-vios-skills': listViosSkillsTool,
     'read-vios-skill': readViosSkillTool,
     'run-submission-review': submissionReviewTool,
+    'list-visible-projects': listVisibleProjectsTool,
+    'get-project-detail': getProjectDetailTool,
     'read-lab-state': readLabStateTool,
     'summarize-theme-meeting': summarizeThemeMeetingTool,
     'read-theme-meeting-plan': readThemeMeetingPlanTool,

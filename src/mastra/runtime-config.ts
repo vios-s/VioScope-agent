@@ -1,12 +1,14 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-export const runtimeConfigCachePath = resolve(
-  /* turbopackIgnore: true */ process.cwd(),
-  '.local',
-  'state',
-  'app-settings-runtime.json',
-);
+export const runtimeConfigCachePath = process.env.VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH
+  ? resolve(process.env.VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH)
+  : resolve(
+      /* turbopackIgnore: true */ process.cwd(),
+      '.local',
+      'state',
+      'app-settings-runtime.json',
+    );
 
 function loadRuntimeOverrides(): Record<string, string> {
   try {

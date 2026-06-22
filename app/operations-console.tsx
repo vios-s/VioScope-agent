@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   ClipboardList,
+  Download,
   FileText,
   History,
   KeyRound,
@@ -20,6 +21,7 @@ import {
   Pencil,
   Plus,
   Power,
+  RefreshCw,
   Save,
   Search,
   Send,
@@ -28,6 +30,7 @@ import {
   Sun,
   Upload,
   X,
+  Trash2,
   Users,
 } from 'lucide-react';
 import { DotMatrixIcon } from './dot-matrix-icon';
@@ -120,6 +123,110 @@ type LabStatePayload = {
   summary: LabStateSummary;
   source: 'configured' | 'fixture';
   warning?: string;
+};
+
+type ProjectLifecycle = 'active' | 'paused' | 'finished' | 'archived';
+type ProjectUpdateType = 'progress' | 'note' | 'decision' | 'blocker' | 'artifact';
+type ProjectAccessReason = 'owner' | 'collaborator' | 'coordinator' | 'pi_admin';
+type ProjectTrack = 'A' | 'B';
+
+type ManagedProjectArtifact = {
+  id: string;
+  title: string;
+  kind: string;
+  path: string | null;
+  summary: string;
+  artifactKey: string;
+  isCurrent: boolean;
+  sourceUpdateId: string | null;
+  uploadedByUsername: string | null;
+  createdAt: string;
+};
+
+type ManagedProjectUpdateComment = {
+  id: string;
+  updateId: string;
+  byUsername: string;
+  text: string;
+  createdAt: string;
+};
+
+type ManagedProjectUpdate = {
+  id: string;
+  date: string;
+  byUsername: string;
+  type: ProjectUpdateType;
+  text: string;
+  artifactIds: string[];
+  comments: ManagedProjectUpdateComment[];
+  createdAt: string;
+};
+
+type ManagedProject = {
+  id: string;
+  project: string;
+  title: string;
+  ownerUsername: string;
+  collaborators: string[];
+  track: string;
+  stage: number;
+  lifecycle: ProjectLifecycle;
+  status: ProjectStatus;
+  stageSince: string | null;
+  lastUpdate: string | null;
+  blocker: string | null;
+  target: string | null;
+  venue: string | null;
+  submissionDeadline: string | null;
+  watchPath: string | null;
+  notes: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  artifacts: ManagedProjectArtifact[];
+  updates: ManagedProjectUpdate[];
+  access: {
+    canEdit: boolean;
+    canArchive: boolean;
+    canAddUpdate: boolean;
+    canComment: boolean;
+    reason: ProjectAccessReason;
+  };
+};
+
+type ProjectsPayload = {
+  source?: 'project_manager';
+  projects?: ManagedProject[];
+  project?: ManagedProject;
+  error?: string;
+};
+
+type ProjectDraft = {
+  id?: string;
+  project: string;
+  title: string;
+  ownerUsername: string;
+  collaboratorsText: string;
+  track: ProjectTrack;
+  stage: string;
+  lifecycle: ProjectLifecycle;
+  status: ProjectStatus;
+  stageSince: string;
+  lastUpdate: string;
+  blocker: string;
+  target: string;
+  venue: string;
+  submissionDeadline: string;
+  watchPath: string;
+  notes: string;
+};
+
+type ProjectTimelineDraft = {
+  type: ProjectUpdateType;
+  date: string;
+  text: string;
+  artifactFile: File | null;
+  artifactFileName: string;
 };
 
 type ThemeMeetingPayload = {
@@ -261,6 +368,36 @@ const statusLabels: Record<ProjectStatus, string> = {
   needs_input: 'Needs input',
 };
 
+const lifecycleLabels: Record<ProjectLifecycle, string> = {
+  active: 'Active',
+  paused: 'Paused',
+  finished: 'Finished',
+  archived: 'Archived',
+};
+
+const projectUpdateTypeLabels: Record<ProjectUpdateType, string> = {
+  progress: 'Progress',
+  note: 'Note',
+  decision: 'Decision',
+  blocker: 'Blocker',
+  artifact: 'Artifact',
+};
+
+const projectTrackLabels: Record<ProjectTrack, string> = {
+  A: 'Track A',
+  B: 'Track B',
+};
+
+const projectArtifactMaxBytes = 20 * 1024 * 1024;
+
+const stageLabels: Record<number, string> = {
+  1: '1: idea/proposal',
+  2: '2: design/planning',
+  3: '3: experiments/build',
+  4: '4: writing/packaging',
+  5: '5: submission/finish',
+};
+
 const recommendationLabels: Record<ProjectRecommendation, string> = {
   deep_dive: 'Deep dive',
   nudge: 'Nudge',
@@ -384,6 +521,19 @@ function titleCase(value: string) {
     .join(' ');
 }
 
+function slugifyProjectName(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^[._-]+|[._-]+$/g, '')
+    .slice(0, 96);
+}
+
+function generatedWatchPath(ownerUsername: string, slug: string) {
+  return slug ? `project://${ownerUsername}/${slug}` : '';
+}
+
 function formatDate(value: string | null) {
   if (!value) return 'No date';
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(`${value}T00:00:00Z`));
@@ -398,6 +548,115 @@ function formatAge(days: number | null) {
 
 function canSeeAllRole(role: CurrentUser['role']) {
   return role === 'administrator' || role === 'pi';
+}
+
+function currentProjectArtifacts(project: ManagedProject) {
+  return project.artifacts.filter((artifact) => artifact.isCurrent);
+}
+
+function daysSinceDate(value: string | null) {
+  if (!value) return null;
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+}
+
+function projectDraftFromProject(project: ManagedProject | null, viewer: CurrentUser): ProjectDraft {
+  const ownerUsername = project?.ownerUsername || viewer.username;
+  const projectSlug = project?.project || '';
+  return {
+    id: project?.id,
+    project: projectSlug,
+    title: project?.title || '',
+    ownerUsername,
+    collaboratorsText: project?.collaborators.join(', ') || '',
+    track: project?.track === 'B' ? 'B' : 'A',
+    stage: String(project?.stage || 1),
+    lifecycle: project?.lifecycle || 'active',
+    status: project?.status || 'on_track',
+    stageSince: project?.stageSince || new Date().toISOString().slice(0, 10),
+    lastUpdate: project?.lastUpdate || '',
+    blocker: project?.blocker || '',
+    target: project?.target || '',
+    venue: project?.venue || '',
+    submissionDeadline: project?.submissionDeadline || '',
+    watchPath: project?.watchPath || generatedWatchPath(ownerUsername, projectSlug),
+    notes: project?.notes || '',
+  };
+}
+
+function projectRequestBody(draft: ProjectDraft) {
+  const projectSlug = slugifyProjectName(draft.project || draft.title);
+  return {
+    project: projectSlug,
+    title: draft.title,
+    ownerUsername: draft.ownerUsername,
+    collaborators: collaboratorTokens(draft.collaboratorsText),
+    track: draft.track,
+    stage: Number(draft.stage),
+    lifecycle: draft.lifecycle,
+    status: draft.status,
+    stageSince: draft.stageSince || null,
+    lastUpdate: draft.lastUpdate || null,
+    blocker: draft.blocker || null,
+    target: draft.target || null,
+    venue: draft.venue || null,
+    submissionDeadline: draft.submissionDeadline || null,
+    watchPath: generatedWatchPath(draft.ownerUsername, projectSlug) || null,
+    notes: draft.notes || null,
+  };
+}
+
+function defaultTimelineDraft(): ProjectTimelineDraft {
+  return {
+    type: 'progress',
+    date: new Date().toISOString().slice(0, 10),
+    text: '',
+    artifactFile: null,
+    artifactFileName: '',
+  };
+}
+
+function inferArtifactKind(fileName: string) {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (!ext) return 'other';
+  if (['ppt', 'pptx', 'key'].includes(ext)) return 'slides';
+  if (['tex', 'bib'].includes(ext)) return 'latex';
+  if (['zip', 'tar', 'gz'].includes(ext)) return 'zip';
+  if (['md', 'pdf', 'doc', 'docx', 'txt'].includes(ext)) return 'document';
+  if (['py', 'ts', 'tsx', 'js', 'jsx', 'ipynb'].includes(ext)) return 'code';
+  return 'other';
+}
+
+function collaboratorTokens(value: string) {
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function activeCollaboratorToken(value: string) {
+  const parts = value.split(',');
+  return (parts.at(-1) || '').trim().toLowerCase();
+}
+
+function withSelectedCollaborator(value: string, username: string) {
+  const parts = value.split(',');
+  parts[parts.length - 1] = ` ${username}`;
+  return `${parts.map((part) => part.trim()).filter(Boolean).join(', ')}, `;
+}
+
+function projectNeedsAttention(project: ManagedProject) {
+  return project.status !== 'on_track' || Boolean(project.blocker);
+}
+
+function projectEvidence(project: ManagedProject) {
+  const signals = [
+    project.status !== 'on_track' ? statusLabels[project.status].toLowerCase() : null,
+    project.blocker ? 'blocker present' : null,
+    daysSinceDate(project.lastUpdate) !== null && (daysSinceDate(project.lastUpdate) || 0) > 14 ? 'stale update' : null,
+  ].filter(Boolean);
+  return signals.join(', ') || 'no risk signals';
 }
 
 function normalizedName(value: string) {
@@ -464,6 +723,34 @@ function chatSessionTime(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
 
+const auditLogTimeZone = 'Europe/London';
+
+const auditLogDateFormatter = new Intl.DateTimeFormat('en-GB', {
+  timeZone: auditLogTimeZone,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+
+function auditLogDateKey(value: Date | string = new Date()) {
+  const parts = Object.fromEntries(
+    auditLogDateFormatter.formatToParts(new Date(value)).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function auditLogTime(value: string) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: auditLogTimeZone,
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(new Date(value));
+}
+
 function compactJson(value: Record<string, unknown>) {
   const text = JSON.stringify(value);
   return text.length > 72 ? `${text.slice(0, 72)}...` : text;
@@ -518,7 +805,7 @@ function highlightedJson(json: string): ReactNode[] {
 }
 
 function auditMonthLabel(monthKey: string) {
-  return new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date(`${monthKey}-01T00:00:00Z`));
+  return new Intl.DateTimeFormat('en-GB', { timeZone: auditLogTimeZone, month: 'long', year: 'numeric' }).format(new Date(`${monthKey}-15T12:00:00Z`));
 }
 
 function groupedAuditDays(days: AuditLogDay[]) {
@@ -1268,19 +1555,27 @@ function AccountDetailsPanel({
   );
 }
 
-function ProjectCard({ project }: { project: DerivedLabStateProject }) {
+function ProjectCard({
+  project,
+  onOpen,
+}: {
+  project: ManagedProject;
+  onOpen: (project: ManagedProject) => void;
+}) {
+  const currentArtifacts = currentProjectArtifacts(project);
+  const age = formatAge(daysSinceDate(project.lastUpdate));
   return (
     <article className="project-card">
       <div className="project-card-head">
         <div>
           <span className="track-chip">Track {project.track}</span>
-          <h3>{titleCase(project.project)}</h3>
+          <h3>{project.title || titleCase(project.project)}</h3>
         </div>
         <StatusChip status={project.status} />
       </div>
       <div className="stage-row">
         <span>
-          Stage {project.stage} / 5 - {project.derived.weeks_in_stage ?? 'unknown'} weeks
+          Stage {project.stage} / 5 - {lifecycleLabels[project.lifecycle]}
         </span>
         <StageBar stage={project.stage} />
       </div>
@@ -1290,10 +1585,860 @@ function ProjectCard({ project }: { project: DerivedLabStateProject }) {
       </div>
       <div className="project-meta-row">
         <span>Last update</span>
-        <strong>{formatAge(project.derived.days_since_update)} ago</strong>
+        <strong>{age === 'today' ? 'Today' : `${age} ago`}</strong>
+      </div>
+      <div className="project-meta-row">
+        <span>Artifacts</span>
+        <strong>{currentArtifacts.length} current / {project.artifacts.length} total</strong>
       </div>
       {project.blocker && <p className="project-blocker">{project.blocker}</p>}
+      <div className="button-row">
+        <button
+          className="ops-primary icon-only-button"
+          type="button"
+          onClick={() => onOpen(project)}
+          aria-label={`Manage ${project.title}`}
+          title="Manage project"
+        >
+          <FileText aria-hidden="true" />
+        </button>
+      </div>
     </article>
+  );
+}
+
+function CollaboratorInput({
+  value,
+  onChange,
+  users,
+  className = '',
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  users: MentionableUser[];
+  className?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  const token = activeCollaboratorToken(value);
+  const existing = new Set(collaboratorTokens(value).map((item) => item.toLowerCase()));
+  const suggestions = users
+    .filter((user) => !existing.has(user.username.toLowerCase()))
+    .filter((user) => {
+      if (!token) return true;
+      return user.username.toLowerCase().includes(token) || user.displayName.toLowerCase().includes(token);
+    })
+    .slice(0, 5);
+
+  return (
+    <label className={['collaborator-field', className].filter(Boolean).join(' ')}>
+      <span>Collaborators</span>
+      <input
+        value={value}
+        onFocus={() => setFocused(true)}
+        onBlur={() => window.setTimeout(() => setFocused(false), 120)}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="yuyang, external collaborator"
+      />
+      {focused && suggestions.length > 0 && (
+        <div className="collaborator-suggestions">
+          {suggestions.map((user) => (
+            <button key={user.id} type="button" onMouseDown={() => onChange(withSelectedCollaborator(value, user.username))}>
+              <strong>{user.displayName}</strong>
+              <span>@{user.username}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </label>
+  );
+}
+
+function ProjectEditorModal({
+  project,
+  viewer,
+  collaboratorUsers,
+  existingProjects,
+  onClose,
+  onSaved,
+}: {
+  project: ManagedProject | null;
+  viewer: CurrentUser;
+  collaboratorUsers: MentionableUser[];
+  existingProjects: ManagedProject[];
+  onClose: () => void;
+  onSaved: (project: ManagedProject) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(() => projectDraftFromProject(project, viewer));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isNew = !project;
+  const canEditOwner = canSeeAllRole(viewer.role);
+
+  useEffect(() => {
+    setDraft(projectDraftFromProject(project, viewer));
+    setError(null);
+  }, [project, viewer]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const nextSlug = slugifyProjectName(draft.project || draft.title);
+      const duplicate = existingProjects.find(
+        (existing) =>
+          existing.id !== project?.id &&
+          existing.ownerUsername.toLowerCase() === draft.ownerUsername.toLowerCase() &&
+          existing.title.trim().toLowerCase() === draft.title.trim().toLowerCase(),
+      );
+      if (!draft.title.trim()) {
+        throw new Error('Full project name is required.');
+      }
+      if (!nextSlug) {
+        throw new Error('Project slug could not be generated from this name.');
+      }
+      if (duplicate) {
+        throw new Error('This owner already has a project with the same full project name.');
+      }
+      const response = await fetch(isNew ? '/api/projects' : `/api/projects/${project.id}`, {
+        method: isNew ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(projectRequestBody(draft)),
+      });
+      const body = (await response.json()) as ProjectsPayload;
+      if (!response.ok || !body.project) {
+        throw new Error(body.error || 'Could not save project.');
+      }
+      await onSaved(body.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save project.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="users-modal-backdrop" role="presentation">
+      <form className="users-modal user-edit-modal project-modal" onSubmit={submit}>
+        <header>
+          <div>
+            <h2>{isNew ? 'Add project' : 'Edit project'}</h2>
+            <p>{isNew ? 'Create a visible project record.' : project.title}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close project editor">
+            <X aria-hidden="true" />
+          </button>
+        </header>
+
+        <div className="modal-fieldset">
+          <h3>Identity</h3>
+          <label>
+            <span>Full project name</span>
+            <input
+              value={draft.title}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  title: event.target.value,
+                  project: isNew ? slugifyProjectName(event.target.value) : current.project,
+                  watchPath: isNew
+                    ? generatedWatchPath(current.ownerUsername, slugifyProjectName(event.target.value))
+                    : current.watchPath,
+                }))
+              }
+              placeholder="Toy segmentation with robust ablation"
+            />
+          </label>
+          <label>
+            <span>Slug</span>
+            <input
+              value={slugifyProjectName(draft.project || draft.title)}
+              placeholder="toy-segmentation"
+              disabled
+            />
+          </label>
+          <label>
+            <span>Owner</span>
+            <input
+              value={draft.ownerUsername}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  ownerUsername: event.target.value,
+                  watchPath: generatedWatchPath(event.target.value, slugifyProjectName(current.project || current.title)),
+                }))
+              }
+              disabled={!canEditOwner}
+            />
+          </label>
+          <CollaboratorInput
+            value={draft.collaboratorsText}
+            users={collaboratorUsers}
+            onChange={(value) => setDraft((current) => ({ ...current, collaboratorsText: value }))}
+          />
+        </div>
+
+        <div className="modal-fieldset">
+          <h3>Status</h3>
+          <label>
+            <span>Track</span>
+            <select value={draft.track} onChange={(event) => setDraft((current) => ({ ...current, track: event.target.value as ProjectTrack }))}>
+              {(Object.keys(projectTrackLabels) as ProjectTrack[]).map((track) => (
+                <option key={track} value={track}>
+                  {projectTrackLabels[track]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Stage</span>
+            <select value={draft.stage} onChange={(event) => setDraft((current) => ({ ...current, stage: event.target.value }))}>
+              {[1, 2, 3, 4, 5].map((stage) => (
+                <option key={stage} value={stage}>
+                  {stageLabels[stage]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Lifecycle</span>
+            <select
+              value={draft.lifecycle}
+              onChange={(event) => setDraft((current) => ({ ...current, lifecycle: event.target.value as ProjectLifecycle }))}
+            >
+              {(Object.keys(lifecycleLabels) as ProjectLifecycle[]).map((lifecycle) => (
+                <option key={lifecycle} value={lifecycle}>
+                  {lifecycleLabels[lifecycle]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Status</span>
+            <select
+              value={draft.status}
+              onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as ProjectStatus }))}
+            >
+              {(Object.keys(statusLabels) as ProjectStatus[]).map((status) => (
+                <option key={status} value={status}>
+                  {statusLabels[status]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Stage since</span>
+            <input
+              type="date"
+              value={draft.stageSince}
+              onChange={(event) => setDraft((current) => ({ ...current, stageSince: event.target.value }))}
+            />
+          </label>
+          <label>
+            <span>Last update</span>
+            <input
+              type="date"
+              value={draft.lastUpdate}
+              onChange={(event) => setDraft((current) => ({ ...current, lastUpdate: event.target.value }))}
+            />
+          </label>
+        </div>
+
+        <div className="modal-fieldset full">
+          <h3>Plan</h3>
+          <label>
+            <span>Target</span>
+            <textarea
+              rows={3}
+              value={draft.target}
+              onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))}
+            />
+          </label>
+          <label>
+            <span>Blocker</span>
+            <textarea
+              rows={3}
+              value={draft.blocker}
+              onChange={(event) => setDraft((current) => ({ ...current, blocker: event.target.value }))}
+            />
+          </label>
+          <label>
+            <span>Venue</span>
+            <input
+              value={draft.venue}
+              onChange={(event) => setDraft((current) => ({ ...current, venue: event.target.value }))}
+              placeholder="NeurIPS"
+              list="venue-hints"
+            />
+            <datalist id="venue-hints">
+              {['NeurIPS', 'ICML', 'ICLR', 'CVPR', 'ECCV', 'AAAI', 'ToyConf'].map((venue) => (
+                <option key={venue} value={venue} />
+              ))}
+            </datalist>
+          </label>
+          <label>
+            <span>Submission deadline</span>
+            <input
+              type="date"
+              value={draft.submissionDeadline}
+              onChange={(event) => setDraft((current) => ({ ...current, submissionDeadline: event.target.value }))}
+            />
+          </label>
+          <label>
+            <span>Watch path</span>
+            <input
+              value={generatedWatchPath(draft.ownerUsername, slugifyProjectName(draft.project || draft.title))}
+              disabled
+            />
+          </label>
+          <label>
+            <span>Notes</span>
+            <textarea
+              rows={4}
+              value={draft.notes}
+              onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
+            />
+          </label>
+        </div>
+
+        {error && <div className="form-message error">{error}</div>}
+        <footer>
+          <button className="ops-secondary" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="ops-primary" type="submit" disabled={busy}>
+            <Save aria-hidden="true" />
+            {busy ? 'Saving' : 'Save changes'}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function ProjectDetailModal({
+  project,
+  viewer,
+  collaboratorUsers,
+  existingProjects,
+  onClose,
+  onSaved,
+  onChanged,
+  onArchive,
+}: {
+  project: ManagedProject;
+  viewer: CurrentUser;
+  collaboratorUsers: MentionableUser[];
+  existingProjects: ManagedProject[];
+  onClose: () => void;
+  onSaved: (project: ManagedProject) => Promise<void>;
+  onChanged: (project: ManagedProject) => Promise<void>;
+  onArchive: (project: ManagedProject) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(defaultTimelineDraft);
+  const [editDraft, setEditDraft] = useState(() => projectDraftFromProject(project, viewer));
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const currentArtifacts = currentProjectArtifacts(project);
+  const oldArtifacts = project.artifacts.filter((artifact) => !artifact.isCurrent);
+  const canComment = project.access.canComment && (canSeeAllRole(viewer.role) || project.access.reason !== 'coordinator');
+
+  useEffect(() => {
+    setEditDraft(projectDraftFromProject(project, viewer));
+    setError(null);
+  }, [project, viewer]);
+
+  function postUpdateWithProgress(formData: FormData): Promise<ProjectsPayload> {
+    return new Promise((resolvePromise, rejectPromise) => {
+      const request = new XMLHttpRequest();
+      request.open('POST', `/api/projects/${project.id}/updates`);
+      request.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          setUploadProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        }
+      };
+      request.onload = () => {
+        const body = JSON.parse(request.responseText || '{}') as ProjectsPayload;
+        if (request.status >= 200 && request.status < 300) {
+          resolvePromise(body);
+        } else {
+          rejectPromise(new Error(body.error || 'Could not add project update.'));
+        }
+      };
+      request.onerror = () => rejectPromise(new Error('Artifact upload failed.'));
+      request.send(formData);
+    });
+  }
+
+  async function submitProjectEdit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy('edit');
+    setError(null);
+    try {
+      const duplicate = existingProjects.find(
+        (existing) =>
+          existing.id !== project.id &&
+          existing.ownerUsername.toLowerCase() === editDraft.ownerUsername.toLowerCase() &&
+          existing.title.trim().toLowerCase() === editDraft.title.trim().toLowerCase(),
+      );
+      if (!editDraft.title.trim()) {
+        throw new Error('Full project name is required.');
+      }
+      if (duplicate) {
+        throw new Error('This owner already has a project with the same full project name.');
+      }
+      const response = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(projectRequestBody(editDraft)),
+      });
+      const body = (await response.json()) as ProjectsPayload;
+      if (!response.ok || !body.project) {
+        throw new Error(body.error || 'Could not save project.');
+      }
+      await onSaved(body.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save project.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function submitUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy('update');
+    setUploadProgress(draft.artifactFile ? 0 : null);
+    setError(null);
+    try {
+      const body = draft.artifactFile
+        ? await postUpdateWithProgress((() => {
+            const formData = new FormData();
+            formData.set('type', draft.type);
+            if (draft.date) formData.set('date', draft.date);
+            formData.set('text', draft.text);
+            formData.set('artifactFile', draft.artifactFile);
+            return formData;
+          })())
+        : (await fetch(`/api/projects/${project.id}/updates`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: draft.type,
+              date: draft.date || null,
+              text: draft.text,
+              artifact: null,
+            }),
+          }).then(async (response) => {
+            const responseBody = (await response.json()) as ProjectsPayload;
+            if (!response.ok) throw new Error(responseBody.error || 'Could not add project update.');
+            return responseBody;
+          }));
+      if (!body.project) throw new Error(body.error || 'Could not add project update.');
+      setDraft(defaultTimelineDraft());
+      setUploadProgress(null);
+      await onChanged(body.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not add project update.');
+    } finally {
+      setBusy(null);
+      setUploadProgress(null);
+    }
+  }
+
+  async function redigestArtifact(artifact: ManagedProjectArtifact) {
+    setBusy(`digest:${artifact.id}`);
+    setError(null);
+    try {
+      const response = await fetch(`/api/project-artifacts/${artifact.id}/digest`, { method: 'POST' });
+      const body = (await response.json()) as ProjectsPayload;
+      if (!response.ok || !body.project) {
+        throw new Error(body.error || 'Could not regenerate artifact digest.');
+      }
+      await onChanged(body.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not regenerate artifact digest.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeArtifact(artifact: ManagedProjectArtifact) {
+    if (!window.confirm(`Remove ${artifact.title}?`)) return;
+    setBusy(`remove:${artifact.id}`);
+    setError(null);
+    try {
+      const response = await fetch(`/api/project-artifacts/${artifact.id}`, { method: 'DELETE' });
+      const body = (await response.json()) as ProjectsPayload;
+      if (!response.ok || !body.project) {
+        throw new Error(body.error || 'Could not remove artifact.');
+      }
+      await onChanged(body.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not remove artifact.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function submitComment(updateId: string) {
+    const text = commentDrafts[updateId]?.trim();
+    if (!text) return;
+    setBusy(updateId);
+    setError(null);
+    try {
+      const response = await fetch(`/api/project-updates/${updateId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const body = (await response.json()) as ProjectsPayload;
+      if (!response.ok || !body.project) {
+        throw new Error(body.error || 'Could not add comment.');
+      }
+      setCommentDrafts((current) => ({ ...current, [updateId]: '' }));
+      await onChanged(body.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not add comment.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="users-modal-backdrop" role="presentation">
+      <div className="users-modal user-edit-modal project-modal project-detail-modal" role="dialog" aria-modal="true">
+        <header>
+          <div>
+            <h2>{project.title}</h2>
+            <p>{project.ownerUsername} / Track {project.track} / Stage {project.stage}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close project details">
+            <X aria-hidden="true" />
+          </button>
+        </header>
+
+        {project.access.canEdit ? (
+          <form className="project-manage-form" onSubmit={submitProjectEdit}>
+            <label className="full">
+              <span>Full project name</span>
+              <input
+                value={editDraft.title}
+                onChange={(event) => setEditDraft((current) => ({ ...current, title: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>Slug</span>
+              <input value={project.project} disabled />
+            </label>
+            <label>
+              <span>Owner</span>
+              <input
+                value={editDraft.ownerUsername}
+                disabled={!canSeeAllRole(viewer.role)}
+                onChange={(event) =>
+                  setEditDraft((current) => ({
+                    ...current,
+                    ownerUsername: event.target.value,
+                    watchPath: generatedWatchPath(event.target.value, project.project),
+                  }))
+                }
+              />
+            </label>
+            <CollaboratorInput
+              value={editDraft.collaboratorsText}
+              users={collaboratorUsers}
+              className="full"
+              onChange={(value) => setEditDraft((current) => ({ ...current, collaboratorsText: value }))}
+            />
+            <label>
+              <span>Track</span>
+              <select value={editDraft.track} onChange={(event) => setEditDraft((current) => ({ ...current, track: event.target.value as ProjectTrack }))}>
+                {(Object.keys(projectTrackLabels) as ProjectTrack[]).map((track) => (
+                  <option key={track} value={track}>
+                    {projectTrackLabels[track]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Stage</span>
+              <select value={editDraft.stage} onChange={(event) => setEditDraft((current) => ({ ...current, stage: event.target.value }))}>
+                {[1, 2, 3, 4, 5].map((stage) => (
+                  <option key={stage} value={stage}>
+                    {stageLabels[stage]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Lifecycle</span>
+              <select value={editDraft.lifecycle} onChange={(event) => setEditDraft((current) => ({ ...current, lifecycle: event.target.value as ProjectLifecycle }))}>
+                {(Object.keys(lifecycleLabels) as ProjectLifecycle[]).map((lifecycle) => (
+                  <option key={lifecycle} value={lifecycle}>
+                    {lifecycleLabels[lifecycle]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Status</span>
+              <select value={editDraft.status} onChange={(event) => setEditDraft((current) => ({ ...current, status: event.target.value as ProjectStatus }))}>
+                {(Object.keys(statusLabels) as ProjectStatus[]).map((status) => (
+                  <option key={status} value={status}>
+                    {statusLabels[status]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Venue</span>
+              <input value={editDraft.venue} onChange={(event) => setEditDraft((current) => ({ ...current, venue: event.target.value }))} />
+            </label>
+            <label>
+              <span>Deadline</span>
+              <input
+                type="date"
+                value={editDraft.submissionDeadline}
+                onChange={(event) => setEditDraft((current) => ({ ...current, submissionDeadline: event.target.value }))}
+              />
+            </label>
+            <label className="full">
+              <span>Watch path</span>
+              <input value={generatedWatchPath(editDraft.ownerUsername, project.project)} disabled />
+            </label>
+            <label className="full">
+              <span>Target</span>
+              <textarea rows={3} value={editDraft.target} onChange={(event) => setEditDraft((current) => ({ ...current, target: event.target.value }))} />
+            </label>
+            <label className="full">
+              <span>Blocker</span>
+              <textarea rows={3} value={editDraft.blocker} onChange={(event) => setEditDraft((current) => ({ ...current, blocker: event.target.value }))} />
+            </label>
+            <label className="full">
+              <span>Notes</span>
+              <textarea rows={3} value={editDraft.notes} onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} />
+            </label>
+            {error && <div className="form-message error full">{error}</div>}
+            <div className="button-row full">
+              <button className="ops-primary" type="submit" disabled={busy === 'edit'}>
+                <Save aria-hidden="true" />
+                {busy === 'edit' ? 'Saving' : 'Save project'}
+              </button>
+              {project.access.canArchive && project.lifecycle !== 'archived' && (
+                <button className="ops-secondary" type="button" onClick={() => void onArchive(project)}>
+                  <X aria-hidden="true" />
+                  Archive
+                </button>
+              )}
+            </div>
+          </form>
+        ) : (
+          <div className="project-detail-grid">
+            <div>
+              <span>Lifecycle</span>
+              <strong>{lifecycleLabels[project.lifecycle]}</strong>
+            </div>
+            <div>
+              <span>Status</span>
+              <StatusChip status={project.status} />
+            </div>
+            <div>
+              <span>Venue</span>
+              <strong>{project.venue || 'Not set'}</strong>
+            </div>
+            <div>
+              <span>Deadline</span>
+              <strong>{formatDate(project.submissionDeadline)}</strong>
+            </div>
+            <div>
+              <span>Collaborators</span>
+              <strong>{project.collaborators.join(', ') || 'None'}</strong>
+            </div>
+            <div>
+              <span>Watch path</span>
+              <strong>{project.watchPath || 'Not set'}</strong>
+            </div>
+          </div>
+        )}
+
+        <section className="project-artifact-panel">
+          <div className="ops-panel-head">
+            <div>
+              <h2>Artifacts</h2>
+              <p>Current summaries are what the agent reads by default.</p>
+            </div>
+            <FileText aria-hidden="true" />
+          </div>
+          <div className="artifact-list">
+            {currentArtifacts.length ? (
+              currentArtifacts.map((artifact) => (
+                <div key={artifact.id} className="artifact-row">
+                  <div>
+                    <strong>{artifact.title}</strong>
+                    <small>{artifact.kind} / current</small>
+                  </div>
+                  <p>{artifact.summary || 'No summary yet'}</p>
+                  <div className="artifact-actions">
+                    {artifact.path && (
+                      <a
+                        className="ops-secondary icon-only-button"
+                        href={`/api/project-artifacts/${artifact.id}/download`}
+                        aria-label={`Download ${artifact.title}`}
+                        title="Download artifact"
+                      >
+                        <Download aria-hidden="true" />
+                      </a>
+                    )}
+                    {project.access.canEdit && (
+                      <>
+                        <button
+                          className="ops-secondary icon-only-button"
+                          type="button"
+                          disabled={busy === `digest:${artifact.id}`}
+                          onClick={() => void redigestArtifact(artifact)}
+                          aria-label={`Regenerate digest for ${artifact.title}`}
+                          title="Regenerate digest"
+                        >
+                          <RefreshCw aria-hidden="true" className={busy === `digest:${artifact.id}` ? 'spin' : undefined} />
+                        </button>
+                        <button
+                          className="ops-secondary icon-only-button danger-action"
+                          type="button"
+                          disabled={busy === `remove:${artifact.id}`}
+                          onClick={() => void removeArtifact(artifact)}
+                          aria-label={`Remove ${artifact.title}`}
+                          title="Remove artifact"
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="ops-muted-line">No current artifacts yet</div>
+            )}
+            {oldArtifacts.length > 0 && <div className="ops-muted-line">{oldArtifacts.length} previous versions retained</div>}
+          </div>
+        </section>
+
+        <section className="project-timeline-panel">
+          <div className="ops-panel-head">
+            <div>
+              <h2>Timeline</h2>
+              <p>Progress updates, notes, decisions, blockers, and artifact summaries.</p>
+            </div>
+            <History aria-hidden="true" />
+          </div>
+          <div className="project-timeline">
+            {project.updates.length ? (
+              project.updates.map((update) => (
+                <article className="timeline-item" key={update.id}>
+                  <div className="timeline-marker" aria-hidden="true" />
+                  <div className="timeline-body">
+                    <div className="timeline-head">
+                      <strong>{projectUpdateTypeLabels[update.type]}</strong>
+                      <span>{formatDate(update.date)} / {update.byUsername}</span>
+                    </div>
+                    <p>{update.text}</p>
+                    {update.comments.map((comment) => (
+                      <div className="timeline-comment" key={comment.id}>
+                        <strong>{comment.byUsername}</strong>
+                        <span>{comment.text}</span>
+                      </div>
+                    ))}
+                    {canComment && (
+                      <div className="timeline-comment-form">
+                        <input
+                          value={commentDrafts[update.id] || ''}
+                          onChange={(event) => setCommentDrafts((current) => ({ ...current, [update.id]: event.target.value }))}
+                          placeholder="Add comment"
+                        />
+                        <button
+                          className="ops-secondary"
+                          type="button"
+                          disabled={busy === update.id}
+                          onClick={() => void submitComment(update.id)}
+                        >
+                          <Send aria-hidden="true" />
+                          Comment
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div className="ops-muted-line">No timeline updates yet</div>
+            )}
+          </div>
+        </section>
+
+        {project.access.canAddUpdate && (
+          <form className="project-update-form" onSubmit={submitUpdate}>
+            <h3>Add update</h3>
+            <label>
+              <span>Type</span>
+              <select value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as ProjectUpdateType }))}>
+                {(Object.keys(projectUpdateTypeLabels) as ProjectUpdateType[]).map((type) => (
+                  <option key={type} value={type}>
+                    {projectUpdateTypeLabels[type]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Date</span>
+              <input type="date" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} />
+            </label>
+            <label className="full">
+              <span>Text</span>
+              <textarea rows={4} value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} />
+            </label>
+            <div className="full artifact-upload-field">
+              <span>New artifact</span>
+              <span className="artifact-upload-row">
+                <input
+                  id={`artifact-upload-${project.id}`}
+                  type="file"
+                  accept=".docx,.pptx,.pdf,.zip,.md,.markdown,.txt,.tex,.latex,.rst,.csv,.json,.yaml,.yml"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0] || null;
+                    if (file && file.size > projectArtifactMaxBytes) {
+                      event.currentTarget.value = '';
+                      setError('Artifact file is too large. Limit is 20 MB.');
+                      setDraft((current) => ({ ...current, artifactFile: null, artifactFileName: '' }));
+                      return;
+                    }
+                    setError(null);
+                    setDraft((current) => ({ ...current, artifactFile: file, artifactFileName: file?.name || '' }));
+                  }}
+                />
+                <label className="ops-secondary" htmlFor={`artifact-upload-${project.id}`} title="Upload artifact">
+                  <Upload aria-hidden="true" />
+                </label>
+                <strong>{draft.artifactFileName || 'No file selected'}</strong>
+                {draft.artifactFileName && <small>{titleCase(inferArtifactKind(draft.artifactFileName))}</small>}
+              </span>
+            </div>
+            {uploadProgress !== null && (
+              <div className="upload-progress full">
+                <span style={{ width: `${uploadProgress}%` }} />
+                <strong>{uploadProgress < 100 ? `Uploading ${uploadProgress}%` : 'Upload complete. Digesting...'}</strong>
+              </div>
+            )}
+            {error && <div className="form-message error full">{error}</div>}
+            <button className="ops-primary" type="submit" disabled={busy === 'update'}>
+              <Plus aria-hidden="true" />
+              {busy === 'update' ? 'Adding' : 'Add update'}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1638,31 +2783,78 @@ function ThemeMeetingPanel({
 function DashboardView({
   payload,
   loading,
+  projectsPayload,
+  projectsLoading,
   viewer,
+  collaboratorUsers,
+  onProjectsChanged,
 }: {
   payload: LabStatePayload | null;
   loading: boolean;
+  projectsPayload: ProjectsPayload | null;
+  projectsLoading: boolean;
   viewer: CurrentUser;
+  collaboratorUsers: MentionableUser[];
+  onProjectsChanged: () => Promise<void>;
 }) {
   const canSeeAll = canSeeAllRole(viewer.role);
   const mode: DashboardMode = canSeeAll ? 'pi' : 'member';
   const [confirmed, setConfirmed] = useState(false);
   const [agendaState, setAgendaState] = useState<Record<string, 'added' | 'dismissed'>>({});
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [detailProject, setDetailProject] = useState<ManagedProject | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const projects = payload?.state.projects || [];
-  const summary = payload?.summary;
-  const memberOwner = projects.find((project) => isViewerName(project.owner, viewer))?.owner || viewer.displayName || viewer.username;
-  const memberProjects = projects.filter((project) => isViewerName(project.owner, viewer));
-  const attentionProjects = summary?.projectsNeedingAttention || [];
-  const agendaCandidates = attentionProjects.filter((project) => agendaState[project.project] !== 'dismissed');
-  const deepDiveProjects = agendaCandidates.filter((project) => project.derived.recommendation === 'deep_dive');
-  const memberArtifacts = memberProjects.flatMap((project) =>
-    project.artifacts.map((artifact) => ({ project: project.project, artifact })),
+  const projects = projectsPayload?.projects || [];
+  const activeProjects = projects.filter((project) => project.lifecycle !== 'archived');
+  const archivedProjects = projects.filter((project) => project.lifecycle === 'archived');
+  const attentionProjects = activeProjects.filter(projectNeedsAttention);
+  const agendaCandidates = attentionProjects.filter((project) => agendaState[project.id] !== 'dismissed');
+  const deepDiveProjects = agendaCandidates.filter((project) => project.status === 'blocked' || Boolean(project.blocker));
+  const memberArtifacts = activeProjects.flatMap((project) =>
+    currentProjectArtifacts(project).map((artifact) => ({ project, artifact })),
   );
+
+  function openCreateProject() {
+    setEditorOpen(true);
+  }
+
+  async function handleProjectSaved(project: ManagedProject) {
+    setEditorOpen(false);
+    setDetailProject((current) => (current?.id === project.id ? project : current));
+    await onProjectsChanged();
+  }
+
+  async function handleProjectChanged(project: ManagedProject) {
+    setDetailProject(project);
+    await onProjectsChanged();
+  }
+
+  async function archiveProject(project: ManagedProject) {
+    if (!window.confirm(`Archive ${project.title}?`)) return;
+    setActionError(null);
+    try {
+      const response = await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
+      const body = (await response.json()) as ProjectsPayload;
+      if (!response.ok || !body.project) {
+        throw new Error(body.error || 'Could not archive project.');
+      }
+      setDetailProject((current) => (current?.id === project.id ? null : current));
+      await onProjectsChanged();
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Could not archive project.');
+    }
+  }
 
   return (
     <ConsolePageFrame
       title="Dashboard"
+      actions={
+        <button className="ops-primary" type="button" onClick={openCreateProject}>
+          <Plus aria-hidden="true" />
+          Add project
+        </button>
+      }
       badge={
         canSeeAll && mode === 'pi' ? (
           <span className="prototype-pill admin-access">
@@ -1678,36 +2870,47 @@ function DashboardView({
       }
     >
       <div className="dashboard-content">
+      {actionError && (
+        <div className="ops-notice error">
+          <AlertCircle aria-hidden="true" />
+          <span>{actionError}</span>
+        </div>
+      )}
       {payload?.source === 'fixture' && (
         <div className="ops-notice">
           <AlertCircle aria-hidden="true" />
-          <span>Showing fixture lab state until LAB_STATE_PATH or DATASTORE_DIR is configured.</span>
+          <span>Legacy lab-state is using fixture data. Project Manager records below come from the database.</span>
         </div>
       )}
 
-      {!payload ? (
+      {!projectsPayload ? (
         <div className="ops-empty">
-          {loading ? (
+          {projectsLoading || loading ? (
             <>
               <DotMatrixIcon variant="loading" size={24} />
-              Loading lab state
+              Loading projects
             </>
           ) : (
-            'Could not load lab state. Check the error above, then refresh.'
+            'Could not load projects. Check the error above, then refresh.'
           )}
         </div>
       ) : mode === 'member' ? (
         <div className="dashboard-stack">
           <div className="summary-strip">
-            <span>{memberOwner}</span>
-            <strong>{memberProjects.length} projects</strong>
-            <strong>{memberProjects.filter((project) => project.derived.recommendation !== 'none').length} need attention</strong>
+            <span>{viewer.displayName || viewer.username}</span>
+            <strong>{activeProjects.length} visible projects</strong>
+            <strong>{attentionProjects.length} need attention</strong>
+            <strong>{archivedProjects.length} archived</strong>
           </div>
 
           <div className="project-grid">
-            {memberProjects.map((project) => (
-              <ProjectCard key={project.project} project={project} />
-            ))}
+            {activeProjects.length ? (
+              activeProjects.map((project) => (
+                <ProjectCard key={project.id} project={project} onOpen={setDetailProject} />
+              ))
+            ) : (
+              <div className="ops-empty">No visible projects yet. Add one to start tracking work.</div>
+            )}
           </div>
 
           <div className="dashboard-split">
@@ -1717,21 +2920,21 @@ function DashboardView({
                   <h2>This week's theme meeting</h2>
                   <p>Agenda assembled from current project state.</p>
                 </div>
-                <RecommendationChip recommendation={attentionProjects[0]?.derived.recommendation || 'none'} />
+                <StatusChip status={attentionProjects[0]?.status || 'on_track'} />
               </div>
               <ol className="agenda-list">
                 <li>Round-table status check</li>
                 {(deepDiveProjects.length ? deepDiveProjects : attentionProjects).slice(0, 2).map((project) => (
-                  <li key={project.project}>Deep dive: {titleCase(project.project)}</li>
+                  <li key={project.id}>Deep dive: {project.title}</li>
                 ))}
                 <li>Submission and materials follow-ups</li>
               </ol>
               <div className="confirm-box">
                 <strong>Confirm your status for the round-table</strong>
                 <p>
-                  {memberProjects[0]
-                    ? `${titleCase(memberProjects[0].project)} is ${statusLabels[memberProjects[0].status].toLowerCase()}; last update was ${formatAge(
-                        memberProjects[0].derived.days_since_update,
+                  {activeProjects[0]
+                    ? `${activeProjects[0].title} is ${statusLabels[activeProjects[0].status].toLowerCase()}; last update was ${formatAge(
+                        daysSinceDate(activeProjects[0].lastUpdate),
                       )} ago.`
                     : 'No member project is available.'}
                 </p>
@@ -1741,7 +2944,7 @@ function DashboardView({
                     {confirmed ? 'Confirmed' : 'Confirm'}
                   </button>
                   <button className="ops-secondary" type="button">
-                    Tweak
+                    Review timeline
                   </button>
                 </div>
               </div>
@@ -1758,9 +2961,9 @@ function DashboardView({
               <div className="library-list">
                 {memberArtifacts.length ? (
                   memberArtifacts.map((item) => (
-                    <a href={item.artifact} key={item.artifact}>
-                      <span>{item.artifact.split('/').pop()}</span>
-                      <small>{titleCase(item.project)}</small>
+                    <a href={`/api/project-artifacts/${item.artifact.id}/download`} key={item.artifact.id}>
+                      <span>{item.artifact.title}</span>
+                      <small>{item.project.title}</small>
                     </a>
                   ))
                 ) : (
@@ -1769,20 +2972,45 @@ function DashboardView({
               </div>
             </section>
           </div>
+          {archivedProjects.length > 0 && (
+            <section className="ops-panel">
+              <div className="ops-panel-head">
+                <div>
+                  <h2>Archived projects</h2>
+                  <p>Retained for lookup, hidden from active planning.</p>
+                </div>
+                <History aria-hidden="true" />
+              </div>
+              <div className="attention-grid">
+                {archivedProjects.map((project) => (
+                  <article className="attention-card" key={project.id}>
+                    <div>
+                      <h3>{project.title}</h3>
+                      <p>{project.ownerUsername} / archived {project.archivedAt ? formatDate(project.archivedAt.slice(0, 10)) : ''}</p>
+                    </div>
+                    <button className="ops-secondary" type="button" onClick={() => setDetailProject(project)}>
+                      <FileText aria-hidden="true" />
+                      Details
+                    </button>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       ) : (
         <div className="dashboard-stack">
           <div className="summary-strip">
             <span>Lab-wide view</span>
-            <strong>{summary?.totalProjects || 0} projects</strong>
-            <strong>{summary?.byRecommendation.deep_dive || 0} deep dives</strong>
-            <strong>{summary?.byRecommendation.nudge || 0} nudges</strong>
+            <strong>{activeProjects.length} active projects</strong>
+            <strong>{attentionProjects.length} need attention</strong>
+            <strong>{archivedProjects.length} archived</strong>
           </div>
 
           <section className="ops-panel">
             <div className="ops-panel-head">
               <div>
-                <h2>Suggested deep dives this week</h2>
+                <h2>Needs attention</h2>
                 <p>Advisory suggestions. The organizer decides what goes on the agenda.</p>
               </div>
               <ShieldCheck aria-hidden="true" />
@@ -1790,29 +3018,29 @@ function DashboardView({
             <div className="attention-grid">
               {agendaCandidates.length ? (
                 agendaCandidates.map((project) => (
-                  <article className="attention-card" key={project.project}>
+                  <article className="attention-card" key={project.id}>
                     <div>
-                      <h3>{titleCase(project.project)}</h3>
+                      <h3>{project.title}</h3>
                       <p>
-                        {project.owner} / stage {project.stage} / last update {formatAge(project.derived.days_since_update)} ago
+                        {project.ownerUsername} / stage {project.stage} / last update {formatAge(daysSinceDate(project.lastUpdate))} ago
                       </p>
                     </div>
-                    <RecommendationChip recommendation={project.derived.recommendation} />
+                    <StatusChip status={project.status} />
                     <p>
-                      <strong>Evidence:</strong> {evidence(project)}
+                      <strong>Evidence:</strong> {projectEvidence(project)}
                     </p>
                     <div className="button-row">
                       <button
                         className="ops-primary"
                         type="button"
-                        onClick={() => setAgendaState((current) => ({ ...current, [project.project]: 'added' }))}
+                        onClick={() => setAgendaState((current) => ({ ...current, [project.id]: 'added' }))}
                       >
-                        {agendaState[project.project] === 'added' ? 'Added' : 'Add to agenda'}
+                        {agendaState[project.id] === 'added' ? 'Added' : 'Add to agenda'}
                       </button>
                       <button
                         className="ops-secondary"
                         type="button"
-                        onClick={() => setAgendaState((current) => ({ ...current, [project.project]: 'dismissed' }))}
+                        onClick={() => setAgendaState((current) => ({ ...current, [project.id]: 'dismissed' }))}
                       >
                         Dismiss
                       </button>
@@ -1844,13 +3072,14 @@ function DashboardView({
                     <th>Status</th>
                     <th>Target</th>
                     <th>Materials</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {projects.map((project) => (
-                    <tr key={project.project}>
-                      <td>{project.owner}</td>
-                      <td>{titleCase(project.project)}</td>
+                    <tr key={project.id}>
+                      <td>{project.ownerUsername}</td>
+                      <td>{project.title}</td>
                       <td>{project.track}</td>
                       <td>
                         <div className="table-stage">
@@ -1862,7 +3091,20 @@ function DashboardView({
                         <StatusChip status={project.status} />
                       </td>
                       <td>{project.target || 'Not set'}</td>
-                      <td>{project.artifacts.length}</td>
+                      <td>{currentProjectArtifacts(project).length}</td>
+                      <td>
+                        <div className="button-row compact">
+                          <button
+                            className="ops-secondary icon-only-button"
+                            type="button"
+                            onClick={() => setDetailProject(project)}
+                            aria-label={`Manage ${project.title}`}
+                            title="Manage project"
+                          >
+                            <FileText aria-hidden="true" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1870,6 +3112,30 @@ function DashboardView({
             </div>
           </section>
         </div>
+      )}
+      {editorOpen && (
+        <ProjectEditorModal
+          project={null}
+          viewer={viewer}
+          collaboratorUsers={collaboratorUsers}
+          existingProjects={projects}
+          onClose={() => {
+            setEditorOpen(false);
+          }}
+          onSaved={handleProjectSaved}
+        />
+      )}
+      {detailProject && (
+        <ProjectDetailModal
+          project={detailProject}
+          viewer={viewer}
+          collaboratorUsers={collaboratorUsers}
+          existingProjects={projects}
+          onClose={() => setDetailProject(null)}
+          onSaved={handleProjectChanged}
+          onChanged={handleProjectChanged}
+          onArchive={archiveProject}
+        />
       )}
       </div>
     </ConsolePageFrame>
@@ -2815,7 +4081,7 @@ function AdminConfigurationPanel() {
 }
 
 function AuditLogSettingsPanel() {
-  const [day, setDay] = useState(() => new Date().toISOString().slice(0, 10));
+  const [day, setDay] = useState(() => auditLogDateKey());
   const [logs, setLogs] = useState<AuditLogRecord[]>([]);
   const [days, setDays] = useState<AuditLogDay[]>([]);
   const [fileName, setFileName] = useState(`audit-${day}.jsonl`);
@@ -2949,7 +4215,7 @@ function AuditLogSettingsPanel() {
                       }}
                       tabIndex={0}
                     >
-                      <td>{chatSessionTime(log.eventTime)}</td>
+                      <td>{auditLogTime(log.eventTime)}</td>
                       <td>
                         {log.actorUsername ? (
                           <span>
@@ -3000,7 +4266,7 @@ function AuditLogSettingsPanel() {
             <header>
               <div>
                 <h2 id="audit-json-title">Audit entry</h2>
-                <p>{selectedLog.action} · {chatSessionTime(selectedLog.eventTime)}</p>
+                <p>{selectedLog.action} · {auditLogTime(selectedLog.eventTime)}</p>
               </div>
               <button type="button" aria-label="Close" onClick={() => setSelectedLog(null)}>
                 <X aria-hidden="true" />
@@ -3772,8 +5038,11 @@ export function OperationsConsole() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [payload, setPayload] = useState<LabStatePayload | null>(null);
   const [labStateLoading, setLabStateLoading] = useState(false);
+  const [projectsPayload, setProjectsPayload] = useState<ProjectsPayload | null>(null);
+  const [projectsLoading, setProjectsLoading] = useState(false);
   const [themePayload, setThemePayload] = useState<ThemeMeetingPayload | null>(null);
   const [themeMeetingsLoading, setThemeMeetingsLoading] = useState(false);
+  const [collaboratorUsers, setCollaboratorUsers] = useState<MentionableUser[]>([]);
   const [chatNotifications, setChatNotifications] = useState<ChatNotification[]>([]);
   const [openChatThreadId, setOpenChatThreadId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -3862,6 +5131,29 @@ export function OperationsConsole() {
     }
   }, []);
 
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    try {
+      const response = await fetch('/api/projects?includeArchived=true');
+      const nextPayload = (await response.json()) as ProjectsPayload;
+      if (!response.ok) {
+        throw new Error(nextPayload.error || 'Could not load projects.');
+      }
+      setProjectsPayload(nextPayload);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, []);
+
+  const loadCollaboratorUsers = useCallback(async () => {
+    const response = await fetch('/api/chat/users');
+    const body = (await response.json()) as MentionUsersPayload;
+    if (!response.ok) {
+      throw new Error(body.error || 'Could not load collaborator hints.');
+    }
+    setCollaboratorUsers(body.users || []);
+  }, []);
+
   const loadChatNotifications = useCallback(async () => {
     const response = await fetch('/api/notifications');
     const nextPayload = (await response.json()) as NotificationsPayload;
@@ -3877,6 +5169,9 @@ export function OperationsConsole() {
     if (!user || user.passwordResetRequired) {
       setPayload(null);
       setLabStateLoading(false);
+      setProjectsPayload(null);
+      setProjectsLoading(false);
+      setCollaboratorUsers([]);
       setThemePayload(null);
       setThemeMeetingsLoading(false);
       setChatNotifications([]);
@@ -3908,6 +5203,16 @@ export function OperationsConsole() {
     }
 
     void loadLabState();
+    void loadProjects().catch((caught) => {
+      if (!cancelled) {
+        setError(caught instanceof Error ? caught.message : 'Could not load projects.');
+      }
+    });
+    void loadCollaboratorUsers().catch((caught) => {
+      if (!cancelled) {
+        setError(caught instanceof Error ? caught.message : 'Could not load collaborator hints.');
+      }
+    });
     void loadThemeMeetings().catch((caught) => {
       if (!cancelled) {
         setError(caught instanceof Error ? caught.message : 'Could not load theme meetings.');
@@ -3921,7 +5226,7 @@ export function OperationsConsole() {
     return () => {
       cancelled = true;
     };
-  }, [loadChatNotifications, loadThemeMeetings, user]);
+  }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, user]);
 
   useEffect(() => {
     if (user && !user.passwordResetRequired && activeView === 'alerts') {
@@ -3985,7 +5290,9 @@ export function OperationsConsole() {
   const activeAlertCount =
     unreadChatNotificationCount +
     (themePayload?.notifications.length || 0) +
-    (payload?.summary.projectsNeedingAttention.length || 0);
+    (projectsPayload?.projects?.filter((project) => project.lifecycle !== 'archived' && projectNeedsAttention(project)).length ||
+      payload?.summary.projectsNeedingAttention.length ||
+      0);
 
   const bottomNavItems = useMemo(
     () => [
@@ -4000,6 +5307,8 @@ export function OperationsConsole() {
     setUser(null);
     setAccountMenuOpen(false);
     setPayload(null);
+    setProjectsPayload(null);
+    setCollaboratorUsers([]);
     setThemePayload(null);
     setChatNotifications([]);
     setError(null);
@@ -4121,7 +5430,15 @@ export function OperationsConsole() {
             </div>
           )}
           {activeView === 'dashboard' && (
-            <DashboardView payload={payload} loading={labStateLoading} viewer={user} />
+            <DashboardView
+              payload={payload}
+              loading={labStateLoading}
+              projectsPayload={projectsPayload}
+              projectsLoading={projectsLoading}
+              viewer={user}
+              collaboratorUsers={collaboratorUsers}
+              onProjectsChanged={loadProjects}
+            />
           )}
           {activeView === 'chat' && (
             <ChatView viewer={user} openThreadId={openChatThreadId} onOpenThreadHandled={handleChatThreadOpened} />
