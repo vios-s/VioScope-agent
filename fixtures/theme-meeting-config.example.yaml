@@ -74,17 +74,20 @@ themes:
       - hana
 
 submission:
-  progress_word_target: 30
+  progress_word_target: 50
   update_types:
     nothing_to_report:
       duration_minutes: 0
       questions_required: false
-    short_update:
-      duration_minutes: 10
-      questions_required: true
     deep_dive:
       duration_minutes: 30
-      questions_required: true
+      questions_required: false
+    milestone_check:
+      duration_minutes: 10
+      questions_required: false
+    strategic_slot:
+      duration_minutes: 10
+      questions_required: false
 
 reminders:
   - name: first_reminder
@@ -99,7 +102,7 @@ reminders:
   - name: agenda_cutoff
     weekday: Wednesday
     time: "08:00"
-    action: mark_missing_as_not_submitted_and_build_agenda
+    action: mark_missing_project_progress_and_build_agenda
 
 permissions:
   member:

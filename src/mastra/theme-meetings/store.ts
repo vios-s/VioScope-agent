@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { runtimeEnv } from '../runtime-config';
 import {
@@ -21,7 +21,7 @@ export type ThemeMeetingStoreOptions = {
 
 async function pathExists(path: string): Promise<boolean> {
   try {
-    await stat(path);
+    await stat(/*turbopackIgnore: true*/ path);
     return true;
   } catch {
     return false;
@@ -29,7 +29,14 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 function resolveFromCwd(path: string): string {
-  return resolve(/* turbopackIgnore: true */ process.cwd(), path);
+  if (isAbsolute(path)) return path;
+  if (path.startsWith('fixtures/')) {
+    return join(/*turbopackIgnore: true*/ process.cwd(), 'fixtures', path.slice('fixtures/'.length));
+  }
+  if (path.startsWith('.local/')) {
+    return join(/*turbopackIgnore: true*/ process.cwd(), '.local', path.slice('.local/'.length));
+  }
+  return path;
 }
 
 function fallbackRuntimePath(fileName: string): string {
@@ -118,7 +125,7 @@ export async function readThemeMeetingConfig(options: ThemeMeetingStoreOptions =
   const path = await resolveThemeMeetingConfigPath(options.configPath);
   return {
     path,
-    config: themeMeetingConfigSchema.parse(parseYaml(await readFile(path, 'utf8'))),
+    config: themeMeetingConfigSchema.parse(parseYaml(await readFile(/*turbopackIgnore: true*/ path, 'utf8'))),
   };
 }
 
@@ -140,7 +147,7 @@ export async function readThemeMeetingUpdates(
     return { path, updates: [] };
   }
 
-  const file = themeMeetingUpdatesFileSchema.parse(parseYaml(await readFile(path, 'utf8')) || {});
+  const file = themeMeetingUpdatesFileSchema.parse(parseYaml(await readFile(/*turbopackIgnore: true*/ path, 'utf8')) || {});
   return { path, updates: file.updates };
 }
 
@@ -152,13 +159,13 @@ export async function readThemeMeetingNotifications(
     return { path, notifications: [] };
   }
 
-  const file = themeMeetingNotificationsFileSchema.parse(parseYaml(await readFile(path, 'utf8')) || {});
+  const file = themeMeetingNotificationsFileSchema.parse(parseYaml(await readFile(/*turbopackIgnore: true*/ path, 'utf8')) || {});
   return { path, notifications: file.notifications };
 }
 
 async function writeYaml(path: string, value: unknown) {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, stringifyYaml(value), 'utf8');
+  await mkdir(/*turbopackIgnore: true*/ dirname(path), { recursive: true });
+  await writeFile(/*turbopackIgnore: true*/ path, stringifyYaml(value), 'utf8');
 }
 
 function updateKey(update: Pick<ThemeMeetingUpdate, 'meeting_date' | 'theme_id' | 'member'>): string {

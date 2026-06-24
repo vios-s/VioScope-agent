@@ -1,14 +1,14 @@
 import 'dotenv/config';
-import { rm } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   buildThemeMeetingPlan,
   buildThemeMeetingReminderRun,
   submitThemeMeetingUpdate,
 } from '../src/mastra/theme-meetings/planner';
 import { managedThemeIdsForUser, visiblePlanForUser } from '../src/mastra/theme-meetings/access';
-import type { AuthUser } from '../src/mastra/db/users';
+import { defaultNotificationPreferences, type AuthUser } from '../src/mastra/db/users';
 
 const storePaths = {
   configPath: 'fixtures/theme-meeting-config.example.yaml',
@@ -23,9 +23,11 @@ function fakeUser(displayName: string, role: AuthUser['role'] = 'member'): AuthU
     displayName,
     email: `${displayName.toLowerCase().replace(/\s+/g, '.')}@example.test`,
     role,
+    position: null,
     provisioningStatus: 'active',
     sourceProfileId: null,
     aliases: [],
+    notificationPreferences: defaultNotificationPreferences(),
     passwordResetRequired: false,
     passwordChangedAt: null,
     lastLoginAt: null,
@@ -50,14 +52,34 @@ async function main() {
     throw new Error(`Expected 2026-07-01 to be CD, got ${cd.plan.cycle_group}.`);
   }
 
+  await mkdir(dirname(storePaths.updatesPath), { recursive: true });
+  await writeFile(
+    storePaths.updatesPath,
+    `updates:
+  - meeting_date: 2026-06-24
+    theme_id: A
+    member: Alice
+    update_type: short_update
+    progress_text: Legacy short update.
+    questions: ''
+    submitted_at: 2026-06-22T08:00:00.000Z
+    submitted_via: api
+`,
+    'utf8',
+  );
+  const legacyUpdate = await buildThemeMeetingPlan({ ...storePaths, meetingDate: '2026-06-24' });
+  const legacyThemeA = legacyUpdate.plan.meetings.find((meeting) => meeting.theme_id === 'A');
+  if (!legacyThemeA?.agenda_items.some((item) => item.member === 'Alice' && item.update_type === 'milestone_check')) {
+    throw new Error('Expected legacy short_update to load as milestone_check.');
+  }
+
   await submitThemeMeetingUpdate({
     ...storePaths,
     meetingDate: '2026-06-24',
     themeId: 'A',
     member: 'Alice',
-    updateType: 'short_update',
+    updateType: 'milestone_check',
     progressText: 'Finished the first experiment pass and will show the current result table.',
-    questions: 'Can the group suggest one more baseline?',
     submittedVia: 'api',
     now: new Date('2026-06-22T08:00:00.000Z'),
   });
@@ -65,8 +87,8 @@ async function main() {
   const afterUpdate = await buildThemeMeetingPlan({ ...storePaths, meetingDate: '2026-06-24' });
   const themeA = afterUpdate.plan.meetings.find((meeting) => meeting.theme_id === 'A');
 
-  if (!themeA?.agenda_items.some((item) => item.member === 'Alice' && item.duration_minutes === 10)) {
-    throw new Error('Expected Alice short update to appear in Theme A agenda.');
+  if (!themeA?.agenda_items.some((item) => item.member === 'Alice' && item.update_type === 'milestone_check' && item.duration_minutes === 10)) {
+    throw new Error('Expected Alice milestone check to appear in Theme A agenda.');
   }
 
   const alicePlan = visiblePlanForUser(afterUpdate.plan, afterUpdate.config, fakeUser('Alice'));
@@ -90,23 +112,23 @@ async function main() {
     throw new Error(`Expected Coordinator A to manage Theme A, got ${coordinatorManagedThemes.join(',') || 'none'}.`);
   }
 
-  let rejectedMissingQuestions = false;
-  try {
-    await submitThemeMeetingUpdate({
-      ...storePaths,
-      meetingDate: '2026-06-24',
-      themeId: 'A',
-      member: 'Bob',
-      updateType: 'deep_dive',
-      progressText: 'Need to discuss a blocker in the model design.',
-      submittedVia: 'api',
-    });
-  } catch {
-    rejectedMissingQuestions = true;
-  }
+  await submitThemeMeetingUpdate({
+    ...storePaths,
+    meetingDate: '2026-06-24',
+    themeId: 'A',
+    member: 'Bob',
+    updateType: 'nothing_to_report',
+    progressText: 'Nothing to report this cycle.',
+    submittedVia: 'api',
+  });
 
-  if (!rejectedMissingQuestions) {
-    throw new Error('Expected deep dive without questions to be rejected.');
+  const afterNothing = await buildThemeMeetingPlan({ ...storePaths, meetingDate: '2026-06-24' });
+  const themeAAfterNothing = afterNothing.plan.meetings.find((meeting) => meeting.theme_id === 'A');
+  if (!themeAAfterNothing?.agenda_items.some((item) => item.member === 'Bob' && item.update_type === 'nothing_to_report' && item.duration_minutes === 0)) {
+    throw new Error('Expected Bob nothing-to-report update to appear with zero planned minutes.');
+  }
+  if (themeAAfterNothing?.planned_minutes !== 10) {
+    throw new Error(`Expected Theme A planned minutes to remain 10, got ${themeAAfterNothing?.planned_minutes}.`);
   }
 
   const manualReminder = await buildThemeMeetingReminderRun('manual_missing_update_reminder', {
@@ -116,8 +138,8 @@ async function main() {
     now: new Date('2026-06-23T10:00:00.000Z'),
   });
 
-  if (manualReminder.notifications.length !== 1 || manualReminder.notifications[0]?.member !== 'Bob') {
-    throw new Error('Expected manual reminder to target only missing Theme A members.');
+  if (manualReminder.notifications.length !== 0) {
+    throw new Error('Expected no missing Theme A members after both slots were submitted.');
   }
 
   console.log('Theme meeting check passed.');

@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { embedMany } from 'ai';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { GitBookClient } from '../src/mastra/gitbook/client';
 import { chunkWikiPage } from '../src/mastra/gitbook/chunk';
 import { pageToWikiPage } from '../src/mastra/gitbook/extract';
@@ -11,7 +13,7 @@ import { wikiVectorIndexName } from '../src/mastra/config';
 
 const batchSize = runtimeEnvNumber('WIKI_EMBED_BATCH_SIZE', 32);
 
-async function main() {
+export async function ingestGitBook() {
   const client = new GitBookClient();
   const vectorStore = createWikiVectorStore();
 
@@ -34,7 +36,7 @@ async function main() {
 
     if (!chunks.length) {
       console.log('No GitBook chunks found to ingest.');
-      return;
+      return { pages: pageSummaries.length, chunks: 0 };
     }
 
     await vectorStore.truncateIndex({ indexName: wikiVectorIndexName });
@@ -60,12 +62,19 @@ async function main() {
     }
 
     console.log(`GitBook ingest complete: ${pageSummaries.length} pages, ${chunks.length} chunks.`);
+    return { pages: pageSummaries.length, chunks: chunks.length };
   } finally {
     await vectorStore.disconnect();
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+function isMain() {
+  return process.argv[1] ? fileURLToPath(import.meta.url) === resolve(process.argv[1]) : false;
+}
+
+if (isMain()) {
+  ingestGitBook().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

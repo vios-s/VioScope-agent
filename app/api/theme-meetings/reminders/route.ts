@@ -3,7 +3,11 @@ import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan, buildThemeMeetingReminderRun } from '../../../../src/mastra/theme-meetings/planner';
+import {
+  buildThemeMeetingPlan,
+  buildThemeMeetingReminderRun,
+  sendThemeMeetingReminderEmails,
+} from '../../../../src/mastra/theme-meetings/planner';
 import { themeReminderActionSchema } from '../../../../src/mastra/theme-meetings/schema';
 
 export const runtime = 'nodejs';
@@ -41,6 +45,7 @@ export async function POST(request: Request) {
       meetingDate,
       themeId,
     });
+    const emails = await sendThemeMeetingReminderEmails(run.notifications);
 
     await recordAuditLog({
       actor: user,
@@ -52,6 +57,9 @@ export async function POST(request: Request) {
         meetingDate: meetingDate || null,
         reminderAction: run.action,
         notificationCount: run.notifications.length,
+        emailSent: emails.sent,
+        emailSkipped: emails.skipped,
+        emailFailed: emails.failed,
       },
     });
     return NextResponse.json({
@@ -59,6 +67,7 @@ export async function POST(request: Request) {
       plan: run.plan,
       notifications: run.notifications,
       markdown: run.markdown,
+      emails,
     });
   } catch (error) {
     return errorResponse(error, error instanceof AuthError ? error.status : 400);

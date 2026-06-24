@@ -1,5 +1,9 @@
 import 'dotenv/config';
-import { buildThemeMeetingReminderRun, renderThemeMeetingPlan } from '../src/mastra/theme-meetings/planner';
+import {
+  buildThemeMeetingReminderRun,
+  renderThemeMeetingPlan,
+  sendThemeMeetingReminderEmails,
+} from '../src/mastra/theme-meetings/planner';
 import { themeReminderActionSchema, type ThemeReminderAction } from '../src/mastra/theme-meetings/schema';
 
 function argValue(name: string): string | undefined {
@@ -20,8 +24,10 @@ async function main() {
 
   const action: ThemeReminderAction = parsedAction.data;
   const run = await buildThemeMeetingReminderRun(action, { meetingDate });
+  const emails = await sendThemeMeetingReminderEmails(run.notifications);
 
   console.log(run.markdown);
+  console.log(`\n# Email Notifications\n\nSent: ${emails.sent}\nSkipped: ${emails.skipped}\nFailed: ${emails.failed}`);
 
   if (action === 'agenda_cutoff') {
     console.log('\n# Agenda Message\n');

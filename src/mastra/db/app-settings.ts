@@ -4,7 +4,7 @@ import { runtimeConfigCachePath } from '../runtime-config';
 import { createPostgresClient } from './postgres';
 import { ensureUsersTable } from './users';
 
-export type AppSettingValueType = 'string' | 'number' | 'path';
+export type AppSettingValueType = 'string' | 'number' | 'path' | 'time' | 'weekday';
 export type AppSettingSource = 'database' | 'env' | 'default';
 
 export type AppSettingDefinition = {
@@ -33,6 +33,8 @@ type StoredSettingRow = {
   key: string;
   value: string;
 };
+
+const weekdayValues = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
 
 let ensureAppSettingsTablePromise: Promise<void> | null = null;
 
@@ -169,6 +171,66 @@ export const appSettingDefinitions = [
     optional: true,
   },
   {
+    key: 'THEME_MEETING_FIRST_REMINDER_WEEKDAY',
+    label: 'First reminder weekday',
+    section: 'operations',
+    valueType: 'weekday',
+    envName: 'THEME_MEETING_FIRST_REMINDER_WEEKDAY',
+    fallback: 'Monday',
+    description: 'Weekday for the first theme meeting reminder in Europe/London.',
+    restartRequired: false,
+  },
+  {
+    key: 'THEME_MEETING_FIRST_REMINDER_TIME',
+    label: 'First reminder time',
+    section: 'operations',
+    valueType: 'time',
+    envName: 'THEME_MEETING_FIRST_REMINDER_TIME',
+    fallback: '08:00',
+    description: 'Time for the first theme meeting reminder in Europe/London.',
+    restartRequired: false,
+  },
+  {
+    key: 'THEME_MEETING_GENTLE_REMINDER_WEEKDAY',
+    label: 'Gentle reminder weekday',
+    section: 'operations',
+    valueType: 'weekday',
+    envName: 'THEME_MEETING_GENTLE_REMINDER_WEEKDAY',
+    fallback: 'Tuesday',
+    description: 'Weekday for the missing-update reminder in Europe/London.',
+    restartRequired: false,
+  },
+  {
+    key: 'THEME_MEETING_GENTLE_REMINDER_TIME',
+    label: 'Gentle reminder time',
+    section: 'operations',
+    valueType: 'time',
+    envName: 'THEME_MEETING_GENTLE_REMINDER_TIME',
+    fallback: '04:00',
+    description: 'Time for the missing-update reminder in Europe/London.',
+    restartRequired: false,
+  },
+  {
+    key: 'THEME_MEETING_CUTOFF_WEEKDAY',
+    label: 'Agenda cutoff weekday',
+    section: 'operations',
+    valueType: 'weekday',
+    envName: 'THEME_MEETING_CUTOFF_WEEKDAY',
+    fallback: 'Wednesday',
+    description: 'Weekday for the agenda cutoff in Europe/London.',
+    restartRequired: false,
+  },
+  {
+    key: 'THEME_MEETING_CUTOFF_TIME',
+    label: 'Agenda cutoff time',
+    section: 'operations',
+    valueType: 'time',
+    envName: 'THEME_MEETING_CUTOFF_TIME',
+    fallback: '08:00',
+    description: 'Time for the agenda cutoff in Europe/London.',
+    restartRequired: false,
+  },
+  {
     key: 'VIOS_SKILLS_DIR',
     label: 'VIOS skills directories',
     section: 'paths',
@@ -242,15 +304,6 @@ export const appSettingDefinitions = [
   },
 ] satisfies AppSettingDefinition[];
 
-export const appSecretDefinitions = [
-  { key: 'ELM_API_KEY', label: 'ELM API key', envName: 'ELM_API_KEY' },
-  { key: 'GITBOOK_TOKEN', label: 'GitBook token', envName: 'GITBOOK_TOKEN' },
-  { key: 'GITBOOK_SPACE', label: 'GitBook space', envName: 'GITBOOK_SPACE' },
-  { key: 'AUTH_SECRET', label: 'Auth secret', envName: 'AUTH_SECRET' },
-  { key: 'DATABASE_URL', label: 'Database URL', envName: 'DATABASE_URL' },
-  { key: 'VIOSCOPE_RESTART_COMMAND', label: 'Restart command', envName: 'VIOSCOPE_RESTART_COMMAND' },
-] as const;
-
 export function settingDefinition(key: string): AppSettingDefinition | undefined {
   return appSettingDefinitions.find((definition) => definition.key === key);
 }
@@ -281,6 +334,21 @@ function validateSettingValue(definition: AppSettingDefinition, value: string): 
       throw new Error(`${definition.label} must be at most ${definition.max}.`);
     }
     return definition.integer ? String(number) : String(number);
+  }
+
+  if (definition.valueType === 'time') {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(trimmed)) {
+      throw new Error(`${definition.label} must use 24-hour HH:MM time.`);
+    }
+    return trimmed;
+  }
+
+  if (definition.valueType === 'weekday') {
+    const weekday = weekdayValues.find((value) => value.toLowerCase() === trimmed.toLowerCase());
+    if (!weekday) {
+      throw new Error(`${definition.label} must be a weekday.`);
+    }
+    return weekday;
   }
 
   if (trimmed.length > 2000) {
@@ -420,14 +488,6 @@ export async function updateAppSettings(input: {
   await syncAppSettingsRuntimeCache();
 
   return { changedKeys, resetKeys };
-}
-
-export function secretStatuses() {
-  return appSecretDefinitions.map((secret) => ({
-    key: secret.key,
-    label: secret.label,
-    configured: Boolean(process.env[secret.envName]?.trim()),
-  }));
 }
 
 export function restartCommandConfigured(): boolean {

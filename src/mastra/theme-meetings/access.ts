@@ -74,16 +74,6 @@ export function visiblePlanForUser(plan: ThemeMeetingPlan, config: ThemeMeetingC
             (username, index) =>
               normalizeUsername(username) === normalizeUsername(user.username) || isUserName(meeting.missing_members[index], user),
           ),
-          nothing_to_report_members: meeting.nothing_to_report_members.filter(
-            (member, index) =>
-              normalizeUsername(meeting.nothing_to_report_member_usernames[index]) === normalizeUsername(user.username) ||
-              isUserName(member, user),
-          ),
-          nothing_to_report_member_usernames: meeting.nothing_to_report_member_usernames.filter(
-            (username, index) =>
-              normalizeUsername(username) === normalizeUsername(user.username) ||
-              isUserName(meeting.nothing_to_report_members[index], user),
-          ),
           agenda_items: agendaItems,
           planned_minutes: agendaItems.reduce((total, item) => total + item.duration_minutes, 0),
         };

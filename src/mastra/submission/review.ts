@@ -1,4 +1,4 @@
-import { generateObject } from 'ai';
+import { generateText } from 'ai';
 import { elmChatModel } from '../llm';
 import { runtimeEnvNumber } from '../runtime-config';
 import { readViosSkill, type ViosSkill } from '../skills/loader';
@@ -230,6 +230,19 @@ function extractJsonObject(text: string): string | null {
   return null;
 }
 
+function parseReviewJson(text: string) {
+  const json = extractJsonObject(text);
+  if (!json) {
+    throw new Error('Submission review model did not return a JSON object.');
+  }
+
+  try {
+    return submissionReviewModelOutputSchema.parse(JSON.parse(json));
+  } catch (error) {
+    throw new Error(`Submission review model returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 function buildPrompt({
   draft,
   numberedDraft,
@@ -298,20 +311,58 @@ export async function reviewSubmission(input: SubmissionReviewInput): Promise<Su
     deadline: input.deadline,
     draftTruncated: numberedDraft.truncated,
   });
+  const jsonPrompt = `${prompt}
 
-  const result = await generateObject({
+Return only one valid JSON object. Do not wrap it in markdown. The object must contain exactly these top-level fields:
+verdict, summary, findings, reasonsToReject, checkmateQuestions, mitigations, humanSignOff, perSkillNotes.
+
+Use this exact object shape:
+{
+  "verdict": "CONDITIONAL",
+  "summary": "short advisory summary",
+  "findings": [
+    {
+      "area": "area name",
+      "status": "missing",
+      "evidence": ["missing"],
+      "gap": "what is missing or weak",
+      "requiredAction": "what the user should do next"
+    }
+  ],
+  "reasonsToReject": [],
+  "checkmateQuestions": ["hard question"],
+  "mitigations": [
+    {
+      "priority": "P1",
+      "risk": "risk name",
+      "action": "mitigation action",
+      "owner": "pending",
+      "due": "pending",
+      "evidenceNeeded": "evidence needed"
+    }
+  ],
+  "humanSignOff": {
+    "leadPdra": "pending",
+    "piOrOrganizer": "pending",
+    "remainingEvidenceNeeded": ["evidence needed before sign-off"]
+  },
+  "perSkillNotes": [
+    {
+      "skill": "${skills[0]?.name || 'skill-name'}",
+      "notes": ["note"]
+    }
+  ]
+}`;
+
+  const result = await generateText({
     model: elmChatModel,
     system:
-      'You are VioScope running a VIOS pre-submission review harness. Be concise, evidence-backed, and explicit about uncertainty. Never claim human approval.',
-    prompt,
-    schema: submissionReviewModelOutputSchema,
-    schemaName: 'VioScopeSubmissionReview',
-    schemaDescription: 'Structured VIOS B2 pre-submission review result with evidence-backed findings.',
+      'You are VioScope running a VIOS pre-submission review harness. Return only valid JSON. Be concise, evidence-backed, and explicit about uncertainty. Never claim human approval.',
+    prompt: jsonPrompt,
     maxOutputTokens: input.maxOutputTokens || defaultMaxOutputTokens,
-    experimental_repairText: async ({ text }) => extractJsonObject(text),
   });
   const structured = submissionReviewStructuredSchema.parse({
-    ...result.object,
+    ...parseReviewJson(result.text),
     appliedSkills: skillMetadata(skills),
   });
 

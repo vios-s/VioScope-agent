@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS project_records (
   collaborator_usernames TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
   track TEXT NOT NULL DEFAULT 'A' CHECK (track IN ('A', 'B')),
   stage INTEGER NOT NULL DEFAULT 1 CHECK (stage BETWEEN 1 AND 5),
+  stage_progress INTEGER NOT NULL DEFAULT 0,
   lifecycle TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active', 'paused', 'finished', 'archived')),
   status TEXT NOT NULL DEFAULT 'on_track' CHECK (status IN ('on_track', 'blocked', 'stale', 'needs_input')),
   stage_since DATE,
@@ -111,6 +112,12 @@ CREATE TABLE IF NOT EXISTS project_updates (
   by_username TEXT NOT NULL,
   update_type TEXT NOT NULL DEFAULT 'progress' CHECK (update_type IN ('progress', 'note', 'decision', 'blocker', 'artifact')),
   text TEXT NOT NULL,
+  stage INTEGER,
+  stage_progress INTEGER,
+  status TEXT,
+  blocker TEXT,
+  target TEXT,
+  milestone BOOLEAN NOT NULL DEFAULT false,
   artifact_ids UUID[] NOT NULL DEFAULT ARRAY[]::UUID[],
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

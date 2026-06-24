@@ -6,7 +6,6 @@ import { AuthError, requireAdministrator } from '../../../../src/mastra/auth/ses
 import {
   listAdminAppSettings,
   restartCommandConfigured,
-  secretStatuses,
   updateAppSettings,
   type AdminAppSetting,
 } from '../../../../src/mastra/db/app-settings';
@@ -54,7 +53,6 @@ async function configPayload() {
 
   return {
     settings: settingsWithStatus,
-    secrets: secretStatuses(),
     restart: {
       configured: restartCommandConfigured(),
     },

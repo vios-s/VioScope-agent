@@ -18,7 +18,13 @@ const users = {
   admin: { username: `config.smoke.admin.${Date.now()}`, role: 'administrator' as const, password: 'ConfigAdmin1!' },
   member: { username: `config.smoke.member.${Date.now()}`, role: 'member' as const, password: 'ConfigMember1!' },
 };
-const settingKeys = ['WIKI_MIN_SCORE', 'LAB_STATE_PATH', 'AUDIT_LOG_RETENTION_DAYS'];
+const settingKeys = [
+  'WIKI_MIN_SCORE',
+  'LAB_STATE_PATH',
+  'AUDIT_LOG_RETENTION_DAYS',
+  'THEME_MEETING_CUTOFF_WEEKDAY',
+  'THEME_MEETING_CUTOFF_TIME',
+];
 
 function email(username: string): string {
   return `${username}@example.test`;
@@ -160,7 +166,13 @@ async function main() {
     const initialResponse = await configRoute.GET(request('/api/admin/config', admin));
     assert.equal(initialResponse.status, 200, 'Admin should read config.');
     const initialPayload = await initialResponse.json();
-    assert.ok(initialPayload.secrets?.every((secret: { value?: string }) => secret.value === undefined), 'Secrets should not expose values.');
+    assert.equal(initialPayload.secrets, undefined, 'Admin config should not include a secrets section.');
+    assert.equal(findSetting(initialPayload, 'THEME_MEETING_FIRST_REMINDER_WEEKDAY').valueType, 'weekday');
+    assert.equal(findSetting(initialPayload, 'THEME_MEETING_FIRST_REMINDER_TIME').valueType, 'time');
+    assert.equal(findSetting(initialPayload, 'THEME_MEETING_GENTLE_REMINDER_WEEKDAY').valueType, 'weekday');
+    assert.equal(findSetting(initialPayload, 'THEME_MEETING_GENTLE_REMINDER_TIME').valueType, 'time');
+    assert.equal(findSetting(initialPayload, 'THEME_MEETING_CUTOFF_WEEKDAY').valueType, 'weekday');
+    assert.equal(findSetting(initialPayload, 'THEME_MEETING_CUTOFF_TIME').valueType, 'time');
 
     const wikiMinScore = findSetting(initialPayload, 'WIKI_MIN_SCORE');
     const originalWikiValue = wikiMinScore.value;
@@ -214,6 +226,62 @@ async function main() {
     const retentionPayload = await retentionResponse.json();
     assert.equal(findSetting(retentionPayload, 'AUDIT_LOG_RETENTION_DAYS').value, '30');
     assert.equal(findSetting(retentionPayload, 'AUDIT_LOG_RETENTION_DAYS').source, 'database');
+
+    const cutoffResponse = await configRoute.PATCH(
+      request('/api/admin/config', admin, {
+        method: 'PATCH',
+        body: JSON.stringify({ settings: { THEME_MEETING_CUTOFF_TIME: '09:30' } }),
+      }),
+    );
+    assert.equal(cutoffResponse.status, 200, 'Admin should update THEME_MEETING_CUTOFF_TIME.');
+    const cutoffPayload = await cutoffResponse.json();
+    assert.equal(findSetting(cutoffPayload, 'THEME_MEETING_CUTOFF_TIME').value, '09:30');
+    assert.equal((await readRuntimeSettings()).THEME_MEETING_CUTOFF_TIME, '09:30');
+
+    const invalidCutoffResponse = await configRoute.PATCH(
+      request('/api/admin/config', admin, {
+        method: 'PATCH',
+        body: JSON.stringify({ settings: { THEME_MEETING_CUTOFF_TIME: '99:99' } }),
+      }),
+    );
+    assert.equal(invalidCutoffResponse.status, 400, 'Invalid theme meeting cutoff time should be rejected.');
+
+    const cutoffWeekdayResponse = await configRoute.PATCH(
+      request('/api/admin/config', admin, {
+        method: 'PATCH',
+        body: JSON.stringify({ settings: { THEME_MEETING_CUTOFF_WEEKDAY: 'Thursday' } }),
+      }),
+    );
+    assert.equal(cutoffWeekdayResponse.status, 200, 'Admin should update THEME_MEETING_CUTOFF_WEEKDAY.');
+    const cutoffWeekdayPayload = await cutoffWeekdayResponse.json();
+    assert.equal(findSetting(cutoffWeekdayPayload, 'THEME_MEETING_CUTOFF_WEEKDAY').value, 'Thursday');
+    assert.equal((await readRuntimeSettings()).THEME_MEETING_CUTOFF_WEEKDAY, 'Thursday');
+
+    const invalidCutoffWeekdayResponse = await configRoute.PATCH(
+      request('/api/admin/config', admin, {
+        method: 'PATCH',
+        body: JSON.stringify({ settings: { THEME_MEETING_CUTOFF_WEEKDAY: 'Funday' } }),
+      }),
+    );
+    assert.equal(invalidCutoffWeekdayResponse.status, 400, 'Invalid theme meeting cutoff weekday should be rejected.');
+
+    const cutoffWeekdayStored = snapshots.find((snapshot) => snapshot.key === 'THEME_MEETING_CUTOFF_WEEKDAY')?.value ?? null;
+    const resetCutoffWeekdayResponse = await configRoute.PATCH(
+      request('/api/admin/config', admin, {
+        method: 'PATCH',
+        body: JSON.stringify({ settings: { THEME_MEETING_CUTOFF_WEEKDAY: cutoffWeekdayStored } }),
+      }),
+    );
+    assert.equal(resetCutoffWeekdayResponse.status, 200, 'Admin should restore THEME_MEETING_CUTOFF_WEEKDAY.');
+
+    const cutoffStored = snapshots.find((snapshot) => snapshot.key === 'THEME_MEETING_CUTOFF_TIME')?.value ?? null;
+    const resetCutoffResponse = await configRoute.PATCH(
+      request('/api/admin/config', admin, {
+        method: 'PATCH',
+        body: JSON.stringify({ settings: { THEME_MEETING_CUTOFF_TIME: cutoffStored } }),
+      }),
+    );
+    assert.equal(resetCutoffResponse.status, 200, 'Admin should restore THEME_MEETING_CUTOFF_TIME.');
 
     const retentionStored = snapshots.find((snapshot) => snapshot.key === 'AUDIT_LOG_RETENTION_DAYS')?.value ?? null;
     const resetRetentionResponse = await configRoute.PATCH(

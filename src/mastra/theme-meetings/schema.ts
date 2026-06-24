@@ -13,13 +13,27 @@ const dateStringSchema = z
 
 const timeStringSchema = z.string().regex(/^\d{2}:\d{2}$/, 'Expected HH:MM.');
 
-export const themeUpdateTypeSchema = z.enum(['nothing_to_report', 'short_update', 'deep_dive']);
+export const themeUpdateTypeSchema = z.enum(['nothing_to_report', 'deep_dive', 'milestone_check', 'strategic_slot']);
+const storedThemeUpdateTypeSchema = z.preprocess(
+  (value) => (value === 'short_update' ? 'milestone_check' : value),
+  themeUpdateTypeSchema,
+);
 export const themeReminderActionSchema = z.enum([
   'first_reminder',
   'gentle_missing_update_reminder',
   'agenda_cutoff',
   'manual_missing_update_reminder',
 ]);
+const themeUpdateTypeConfigSchema = z.object({
+  duration_minutes: z.number().int().nonnegative(),
+  questions_required: z.boolean().default(false),
+});
+const defaultThemeUpdateTypes = {
+  nothing_to_report: { duration_minutes: 0, questions_required: false },
+  deep_dive: { duration_minutes: 30, questions_required: false },
+  milestone_check: { duration_minutes: 10, questions_required: false },
+  strategic_slot: { duration_minutes: 10, questions_required: false },
+};
 
 export const themeMeetingConfigSchema = z.object({
   timezone: z.string().trim().min(1).default('Europe/London'),
@@ -51,22 +65,18 @@ export const themeMeetingConfigSchema = z.object({
     .min(1),
   submission: z
     .object({
-      progress_word_target: z.number().int().positive().default(30),
-      update_types: z.record(
-        themeUpdateTypeSchema,
-        z.object({
-          duration_minutes: z.number().int().nonnegative(),
-          questions_required: z.boolean(),
-        }),
-      ),
+      progress_word_target: z.number().int().positive().default(50),
+      update_types: z
+        .record(z.string().trim().min(1), themeUpdateTypeConfigSchema)
+        .default(defaultThemeUpdateTypes)
+        .transform((value) => ({
+          ...defaultThemeUpdateTypes,
+          ...Object.fromEntries(Object.entries(value).filter(([key]) => themeUpdateTypeSchema.safeParse(key).success)),
+        })),
     })
     .default({
-      progress_word_target: 30,
-      update_types: {
-        nothing_to_report: { duration_minutes: 0, questions_required: false },
-        short_update: { duration_minutes: 10, questions_required: true },
-        deep_dive: { duration_minutes: 30, questions_required: true },
-      },
+      progress_word_target: 50,
+      update_types: defaultThemeUpdateTypes,
     }),
   reminders: z.array(z.record(z.string(), z.unknown())).default([]),
   permissions: z.record(z.string(), z.array(z.string())).default({}),
@@ -77,7 +87,7 @@ export const themeMeetingUpdateSchema = z.object({
   meeting_date: dateStringSchema,
   theme_id: z.string().trim().min(1),
   member: z.string().trim().min(1),
-  update_type: themeUpdateTypeSchema,
+  update_type: storedThemeUpdateTypeSchema,
   progress_text: z.string().trim().min(1),
   questions: z.string().trim().default(''),
   submitted_at: z.string().datetime(),
@@ -121,8 +131,6 @@ export const themeMeetingPlanSchema = z.object({
       submitted_member_usernames: z.array(z.string()).default([]),
       missing_members: z.array(z.string()),
       missing_member_usernames: z.array(z.string()).default([]),
-      nothing_to_report_members: z.array(z.string()),
-      nothing_to_report_member_usernames: z.array(z.string()).default([]),
       agenda_items: z.array(themeMeetingAgendaItemSchema),
       planned_minutes: z.number().int().nonnegative(),
       overbooked: z.boolean(),

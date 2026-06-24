@@ -24,7 +24,10 @@ export async function POST(request: Request) {
     const progressText = text(body.progressText);
     const parsedUpdateType = themeUpdateTypeSchema.safeParse(body.updateType);
 
-    if (!themeId || !member || !progressText || !parsedUpdateType.success) {
+    if (!themeId || !member || !parsedUpdateType.success) {
+      throw new Error('themeId, member, updateType, and progressText are required.');
+    }
+    if (!progressText && parsedUpdateType.data !== 'nothing_to_report') {
       throw new Error('themeId, member, updateType, and progressText are required.');
     }
 
@@ -52,7 +55,7 @@ export async function POST(request: Request) {
         meetingDate: text(body.meetingDate) || null,
         member,
         updateType: parsedUpdateType.data,
-        progressLength: progressText.length,
+        progressLength: progressText?.length || 0,
         hasQuestions: Boolean(text(body.questions)),
       },
     });

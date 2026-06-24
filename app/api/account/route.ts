@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser, setSessionCookie } from '../../../src/mastra/auth/session';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
-import { updateOwnUserProfile } from '../../../src/mastra/db/users';
+import { normalizeNotificationPreferences, updateOwnUserProfile } from '../../../src/mastra/db/users';
 
 export const runtime = 'nodejs';
 
@@ -44,6 +44,8 @@ export async function PATCH(request: Request) {
     const body = (await request.json()) as Record<string, unknown>;
     const email = optionalText(body.email);
     const avatarUrl = optionalText(body.avatarUrl);
+    const notificationPreferences =
+      body.notificationPreferences === undefined ? undefined : normalizeNotificationPreferences(body.notificationPreferences);
 
     validateEmail(email);
     validateAvatarUrl(avatarUrl);
@@ -54,12 +56,14 @@ export async function PATCH(request: Request) {
       email,
       aliases: textArray(body.aliases),
       avatarUrl,
+      notificationPreferences,
     });
     const changedFields = [
       nextUser.displayName !== user.displayName ? 'displayName' : null,
       nextUser.email !== user.email ? 'email' : null,
       nextUser.aliases.join('\n') !== user.aliases.join('\n') ? 'aliases' : null,
       (nextUser.profile?.avatarUrl || null) !== (user.profile?.avatarUrl || null) ? 'avatar' : null,
+      JSON.stringify(nextUser.notificationPreferences) !== JSON.stringify(user.notificationPreferences) ? 'notificationPreferences' : null,
     ].filter((field): field is string => Boolean(field));
     await recordAuditLog({
       actor: user,

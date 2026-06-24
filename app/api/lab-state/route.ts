@@ -1,8 +1,12 @@
 import 'dotenv/config';
+import { readFile, stat } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { NextResponse } from 'next/server';
+import { parse as parseYaml } from 'yaml';
 import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
-import { summarizeLabState } from '../../../src/mastra/state/derive';
-import { readLabState } from '../../../src/mastra/state/loader';
+import { deriveLabState, summarizeLabState } from '../../../src/mastra/state/derive';
+import { runtimeEnv } from '../../../src/mastra/runtime-config';
+import { labStateSchema } from '../../../src/mastra/state/schema';
 import type { DerivedLabState } from '../../../src/mastra/state/schema';
 
 export const dynamic = 'force-dynamic';
@@ -12,16 +16,53 @@ function errorResponse(error: unknown, status = 500) {
   return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function routePath(inputPath: string): string {
+  if (isAbsolute(inputPath)) return inputPath;
+  if (inputPath.startsWith('fixtures/')) {
+    return join(/*turbopackIgnore: true*/ process.cwd(), 'fixtures', inputPath.slice('fixtures/'.length));
+  }
+  return inputPath;
+}
+
+function candidateStatePaths(): string[] {
+  const labStatePath = runtimeEnv('LAB_STATE_PATH').trim();
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
+  return [
+    labStatePath,
+    datastoreDir ? join(datastoreDir, 'lab-state.yaml') : '',
+    datastoreDir ? join(datastoreDir, 'lab-state.yml') : '',
+  ].filter(Boolean);
+}
+
+async function readLabStateYaml(path: string) {
+  const state = labStateSchema.parse(parseYaml(await readFile(path, 'utf8')));
+  return { path, state: deriveLabState(state) };
+}
+
 async function readConfiguredOrFixture() {
   try {
-    const result = await readLabState();
-    return {
-      ...result,
-      source: result.path.includes('/fixtures/') ? 'fixture' as const : 'configured' as const,
-      warning: undefined,
-    };
+    for (const candidate of candidateStatePaths()) {
+      const path = routePath(candidate);
+      if (await pathExists(path)) {
+        const result = await readLabStateYaml(path);
+        return {
+          ...result,
+          source: 'configured' as const,
+          warning: undefined,
+        };
+      }
+    }
+    throw new Error('No lab state file found. Set LAB_STATE_PATH or DATASTORE_DIR.');
   } catch (error) {
-    const result = await readLabState({ statePath: 'fixtures/lab-state.example.yaml' });
+    const result = await readLabStateYaml(routePath('fixtures/lab-state.example.yaml'));
     return {
       ...result,
       source: 'fixture' as const,

@@ -6,10 +6,26 @@ import type { PublicTeamProfile } from '../team/public-profiles';
 const scryptAsync = promisify(scrypt) as (password: BinaryLike, salt: BinaryLike, keylen: number) => Promise<Buffer>;
 
 export const userRoles = ['administrator', 'pi', 'organizer', 'member', 'viewer', 'service'] as const;
-export const userProvisioningStatuses = ['profile_only', 'invited', 'active', 'disabled'] as const;
+export const userProvisioningStatuses = ['profile_only', 'active', 'disabled'] as const;
+export const userPositions = ['pi', 'student', 'postdoc', 'software_engineer', 'visitor'] as const;
 
 export type UserRole = (typeof userRoles)[number];
 export type UserProvisioningStatus = (typeof userProvisioningStatuses)[number];
+export type UserPosition = (typeof userPositions)[number];
+export const notificationPreferenceTopics = [
+  'chat_mentions',
+  'project_progress_reminders',
+  'theme_meeting_reminders',
+  'project_planning_brief',
+  'checklist_results',
+] as const;
+
+export type NotificationPreferenceTopic = (typeof notificationPreferenceTopics)[number];
+export type NotificationPreferenceChannels = {
+  web: boolean;
+  email: boolean;
+};
+export type NotificationPreferences = Record<NotificationPreferenceTopic, NotificationPreferenceChannels>;
 
 export type UserProfileContext = {
   email?: string;
@@ -40,9 +56,11 @@ export type AuthUser = {
   displayName: string;
   email: string | null;
   role: UserRole;
+  position: UserPosition | null;
   provisioningStatus: UserProvisioningStatus;
   sourceProfileId: string | null;
   aliases: string[];
+  notificationPreferences: NotificationPreferences;
   profile?: UserProfileContext;
   passwordResetRequired: boolean;
   passwordChangedAt: string | null;
@@ -79,6 +97,7 @@ type LocalUserInput = {
   username: string;
   password: string;
   role: UserRole;
+  position?: UserPosition | null;
   email?: string;
   displayName?: string;
   passwordResetRequired?: boolean;
@@ -112,9 +131,11 @@ function toAuthUser(row: AuthUserRow): AuthUser {
     displayName: row.display_name,
     email: row.email || profile.email || null,
     role: row.role,
+    position: positionFromMetadata(row.metadata),
     provisioningStatus: row.provisioning_status,
     sourceProfileId: row.source_profile_id,
     aliases: aliasesFromMetadata(row.metadata),
+    notificationPreferences: notificationPreferencesFromMetadata(row.metadata),
     profile,
     passwordResetRequired: row.password_reset_required,
     passwordChangedAt: row.password_changed_at,
@@ -139,6 +160,10 @@ export function isUserProvisioningStatus(status: string): status is UserProvisio
   return userProvisioningStatuses.includes(status as UserProvisioningStatus);
 }
 
+export function isUserPosition(position: string): position is UserPosition {
+  return userPositions.includes(position as UserPosition);
+}
+
 function cleanAliases(aliases: string[] = []): string[] {
   return [...new Set(aliases.map((alias) => alias.trim()).filter(Boolean))];
 }
@@ -155,9 +180,56 @@ function metadataObject(value: Record<string, unknown> | string | null): Record<
   return value;
 }
 
+export function defaultNotificationPreferences(): NotificationPreferences {
+  return {
+    chat_mentions: { web: true, email: false },
+    project_progress_reminders: { web: true, email: true },
+    theme_meeting_reminders: { web: true, email: true },
+    project_planning_brief: { web: true, email: true },
+    checklist_results: { web: true, email: true },
+  };
+}
+
+export function normalizeNotificationPreferences(value: unknown): NotificationPreferences {
+  const defaults = defaultNotificationPreferences();
+  const preferences = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+  for (const topic of notificationPreferenceTopics) {
+    const channels = preferences[topic];
+    if (channels && typeof channels === 'object' && !Array.isArray(channels)) {
+      const channelMap = channels as Record<string, unknown>;
+      defaults[topic] = {
+        web: typeof channelMap.web === 'boolean' ? channelMap.web : defaults[topic].web,
+        email: topic === 'chat_mentions' ? false : typeof channelMap.email === 'boolean' ? channelMap.email : defaults[topic].email,
+      };
+    }
+  }
+
+  defaults.chat_mentions.email = false;
+  return defaults;
+}
+
+function notificationPreferencesFromMetadata(value: Record<string, unknown> | string | null): NotificationPreferences {
+  return normalizeNotificationPreferences(metadataObject(value).notification_preferences);
+}
+
 function aliasesFromMetadata(value: Record<string, unknown> | string | null): string[] {
   const aliases = metadataObject(value).aliases;
   return Array.isArray(aliases) ? cleanAliases(aliases.filter((alias): alias is string => typeof alias === 'string')) : [];
+}
+
+function positionFromMetadata(value: Record<string, unknown> | string | null): UserPosition | null {
+  const metadata = metadataObject(value);
+  const position = typeof metadata.position === 'string' ? metadata.position.trim().toLowerCase() : '';
+  if (isUserPosition(position)) return position;
+
+  const publicRole = typeof metadata.public_role === 'string' ? metadata.public_role.toLowerCase() : '';
+  if (/\b(pi|professor|principal investigator)\b/.test(publicRole)) return 'pi';
+  if (/\bpost[- ]?doc|research fellow\b/.test(publicRole)) return 'postdoc';
+  if (/\bsoftware|engineer|developer\b/.test(publicRole)) return 'software_engineer';
+  if (/\bvisitor|visiting\b/.test(publicRole)) return 'visitor';
+  if (/\bstudent|phd|msc|undergraduate\b/.test(publicRole)) return 'student';
+  return null;
 }
 
 function stringArrayFromMetadata(value: unknown): string[] {
@@ -284,7 +356,7 @@ async function ensureUsersTableOnce(): Promise<void> {
         last_login_at TIMESTAMPTZ,
         auth_provider TEXT NOT NULL DEFAULT 'local',
         provisioning_status TEXT NOT NULL DEFAULT 'profile_only' CHECK (
-          provisioning_status IN ('profile_only', 'invited', 'active', 'disabled')
+          provisioning_status IN ('profile_only', 'active', 'disabled')
         ),
         source TEXT NOT NULL DEFAULT 'manual',
         source_url TEXT,
@@ -333,6 +405,16 @@ async function ensureUsersTableOnce(): Promise<void> {
       DO $$
       BEGIN
         ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('administrator', 'pi', 'organizer', 'member', 'viewer', 'service'));
+      EXCEPTION WHEN duplicate_object THEN
+        NULL;
+      END $$;
+    `);
+    await postgres.pool.query("UPDATE users SET provisioning_status = 'profile_only' WHERE provisioning_status = 'invited'");
+    await postgres.pool.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_provisioning_status_check');
+    await postgres.pool.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE users ADD CONSTRAINT users_provisioning_status_check CHECK (provisioning_status IN ('profile_only', 'active', 'disabled'));
       EXCEPTION WHEN duplicate_object THEN
         NULL;
       END $$;
@@ -425,8 +507,7 @@ export async function listUsersForAdmin(): Promise<UserAdminRecord[]> {
         ORDER BY
           CASE provisioning_status
             WHEN 'active' THEN 1
-            WHEN 'invited' THEN 2
-            WHEN 'profile_only' THEN 3
+            WHEN 'profile_only' THEN 2
             ELSE 4
           END,
           display_name
@@ -544,6 +625,7 @@ export async function updateOwnUserProfile(input: {
   email?: string | null;
   aliases?: string[];
   avatarUrl?: string | null;
+  notificationPreferences?: NotificationPreferences;
 }): Promise<AuthUser> {
   await ensureUsersTable();
   const postgres = createPostgresClient('vioscope-users');
@@ -587,6 +669,9 @@ export async function updateOwnUserProfile(input: {
       } else {
         delete nextMetadata.avatar_url;
       }
+    }
+    if (input.notificationPreferences) {
+      nextMetadata.notification_preferences = normalizeNotificationPreferences(input.notificationPreferences);
     }
 
     const result = await postgres.pool.query<AuthUserRow>(
@@ -652,6 +737,9 @@ export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRe
   if (email) {
     metadata.email = email;
   }
+  if (input.position) {
+    metadata.position = input.position;
+  }
   const postgres = createPostgresClient('vioscope-users');
 
   try {
@@ -716,6 +804,7 @@ export async function updateUserByAdmin(input: {
   actorRole?: UserRole;
   displayName?: string;
   role?: UserRole;
+  position?: UserPosition | null;
   provisioningStatus?: UserProvisioningStatus;
   email?: string | null;
   aliases?: string[];
@@ -758,7 +847,7 @@ export async function updateUserByAdmin(input: {
       (['administrator', 'pi', 'service'].includes(current.role) ||
         (input.role && ['administrator', 'pi', 'service'].includes(input.role)))
     ) {
-      throw new Error('PI users can only manage member, organizer, and viewer roles.');
+      throw new Error('PI users can only manage member, organizer, and viewer permissions.');
     }
 
     const nextRole = input.role || current.role;
@@ -781,6 +870,13 @@ export async function updateUserByAdmin(input: {
     }
     if (input.aliases) {
       nextMetadata.aliases = cleanAliases(input.aliases);
+    }
+    if (input.position !== undefined) {
+      if (input.position) {
+        nextMetadata.position = input.position;
+      } else {
+        delete nextMetadata.position;
+      }
     }
     if (input.avatarUrl !== undefined) {
       if (input.avatarUrl) {

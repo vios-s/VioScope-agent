@@ -8,11 +8,13 @@ export const projectStatuses = ['on_track', 'blocked', 'stale', 'needs_input'] a
 export const projectLifecycles = ['active', 'paused', 'finished', 'archived'] as const;
 export const projectUpdateTypes = ['progress', 'note', 'decision', 'blocker', 'artifact'] as const;
 export const projectTracks = ['A', 'B'] as const;
+export const projectRecommendations = ['deep_dive', 'milestone_check', 'strategic_slot', 'none'] as const;
 
 export type ProjectStatus = (typeof projectStatuses)[number];
 export type ProjectLifecycle = (typeof projectLifecycles)[number];
 export type ProjectUpdateType = (typeof projectUpdateTypes)[number];
 export type ProjectTrack = (typeof projectTracks)[number];
+export type ProjectRecommendation = (typeof projectRecommendations)[number];
 
 export type ProjectArtifactInput = {
   title?: string;
@@ -29,6 +31,7 @@ export type ProjectCreateInput = {
   collaborators?: string[];
   track?: string;
   stage?: number;
+  stageProgress?: number;
   lifecycle?: ProjectLifecycle;
   status?: ProjectStatus;
   stageSince?: string | null;
@@ -47,6 +50,12 @@ export type AddProjectUpdateInput = {
   date?: string | null;
   type?: ProjectUpdateType;
   text: string;
+  stage?: number;
+  stageProgress?: number;
+  status?: ProjectStatus;
+  blocker?: string | null;
+  target?: string | null;
+  milestone?: boolean;
   artifact?: ProjectArtifactInput | null;
 };
 
@@ -77,6 +86,12 @@ export type ProjectUpdateRecord = {
   byUsername: string;
   type: ProjectUpdateType;
   text: string;
+  stage: number | null;
+  stageProgress: number | null;
+  status: ProjectStatus | null;
+  blocker: string | null;
+  target: string | null;
+  milestone: boolean;
   artifactIds: string[];
   comments: ProjectUpdateCommentRecord[];
   createdAt: string;
@@ -90,6 +105,7 @@ export type ProjectRecord = {
   collaborators: string[];
   track: string;
   stage: number;
+  stageProgress: number;
   lifecycle: ProjectLifecycle;
   status: ProjectStatus;
   stageSince: string | null;
@@ -105,12 +121,16 @@ export type ProjectRecord = {
   updatedAt: string;
   artifacts: ProjectArtifactRecord[];
   updates: ProjectUpdateRecord[];
+  needsUpdate: boolean;
+  overdue: boolean;
+  attentionReason: string | null;
+  recommendation: ProjectRecommendation;
   access: {
     canEdit: boolean;
     canArchive: boolean;
     canAddUpdate: boolean;
     canComment: boolean;
-    reason: 'owner' | 'collaborator' | 'coordinator' | 'pi_admin';
+    reason: 'owner' | 'coordinator' | 'pi_admin';
   };
 };
 
@@ -122,6 +142,7 @@ type ProjectRow = {
   collaborator_usernames: string[] | null;
   track: string;
   stage: number | string;
+  stage_progress: number | string | null;
   lifecycle: ProjectLifecycle;
   status: ProjectStatus;
   stage_since: string | Date | null;
@@ -158,6 +179,12 @@ type UpdateRow = {
   by_username: string;
   update_type: ProjectUpdateType;
   text: string;
+  stage: number | string | null;
+  stage_progress: number | string | null;
+  status: ProjectStatus | null;
+  blocker: string | null;
+  target: string | null;
+  milestone: boolean | null;
   artifact_ids: string[] | null;
   created_at: string | Date;
 };
@@ -200,6 +227,21 @@ function cleanTrack(value?: string | null): ProjectTrack {
   throw new Error('Track must be A or B.');
 }
 
+function cleanStage(value: number): number {
+  if (!Number.isInteger(value) || value < 1 || value > 5) {
+    throw new Error('Stage must be an integer from 1 to 5.');
+  }
+  return value;
+}
+
+function cleanStageProgress(value?: number | null): number {
+  const progress = value ?? 0;
+  if (!Number.isInteger(progress) || progress < 0 || progress > 100) {
+    throw new Error('Stage progress must be an integer from 0 to 100.');
+  }
+  return progress;
+}
+
 function defaultWatchPath(ownerUsername: string, slug: string): string {
   return `project://${ownerUsername}/${slug}`;
 }
@@ -223,6 +265,64 @@ function isoDate(value: string | Date | null): string | null {
   return value ? new Date(value).toISOString() : null;
 }
 
+function wordCount(value: string): number {
+  return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function daysSinceDate(value: string | null): number | null {
+  if (!value) return null;
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
+}
+
+function daysUntilDate(value: string | null): number | null {
+  if (!value) return null;
+  const timestamp = Date.parse(`${value}T00:00:00Z`);
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.ceil((timestamp - Date.now()) / 86_400_000);
+}
+
+function projectRecommendation(input: {
+  lifecycle: ProjectLifecycle;
+  status: ProjectStatus;
+  stage: number;
+  stageProgress: number;
+  lastUpdate: string | null;
+  blocker: string | null;
+  submissionDeadline: string | null;
+  milestone: boolean;
+}): { needsUpdate: boolean; overdue: boolean; attentionReason: string | null; recommendation: ProjectRecommendation } {
+  const updateAge = daysSinceDate(input.lastUpdate);
+  const needsUpdate = input.lifecycle === 'active' && (updateAge === null || updateAge >= 14);
+  const deadlineDays = daysUntilDate(input.submissionDeadline);
+  const deadlineSoon = deadlineDays !== null && deadlineDays >= 0 && deadlineDays <= 30;
+  const attention = [
+    input.blocker ? 'blocker' : null,
+    input.status !== 'on_track' ? input.status : null,
+    needsUpdate ? 'needs bi-weekly update' : null,
+    deadlineSoon ? 'deadline soon' : null,
+  ].filter(Boolean) as string[];
+
+  let recommendation: ProjectRecommendation = 'none';
+  if (input.lifecycle === 'active') {
+    if (input.blocker || input.status === 'blocked') {
+      recommendation = 'deep_dive';
+    } else if (input.milestone || input.stageProgress >= 80 || deadlineSoon) {
+      recommendation = 'milestone_check';
+    } else if (input.stage === 1 || input.status === 'needs_input') {
+      recommendation = 'strategic_slot';
+    }
+  }
+
+  return {
+    needsUpdate,
+    overdue: needsUpdate,
+    attentionReason: attention.join(', ') || null,
+    recommendation,
+  };
+}
+
 function titleFromSlug(slug: string): string {
   return slug
     .split(/[-_]+/)
@@ -243,30 +343,31 @@ function isProjectUpdateType(value?: string): value is ProjectUpdateType {
   return projectUpdateTypes.includes(value as ProjectUpdateType);
 }
 
-async function coordinatorTracksForUser(user: AuthUser): Promise<Set<string>> {
+async function managedOwnerUsernamesForUser(user: AuthUser): Promise<Set<string>> {
   try {
     const { config } = await readThemeMeetingConfig();
     return new Set(
       config.themes
         .filter((theme) => canManageTheme(config, theme.theme_id, user))
-        .map((theme) => theme.theme_id.toLowerCase()),
+        .flatMap((theme) => theme.member_users)
+        .map((username) => cleanUsername(username || ''))
+        .filter(Boolean),
     );
   } catch {
     return new Set();
   }
 }
 
-function accessReason(row: ProjectRow, user: AuthUser, coordinatorTracks: Set<string>): ProjectRecord['access']['reason'] | null {
+function accessReason(row: ProjectRow, user: AuthUser, managedOwnerUsernames: Set<string>): ProjectRecord['access']['reason'] | null {
   const username = cleanUsername(user.username);
   if (canSeeAll(user)) return 'pi_admin';
   if (cleanUsername(row.owner_username) === username || isUserName(row.owner_username, user)) return 'owner';
-  if ((row.collaborator_usernames || []).map(cleanUsername).includes(username)) return 'collaborator';
-  if (coordinatorTracks.has(row.track.toLowerCase())) return 'coordinator';
+  if (managedOwnerUsernames.has(cleanUsername(row.owner_username))) return 'coordinator';
   return null;
 }
 
 function canEditFromReason(reason: ProjectRecord['access']['reason']): boolean {
-  return reason === 'owner' || reason === 'collaborator' || reason === 'pi_admin';
+  return reason === 'owner' || reason === 'pi_admin';
 }
 
 function toArtifact(row: ArtifactRow): ProjectArtifactRecord {
@@ -291,6 +392,12 @@ function toUpdate(row: UpdateRow, comments: ProjectUpdateCommentRecord[]): Proje
     byUsername: row.by_username,
     type: row.update_type,
     text: row.text,
+    stage: row.stage === null ? null : Number(row.stage),
+    stageProgress: row.stage_progress === null ? null : Number(row.stage_progress),
+    status: row.status,
+    blocker: row.blocker,
+    target: row.target,
+    milestone: Boolean(row.milestone),
     artifactIds: row.artifact_ids || [],
     comments,
     createdAt: new Date(row.created_at).toISOString(),
@@ -300,13 +407,24 @@ function toUpdate(row: UpdateRow, comments: ProjectUpdateCommentRecord[]): Proje
 function toProject(
   row: ProjectRow,
   user: AuthUser,
-  coordinatorTracks: Set<string>,
+  managedOwnerUsernames: Set<string>,
   artifacts: ProjectArtifactRecord[],
   updates: ProjectUpdateRecord[],
 ): ProjectRecord | null {
-  const reason = accessReason(row, user, coordinatorTracks);
+  const reason = accessReason(row, user, managedOwnerUsernames);
   if (!reason) return null;
   const canEdit = canEditFromReason(reason);
+  const latestUpdate = updates[0];
+  const derived = projectRecommendation({
+    lifecycle: row.lifecycle,
+    status: row.status,
+    stage: Number(row.stage),
+    stageProgress: Number(row.stage_progress || 0),
+    lastUpdate: dateOnly(row.last_update),
+    blocker: row.blocker,
+    submissionDeadline: dateOnly(row.submission_deadline),
+    milestone: Boolean(latestUpdate?.milestone),
+  });
 
   return {
     id: row.id,
@@ -316,6 +434,7 @@ function toProject(
     collaborators: row.collaborator_usernames || [],
     track: row.track,
     stage: Number(row.stage),
+    stageProgress: Number(row.stage_progress || 0),
     lifecycle: row.lifecycle,
     status: row.status,
     stageSince: dateOnly(row.stage_since),
@@ -331,6 +450,7 @@ function toProject(
     updatedAt: new Date(row.updated_at).toISOString(),
     artifacts,
     updates,
+    ...derived,
     access: {
       canEdit,
       canArchive: canEdit,
@@ -364,6 +484,7 @@ async function ensureProjectTablesOnce(): Promise<void> {
         collaborator_usernames TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
         track TEXT NOT NULL DEFAULT 'A' CHECK (track IN ('A', 'B')),
         stage INTEGER NOT NULL DEFAULT 1 CHECK (stage BETWEEN 1 AND 5),
+        stage_progress INTEGER NOT NULL DEFAULT 0,
         lifecycle TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active', 'paused', 'finished', 'archived')),
         status TEXT NOT NULL DEFAULT 'on_track' CHECK (status IN ('on_track', 'blocked', 'stale', 'needs_input')),
         stage_since DATE,
@@ -416,10 +537,23 @@ async function ensureProjectTablesOnce(): Promise<void> {
         by_username TEXT NOT NULL,
         update_type TEXT NOT NULL DEFAULT 'progress' CHECK (update_type IN ('progress', 'note', 'decision', 'blocker', 'artifact')),
         text TEXT NOT NULL,
+        stage INTEGER,
+        stage_progress INTEGER,
+        status TEXT,
+        blocker TEXT,
+        target TEXT,
+        milestone BOOLEAN NOT NULL DEFAULT false,
         artifact_ids UUID[] NOT NULL DEFAULT ARRAY[]::UUID[],
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await postgres.pool.query('ALTER TABLE project_records ADD COLUMN IF NOT EXISTS stage_progress INTEGER NOT NULL DEFAULT 0');
+    await postgres.pool.query('ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS stage INTEGER');
+    await postgres.pool.query('ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS stage_progress INTEGER');
+    await postgres.pool.query('ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS status TEXT');
+    await postgres.pool.query('ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS blocker TEXT');
+    await postgres.pool.query('ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS target TEXT');
+    await postgres.pool.query('ALTER TABLE project_updates ADD COLUMN IF NOT EXISTS milestone BOOLEAN NOT NULL DEFAULT false');
     await postgres.pool.query(`
       CREATE TABLE IF NOT EXISTS project_update_comments (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -442,7 +576,7 @@ async function ensureProjectTablesOnce(): Promise<void> {
 
 async function hydrateProjects(rows: ProjectRow[], user: AuthUser): Promise<ProjectRecord[]> {
   if (!rows.length) return [];
-  const coordinatorTracks = await coordinatorTracksForUser(user);
+  const managedOwnerUsernames = await managedOwnerUsernamesForUser(user);
   const projectIds = rows.map((row) => row.id);
   const postgres = createPostgresClient('vioscope-projects');
 
@@ -459,7 +593,8 @@ async function hydrateProjects(rows: ProjectRow[], user: AuthUser): Promise<Proj
     );
     const updateResult = await postgres.pool.query<UpdateRow>(
       `
-        SELECT id::text, project_id::text, update_date, by_username, update_type, text, artifact_ids::text[], created_at
+        SELECT id::text, project_id::text, update_date, by_username, update_type, text,
+          stage, stage_progress, status, blocker, target, milestone, artifact_ids::text[], created_at
         FROM project_updates
         WHERE project_id = ANY($1::uuid[])
         ORDER BY update_date DESC, created_at DESC
@@ -511,7 +646,7 @@ async function hydrateProjects(rows: ProjectRow[], user: AuthUser): Promise<Proj
         toProject(
           row,
           user,
-          coordinatorTracks,
+          managedOwnerUsernames,
           artifactsByProject.get(row.id) || [],
           updatesByProject.get(row.id) || [],
         ),
@@ -529,7 +664,7 @@ export async function listProjectsForUser(user: AuthUser, input: { includeArchiv
   try {
     const result = await postgres.pool.query<ProjectRow>(
       `
-        SELECT id::text, slug, title, owner_username, collaborator_usernames, track, stage,
+        SELECT id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, archived_at, created_at, updated_at
         FROM project_records
@@ -551,7 +686,7 @@ async function projectRowsByIdOrSlug(projectId: string): Promise<ProjectRow[]> {
   try {
     const result = await postgres.pool.query<ProjectRow>(
       `
-        SELECT id::text, slug, title, owner_username, collaborator_usernames, track, stage,
+        SELECT id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, archived_at, created_at, updated_at
         FROM project_records
@@ -632,10 +767,8 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
   const collaborators = cleanUsernames(input.collaborators);
   await assertProjectNameAvailable({ ownerUsername, title, slug });
 
-  const stage = input.stage ?? 1;
-  if (!Number.isInteger(stage) || stage < 1 || stage > 5) {
-    throw new Error('Stage must be an integer from 1 to 5.');
-  }
+  const stage = cleanStage(input.stage ?? 1);
+  const stageProgress = cleanStageProgress(input.stageProgress);
   const lifecycle = input.lifecycle || 'active';
   const status = input.status || 'on_track';
   if (!isProjectLifecycle(lifecycle)) throw new Error('Unsupported project lifecycle.');
@@ -646,12 +779,12 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
     const result = await postgres.pool.query<ProjectRow>(
       `
         INSERT INTO project_records (
-          slug, title, owner_username, collaborator_usernames, track, stage, lifecycle, status,
+          slug, title, owner_username, collaborator_usernames, track, stage, stage_progress, lifecycle, status,
           stage_since, last_update, blocker, target, venue, submission_deadline, watch_path, notes,
           created_by_user_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10::date, $11, $12, $13, $14::date, $15, $16, $17)
-        RETURNING id::text, slug, title, owner_username, collaborator_usernames, track, stage,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::date, $12, $13, $14, $15::date, $16, $17, $18)
+        RETURNING id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, archived_at, created_at, updated_at
       `,
@@ -662,6 +795,7 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
         collaborators,
         cleanTrack(input.track || 'A'),
         stage,
+        stageProgress,
         lifecycle,
         status,
         cleanDate(input.stageSince),
@@ -700,10 +834,8 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
     excludeProjectId: current.id,
   });
 
-  const nextStage = input.stage ?? current.stage;
-  if (!Number.isInteger(nextStage) || nextStage < 1 || nextStage > 5) {
-    throw new Error('Stage must be an integer from 1 to 5.');
-  }
+  const nextStage = cleanStage(input.stage ?? current.stage);
+  const nextStageProgress = cleanStageProgress(input.stageProgress ?? current.stageProgress);
   const nextLifecycle = input.lifecycle || current.lifecycle;
   const nextStatus = input.status || current.status;
   if (!isProjectLifecycle(nextLifecycle)) throw new Error('Unsupported project lifecycle.');
@@ -720,20 +852,21 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
           collaborator_usernames = $4,
           track = $5,
           stage = $6,
-          lifecycle = $7,
-          status = $8,
-          stage_since = $9::date,
-          last_update = $10::date,
-          blocker = $11,
-          target = $12,
-          venue = $13,
-          submission_deadline = $14::date,
-          watch_path = $15,
-          notes = $16,
-          archived_at = CASE WHEN $7 = 'archived' THEN COALESCE(archived_at, now()) ELSE NULL END,
+          stage_progress = $7,
+          lifecycle = $8,
+          status = $9,
+          stage_since = $10::date,
+          last_update = $11::date,
+          blocker = $12,
+          target = $13,
+          venue = $14,
+          submission_deadline = $15::date,
+          watch_path = $16,
+          notes = $17,
+          archived_at = CASE WHEN $8 = 'archived' THEN COALESCE(archived_at, now()) ELSE NULL END,
           updated_at = now()
         WHERE id = $1
-        RETURNING id::text, slug, title, owner_username, collaborator_usernames, track, stage,
+        RETURNING id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, archived_at, created_at, updated_at
       `,
@@ -744,6 +877,7 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
         nextCollaborators,
         cleanTrack(input.track || current.track),
         nextStage,
+        nextStageProgress,
         nextLifecycle,
         nextStatus,
         input.stageSince === undefined ? current.stageSince : cleanDate(input.stageSince),
@@ -775,17 +909,32 @@ export async function addProjectUpdate(projectId: string, input: AddProjectUpdat
   if (!text) throw new Error('Update text is required.');
   const updateType = input.type || 'progress';
   if (!isProjectUpdateType(updateType)) throw new Error('Unsupported update type.');
+  if (updateType === 'progress' && wordCount(text) > 50) {
+    throw new Error('Progress updates must be 50 words or fewer.');
+  }
+  const updateDate = cleanDate(input.date);
+  const stage = cleanStage(input.stage ?? project.stage);
+  const stageProgress = cleanStageProgress(input.stageProgress ?? project.stageProgress);
+  const status = input.status || project.status;
+  if (!isProjectStatus(status)) throw new Error('Unsupported project status.');
+  const blocker = input.blocker === undefined ? project.blocker : cleanText(input.blocker);
+  const target = input.target === undefined ? project.target : cleanText(input.target);
+  const milestone = Boolean(input.milestone);
+  const stageSince = stage !== project.stage ? updateDate || new Date().toISOString().slice(0, 10) : project.stageSince || updateDate;
 
   const postgres = createPostgresClient('vioscope-projects');
   try {
     await postgres.pool.query('BEGIN');
     const updateResult = await postgres.pool.query<{ id: string }>(
       `
-        INSERT INTO project_updates (project_id, update_date, by_username, update_type, text)
-        VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5)
+        INSERT INTO project_updates (
+          project_id, update_date, by_username, update_type, text,
+          stage, stage_progress, status, blocker, target, milestone
+        )
+        VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING id::text
       `,
-      [project.id, cleanDate(input.date), actor.username, updateType, text],
+      [project.id, updateDate, actor.username, updateType, text, stage, stageProgress, status, blocker, target, milestone],
     );
     const updateId = updateResult.rows[0]?.id;
     const artifactIds: string[] = [];
@@ -824,8 +973,20 @@ export async function addProjectUpdate(projectId: string, input: AddProjectUpdat
       await postgres.pool.query('UPDATE project_updates SET artifact_ids = $2::uuid[] WHERE id = $1', [updateId, artifactIds]);
     }
     await postgres.pool.query(
-      'UPDATE project_records SET last_update = COALESCE($2::date, CURRENT_DATE), updated_at = now() WHERE id = $1',
-      [project.id, cleanDate(input.date)],
+      `
+        UPDATE project_records
+        SET
+          stage = $2,
+          stage_progress = $3,
+          status = $4,
+          blocker = $5,
+          target = $6,
+          stage_since = $7::date,
+          last_update = COALESCE($8::date, CURRENT_DATE),
+          updated_at = now()
+        WHERE id = $1
+      `,
+      [project.id, stage, stageProgress, status, blocker, target, stageSince, updateDate],
     );
     await postgres.pool.query('COMMIT');
     return getProjectForUser(project.id, actor);

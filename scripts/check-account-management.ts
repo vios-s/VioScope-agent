@@ -346,8 +346,15 @@ async function main() {
     const noEmailCreate = await usersRoute.POST(jsonRequest('/api/users', {
       username: users.noEmailInvite.username,
       role: users.noEmailInvite.role,
+      position: 'visitor',
     }, cookieFor(admin)));
     assert.equal(noEmailCreate.status, 200, 'Admin should create first-login account without email.');
+    const noEmailCreateBody = await jsonBody(noEmailCreate);
+    assert.equal(
+      noEmailCreateBody.users?.find((user: { username: string }) => user.username === users.noEmailInvite.username)?.position,
+      'visitor',
+      'Created member position should be saved.',
+    );
     const noEmailLogin = await login(users.noEmailInvite.username, users.noEmailInvite.username);
     assert.equal(noEmailLogin.response.status, 200, 'Username temporary password should log in.');
     assert.equal(noEmailLogin.body.user.email, null);
@@ -387,6 +394,13 @@ async function main() {
     );
     assert.equal(adminRemovesOwnRole.status, 400, 'Admin should not remove own administrator role.');
 
+    const memberPositionUpdate = await userRoute.PATCH(
+      jsonRequest(`/api/users/${member.id}`, { position: 'postdoc' }, cookieFor(admin)),
+      { params: Promise.resolve({ userId: member.id }) },
+    );
+    assert.equal(memberPositionUpdate.status, 200, 'Admin should update member position.');
+    assert.equal((await jsonBody(memberPositionUpdate)).user.position, 'postdoc');
+
     const badEmail = await accountRoute.PATCH(jsonRequest('/api/account', { email: 'not-an-email' }, cookieFor(member)));
     assert.equal(badEmail.status, 400, 'Invalid account email should be rejected.');
 
@@ -394,6 +408,21 @@ async function main() {
     const goodEmail = await accountRoute.PATCH(jsonRequest('/api/account', { email: nextEmail }, cookieFor(member)));
     assert.equal(goodEmail.status, 200, 'Valid account email should be accepted.');
     assert.equal((await jsonBody(goodEmail)).user.email, nextEmail);
+
+    const notificationPrefs = await accountRoute.PATCH(jsonRequest('/api/account', {
+      notificationPreferences: {
+        chat_mentions: { web: false, email: true },
+        project_progress_reminders: { web: true, email: false },
+        theme_meeting_reminders: { web: false, email: true },
+        project_planning_brief: { web: true, email: true },
+        checklist_results: { web: false, email: false },
+      },
+    }, cookieFor(member)));
+    const notificationPrefsBody = await jsonBody(notificationPrefs);
+    assert.equal(notificationPrefs.status, 200, notificationPrefsBody.error || 'Notification preferences should save.');
+    assert.equal(notificationPrefsBody.user.notificationPreferences.chat_mentions.web, false);
+    assert.equal(notificationPrefsBody.user.notificationPreferences.chat_mentions.email, false, 'Chat mention email must stay disabled.');
+    assert.equal(notificationPrefsBody.user.notificationPreferences.project_progress_reminders.email, false);
 
     const memberAudit = await auditRoute.GET(getRequest('/api/audit-log', cookieFor(member)));
     assert.equal(memberAudit.status, 403, 'Members should not read audit logs.');

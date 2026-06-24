@@ -227,10 +227,12 @@ async function expectJson<T = any>(label: string, response: Response, status = 2
 
 async function main() {
   const auditTestRunId = `theme-meeting-auth-${Date.now()}`;
+  const originalEmailNotificationsEnabled = process.env.EMAIL_NOTIFICATIONS_ENABLED;
   process.env.VIOSCOPE_AUDIT_TEST_RUN_ID = auditTestRunId;
   process.env.THEME_MEETING_CONFIG_PATH = configPath;
   process.env.THEME_MEETING_UPDATES_PATH = updatesPath;
   process.env.THEME_MEETING_NOTIFICATIONS_PATH = notificationsPath;
+  process.env.EMAIL_NOTIFICATIONS_ENABLED = 'false';
 
   await copyFile(resolve('fixtures/theme-meeting-config.example.yaml'), resolve(configPath));
   const usernames = unique(temporaryUsers.map((user) => user.username));
@@ -272,6 +274,11 @@ async function main() {
         ),
       );
       assert.ok(reminder.notifications.length > 0, `Expected Theme ${coordinator.themeId} reminder notifications.`);
+      assert.deepEqual(
+        reminder.emails,
+        { sent: 0, skipped: reminder.notifications.length, failed: 0 },
+        'Reminder email delivery should respect disabled email transport in smoke tests.',
+      );
       assert.ok(
         reminder.notifications.every((notification: { theme_id: string }) => notification.theme_id === coordinator.themeId),
         `Expected only Theme ${coordinator.themeId} notifications.`,
@@ -356,9 +363,8 @@ async function main() {
             meetingDate: '2026-06-24',
             themeId: 'A',
             member: 'alice',
-            updateType: 'short_update',
+            updateType: 'milestone_check',
             progressText: 'Completed a temporary auth smoke test update for the Theme A dashboard path.',
-            questions: 'Can the coordinator see this planned short update?',
           }),
         }),
       ),
@@ -374,7 +380,7 @@ async function main() {
             meetingDate: '2026-06-24',
             themeId: 'A',
             member: 'bob',
-            updateType: 'nothing_to_report',
+            updateType: 'strategic_slot',
             progressText: 'This should not be accepted.',
           }),
         }),
@@ -418,6 +424,11 @@ async function main() {
     await restoreUsers(snapshots);
     await cleanupAuditLogs(auditTestRunId);
     delete process.env.VIOSCOPE_AUDIT_TEST_RUN_ID;
+    if (originalEmailNotificationsEnabled === undefined) {
+      delete process.env.EMAIL_NOTIFICATIONS_ENABLED;
+    } else {
+      process.env.EMAIL_NOTIFICATIONS_ENABLED = originalEmailNotificationsEnabled;
+    }
   }
 }
 

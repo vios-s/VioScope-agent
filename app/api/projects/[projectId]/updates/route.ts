@@ -21,12 +21,34 @@ function optionalText(value: unknown): string | null | undefined {
   return value.trim() || null;
 }
 
+function integer(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    throw new Error('Expected an integer value.');
+  }
+  return parsed;
+}
+
+function booleanValue(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 'true' || value === 'on' || value === '1';
+  return Boolean(value);
+}
+
 function updateInput(body: Record<string, unknown>): AddProjectUpdateInput {
   const artifact = body.artifact && typeof body.artifact === 'object' ? (body.artifact as Record<string, unknown>) : null;
   return {
     date: optionalText(body.date),
     type: text(body.type) as AddProjectUpdateInput['type'],
     text: text(body.text) || '',
+    stage: integer(body.stage),
+    stageProgress: integer(body.stageProgress),
+    status: text(body.status) as AddProjectUpdateInput['status'],
+    blocker: optionalText(body.blocker),
+    target: optionalText(body.target),
+    milestone: booleanValue(body.milestone),
     artifact: artifact
       ? {
           title: text(artifact.title),
@@ -65,6 +87,12 @@ async function updateInputFromForm(
       date: formText(formData, 'date') || null,
       type: formText(formData, 'type') as AddProjectUpdateInput['type'],
       text: formText(formData, 'text') || (uploadDigest?.artifact.title ? `Uploaded ${uploadDigest.artifact.title}.` : ''),
+      stage: integer(formText(formData, 'stage')),
+      stageProgress: integer(formText(formData, 'stageProgress')),
+      status: formText(formData, 'status') as AddProjectUpdateInput['status'],
+      blocker: optionalText(formText(formData, 'blocker')),
+      target: optionalText(formText(formData, 'target')),
+      milestone: booleanValue(formText(formData, 'milestone')),
       artifact: uploadDigest?.artifact || null,
     },
     uploadDigest,
@@ -95,6 +123,12 @@ export async function POST(request: Request, context: { params: Promise<{ projec
         slug: project.project,
         updateType: input.type || 'progress',
         textLength: input.text.length,
+        stage: input.stage ?? null,
+        stageProgress: input.stageProgress ?? null,
+        status: input.status || null,
+        hasBlocker: Boolean(input.blocker),
+        hasTarget: Boolean(input.target),
+        milestone: Boolean(input.milestone),
         hasArtifact: Boolean(input.artifact?.title || input.artifact?.path),
         artifactKind: input.artifact?.kind || null,
         artifactSummaryLength: input.artifact?.summary?.length || 0,

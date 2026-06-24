@@ -4,9 +4,11 @@ import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/sessi
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import {
   isUserProvisioningStatus,
+  isUserPosition,
   isUserRole,
   updateUserByAdmin,
   type AuthUser,
+  type UserPosition,
   type UserProvisioningStatus,
   type UserRole,
 } from '../../../../src/mastra/db/users';
@@ -45,6 +47,16 @@ function provisioningStatus(value: unknown): UserProvisioningStatus | undefined 
     throw new Error('Invalid provisioning status.');
   }
   return status;
+}
+
+function position(value: unknown): UserPosition | null | undefined {
+  if (value === undefined) return undefined;
+  const nextPosition = text(value);
+  if (!nextPosition) return null;
+  if (!isUserPosition(nextPosition)) {
+    throw new Error('Invalid position.');
+  }
+  return nextPosition;
 }
 
 function optionalText(value: unknown): string | null | undefined {
@@ -90,6 +102,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
     const body = (await request.json()) as Record<string, unknown>;
     const nextRole = role(body.role);
     const nextStatus = provisioningStatus(body.provisioningStatus);
+    const nextPosition = position(body.position);
     const email = optionalText(body.email);
     const avatarUrl = optionalText(body.avatarUrl);
 
@@ -109,6 +122,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
       actorRole: admin.role,
       displayName: text(body.displayName),
       role: nextRole,
+      position: nextPosition,
       provisioningStatus: nextStatus,
       email,
       aliases: textArray(body.aliases),
@@ -120,6 +134,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
     const changedFields = [
       body.displayName !== undefined ? 'displayName' : null,
       nextRole ? 'role' : null,
+      body.position !== undefined ? 'position' : null,
       nextStatus ? 'provisioningStatus' : null,
       email !== undefined ? 'email' : null,
       body.aliases !== undefined ? 'aliases' : null,
@@ -136,6 +151,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
       metadata: {
         changedFields,
         role: user.role,
+        position: user.position,
         provisioningStatus: user.provisioningStatus,
       },
     });

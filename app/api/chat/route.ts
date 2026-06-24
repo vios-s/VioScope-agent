@@ -10,6 +10,8 @@ import {
   shareChatSessionWithMentions,
   type ChatMentionResult,
 } from '../../../src/mastra/db/chat';
+import { matchesChatPolicyTerms, vioscopeChatPolicyConfig } from '../../../src/mastra/agents/vioscope.chat-policy.config';
+import { searchWiki, shouldExpandWikiQuery } from '../../../src/mastra/tools/wiki-search';
 import { loadUserDatastoreContext, type UserDatastoreContext } from '../../../src/mastra/users/datastore';
 
 export const runtime = 'nodejs';
@@ -20,9 +22,21 @@ type ChatSource = {
   path?: string;
 };
 
+type PreloadedWikiContext = Awaited<ReturnType<typeof searchWiki>>;
+
 type VioScopeRequestContext = {
   'vioscope-user': AuthUser;
 };
+
+function positionLabel(position: AuthUser['position']): string | null {
+  if (!position) return null;
+  if (position === 'pi') return 'PI';
+  if (position === 'software_engineer') return 'Software Engineer';
+  return position
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -38,30 +52,25 @@ const openAIProviderOptions = {
   },
 } as const;
 
-const scopeRefusal =
-  'VioScope is limited to VIOS lab work, lab wiki knowledge, EIDF/RDS/server setup, theme meetings, projects, and review/checklist workflows. I cannot help with general news or other non-lab topics here.';
-
 function isZdrItemReferenceError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /Items are not persisted for Zero Data Retention|Item with id .* not found/i.test(message);
 }
 
 function isClearlyOutOfScope(message: string): boolean {
-  const lower = message.toLowerCase();
-  const labScope =
-    /\b(vios|vioscope|lab|wiki|gitbook|eidf|rds|server|vm|gpu|safe|theme|meeting|project|paper|submission|review|checklist|leave|holiday|annual leave|pi|supervisor|team|policy|procedure|account|access)\b/.test(
-      lower,
-    );
-  if (labScope) {
+  if (matchesChatPolicyTerms(message, vioscopeChatPolicyConfig.labScopeTerms)) {
     return false;
   }
 
-  return /\b(us news|uk news|world news|headlines?|weather|sports?|stocks?|stock market|crypto|bitcoin|election|politics|president|celebrity|movie|recipe)\b/.test(
-    lower,
-  );
+  return matchesChatPolicyTerms(message, vioscopeChatPolicyConfig.obviousOutOfScopeTerms);
 }
 
-function messageWithUserContext(message: string, user: AuthUser, datastore: UserDatastoreContext | null): string {
+function messageWithUserContext(
+  message: string,
+  user: AuthUser,
+  datastore: UserDatastoreContext | null,
+  wikiContext: PreloadedWikiContext | null,
+): string {
   const profile = user.profile || { researchInterests: [], publicInfo: [] };
   const lines = [
     'Signed-in user context for personalization and disambiguation only:',
@@ -70,6 +79,10 @@ function messageWithUserContext(message: string, user: AuthUser, datastore: User
     `- VioScope permission role: ${user.role}`,
     '- Permission role is app access, not employment or student status.',
   ];
+  const position = positionLabel(user.position);
+  if (position) {
+    lines.push(`- Position: ${position}`);
+  }
 
   if (user.aliases.length) {
     lines.push(`- Known aliases: ${user.aliases.join(', ')}`);
@@ -84,8 +97,8 @@ function messageWithUserContext(message: string, user: AuthUser, datastore: User
   if (profile.researchInterests.length) {
     lines.push(`- Research interests: ${profile.researchInterests.join('; ')}`);
   }
-  if (!profile.publicRole) {
-    lines.push('- Employment/student status is not stored in the user profile.');
+  if (!position && !profile.publicRole) {
+    lines.push('- Position/employment/student status is not set in the user profile.');
   }
   if (datastore) {
     lines.push(`- User datastore folder: DATASTORE_DIR/users/${datastore.slug}`);
@@ -96,8 +109,30 @@ function messageWithUserContext(message: string, user: AuthUser, datastore: User
   if (datastore?.memory) {
     lines.push(`- User datastore memory (${datastore.memory.path}):\n${datastore.memory.text}`);
   }
+  if (wikiContext?.relevantContext.length) {
+    lines.push(
+      'Potential wiki context retrieved for this ambiguous practical/institutional question. Use only if it is relevant; otherwise say the wiki evidence is insufficient.',
+    );
+    for (const [index, item] of wikiContext.relevantContext.slice(0, 3).entries()) {
+      const title = text(item.page_title) || `Wiki result ${index + 1}`;
+      const url = text(item.url);
+      const path = text(item.page_path);
+      const chunkText = text(item.text)?.slice(0, 1800) || '';
+      lines.push(`- ${title}${path ? ` (${path})` : ''}${url ? ` ${url}` : ''}:\n${chunkText}`);
+    }
+  }
 
   return `${lines.join('\n')}\n\nUser question:\n${message}`;
+}
+
+function mergeSources(primary: ChatSource[], fallback: ChatSource[]): ChatSource[] {
+  const byUrl = new Map<string, ChatSource>();
+  for (const source of [...primary, ...fallback]) {
+    if (source.url && !byUrl.has(source.url)) {
+      byUrl.set(source.url, source);
+    }
+  }
+  return Array.from(byUrl.values());
 }
 
 function extractSources(value: unknown, sources = new Map<string, ChatSource>(), seen = new WeakSet<object>()): ChatSource[] {
@@ -134,7 +169,7 @@ export async function POST(request: Request) {
 
     const threadId = text(body.threadId) || `web-${Date.now()}`;
     if (isClearlyOutOfScope(message)) {
-      const text = scopeRefusal;
+      const text = vioscopeChatPolicyConfig.scopeRefusal;
       const mentions = await persistChatAndMentions({
         threadId,
         user,
@@ -156,7 +191,8 @@ export async function POST(request: Request) {
 
     const agent = mastra.getAgent('vioscopeAgent');
     const userDatastoreContext = await loadUserDatastoreContext(user);
-    const agentMessage = messageWithUserContext(message, user, userDatastoreContext);
+    const preloadedWikiContext = shouldExpandWikiQuery(message) ? await searchWiki(message, 5) : null;
+    const agentMessage = messageWithUserContext(message, user, userDatastoreContext, preloadedWikiContext);
     const requestContext = new RequestContext<VioScopeRequestContext>();
     requestContext.set('vioscope-user', user);
     let response: Awaited<ReturnType<typeof agent.generate>>;
@@ -185,7 +221,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const sources = extractSources(response.toolResults || []);
+    const sources = mergeSources(extractSources(response.toolResults || []), preloadedWikiContext?.sources || []);
     const mentions = await persistChatAndMentions({
       threadId: responseThreadId,
       user,

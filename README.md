@@ -1,6 +1,6 @@
 # VioScope Agent
 
-Mastra + TypeScript scaffold for the VioScope agent system. The active slice is A2/B1: a GitLab-backed lab state model and theme-meeting support. B3 cited Wiki Q&A and B2 pre-submission review are also scaffolded.
+Mastra + TypeScript scaffold for the VioScope agent system. The active slice is A2/B1: database-backed project state and theme-meeting support. B3 cited Wiki Q&A and B2 pre-submission review are also scaffolded.
 
 ## Setup
 
@@ -40,7 +40,6 @@ For wiki ingestion, also set `GITBOOK_TOKEN` and `GITBOOK_SPACE`. `GITBOOK_SPACE
 Keep site-specific files under `DATASTORE_DIR` or another internal repo, not this code repo. Useful optional paths:
 
 ```text
-/Public/lab-state.yaml
 /Public/theme-meeting-config.yaml
 /Public/theme-meeting-updates.yaml
 /Public/theme-meeting-notifications.yaml
@@ -51,7 +50,7 @@ Keep site-specific files under `DATASTORE_DIR` or another internal repo, not thi
 /Public/uploads/submission-review/
 ```
 
-If your paths differ, set `LAB_STATE_PATH`, `THEME_MEETING_CONFIG_PATH`, `TEAM_PROFILE_MARKDOWN`, `MASTRA_STORAGE_URL`, or `SUBMISSION_REVIEW_UPLOAD_DIR` in `.env`.
+If your paths differ, set `THEME_MEETING_CONFIG_PATH`, `TEAM_PROFILE_MARKDOWN`, `MASTRA_STORAGE_URL`, or `SUBMISSION_REVIEW_UPLOAD_DIR` in `.env`.
 
 ### Database
 
@@ -67,6 +66,16 @@ Stop it when needed:
 npm run db:down
 ```
 
+### Local Email
+
+Start the local Mailpit SMTP catcher:
+
+```bash
+npm run mail:up
+```
+
+Set `EMAIL_NOTIFICATIONS_ENABLED=true` in `.env`, then open `http://127.0.0.1:8025` to inspect captured emails. The app sends through `SMTP_HOST`/`SMTP_PORT`; production should use an institutional SMTP relay rather than direct local delivery.
+
 ### Verify
 
 Run the cheap checks first:
@@ -74,7 +83,6 @@ Run the cheap checks first:
 ```bash
 npm run typecheck
 npm run check:users
-npm run check:lab-state
 npm run check:theme-meetings
 npm run check:vios-skills
 ```
@@ -85,8 +93,19 @@ Checks that require configured services:
 npm run check:elm
 npm run check:gitbook
 npm run ingest:gitbook
+npm run sync:gitbook
 npm run check:wiki-search -- "induction"
 npm run check:vioscope
+```
+
+`sync:gitbook` checks the current GitBook revision/page timestamps before indexing. If nothing changed,
+it exits without touching the vector index; if content changed, it runs the same full re-ingest as
+`ingest:gitbook`. The sync marker is stored at `DATASTORE_DIR/runtime/gitbook-sync-state.json` by default.
+
+Daily EIDF cron example:
+
+```cron
+17 3 * * * PATH=/home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -lc 'cd /home/eidf105/eidf105/rasin/Workspace/VioScope-agent && /home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin/npm --silent run sync:gitbook >> /Public/logs/vioscope-gitbook-sync.log 2>&1'
 ```
 
 ### Run
@@ -139,28 +158,9 @@ Supported v1 draft formats are text-like files (`.md`, `.txt`, `.tex`, `.latex`,
 - Runtime skills are loaded from `VIOS_SKILLS_DIR` and must stay outside this repository unless they are generic enough to publish.
 - Public team profiles can seed `users` as `profile_only`, but account activation, roles, and passwords require human confirmation.
 
-## Lab State
+## Project State
 
-The A2 state model supports a single `lab-state.yaml` file or a directory of project Markdown files with YAML frontmatter. The canonical copy should live in the private University GitLab clone referenced by `DATASTORE_DIR`.
-
-Core fields per project:
-
-```yaml
-project: toy-segmentation
-owner: alice
-track: A
-stage: 3
-status: on_track
-stage_since: 2026-06-10
-last_update: 2026-06-18
-blocker: null
-target: ToyConf abstract 2026-09-15
-watch_path: gitlab://vios/toy-segmentation
-artifacts:
-  - gitlab://vios/toy-segmentation/design-v1.md
-```
-
-The loader derives `weeks_in_stage`, `days_since_update`, `signals`, and `recommendation` (`deep_dive`, `nudge`, `none`). Thresholds are controlled by `THEME_MEETING_STALE_DAYS` and `THEME_MEETING_DEEP_DIVE_WEEKS`.
+Project Manager database records are the operational source of truth for the dashboard, progress updates, artifacts, planning scans, and permission checks. The old `lab-state.yaml` reader remains only as a compatibility/export path for legacy tools; the current member workflow should not depend on creating or hand-editing that file.
 
 ## Runtime Skills
 

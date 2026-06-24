@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { dirname, extname, join, resolve } from 'node:path';
+import { extname, isAbsolute, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { runtimeEnv } from '../runtime-config';
 import { deriveLabState, type DeriveLabStateOptions } from './derive';
@@ -51,20 +51,31 @@ function candidateStatePaths(): string[] {
 
 async function pathExists(path: string): Promise<boolean> {
   try {
-    await stat(path);
+    await stat(/*turbopackIgnore: true*/ path);
     return true;
   } catch {
     return false;
   }
 }
 
+function resolveRuntimePath(inputPath: string): string {
+  if (isAbsolute(inputPath)) return inputPath;
+  if (inputPath.startsWith('fixtures/')) {
+    return join(/*turbopackIgnore: true*/ process.cwd(), 'fixtures', inputPath.slice('fixtures/'.length));
+  }
+  if (inputPath.startsWith('.local/')) {
+    return join(/*turbopackIgnore: true*/ process.cwd(), '.local', inputPath.slice('.local/'.length));
+  }
+  return inputPath;
+}
+
 async function resolveStatePath(inputPath?: string): Promise<string> {
   if (inputPath) {
-    return resolve(/* turbopackIgnore: true */ process.cwd(), inputPath);
+    return resolveRuntimePath(inputPath);
   }
 
   for (const candidate of candidateStatePaths()) {
-    const resolved = resolve(/* turbopackIgnore: true */ process.cwd(), candidate);
+    const resolved = resolveRuntimePath(candidate);
     if (await pathExists(resolved)) {
       return resolved;
     }
@@ -74,11 +85,11 @@ async function resolveStatePath(inputPath?: string): Promise<string> {
 }
 
 function assertAllowedStatePath(path: string) {
-  const allowedRoots = [/* turbopackIgnore: true */ process.cwd()];
+  const allowedRoots = [process.cwd()];
   const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
 
   if (datastoreDir) {
-    allowedRoots.push(resolve(/* turbopackIgnore: true */ process.cwd(), datastoreDir));
+    allowedRoots.push(resolveRuntimePath(datastoreDir));
   }
 
   if (!allowedRoots.some((root) => isInside(root, path))) {
@@ -118,7 +129,7 @@ function parseProjectMarkdown(content: string): LabStateProject {
 }
 
 async function readProjectMarkdownFiles(directory: string): Promise<LabStateProject[]> {
-  const entries = await readdir(directory, { withFileTypes: true });
+  const entries = await readdir(/*turbopackIgnore: true*/ directory, { withFileTypes: true });
   const projectFiles = entries
     .filter((entry) => entry.isFile() && ['.md', '.markdown'].includes(extname(entry.name).toLowerCase()))
     .map((entry) => join(directory, entry.name))
@@ -126,7 +137,7 @@ async function readProjectMarkdownFiles(directory: string): Promise<LabStateProj
 
   const projects: LabStateProject[] = [];
   for (const projectFile of projectFiles) {
-    projects.push(parseProjectMarkdown(await readFile(projectFile, 'utf8')));
+    projects.push(parseProjectMarkdown(await readFile(/*turbopackIgnore: true*/ projectFile, 'utf8')));
   }
 
   return projects;
@@ -136,7 +147,7 @@ async function readLabStateDirectory(directory: string): Promise<LabState> {
   const directYaml = [join(directory, 'lab-state.yaml'), join(directory, 'lab-state.yml')];
   for (const candidate of directYaml) {
     if (await pathExists(candidate)) {
-      return parseLabStateYaml(await readFile(candidate, 'utf8'));
+      return parseLabStateYaml(await readFile(/*turbopackIgnore: true*/ candidate, 'utf8'));
     }
   }
 
@@ -158,7 +169,7 @@ async function readLabStateDirectory(directory: string): Promise<LabState> {
 }
 
 async function readRawLabState(path: string): Promise<LabState> {
-  const metadata = await stat(path);
+  const metadata = await stat(/*turbopackIgnore: true*/ path);
 
   if (metadata.isDirectory()) {
     return readLabStateDirectory(path);
@@ -169,7 +180,7 @@ async function readRawLabState(path: string): Promise<LabState> {
   }
 
   const extension = extname(path).toLowerCase();
-  const content = await readFile(path, 'utf8');
+  const content = await readFile(/*turbopackIgnore: true*/ path, 'utf8');
 
   if (extension === '.yaml' || extension === '.yml') {
     return parseLabStateYaml(content);

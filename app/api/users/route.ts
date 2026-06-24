@@ -2,7 +2,15 @@ import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
-import { isUserRole, listUsersForAdmin, upsertLocalUser, type AuthUser, type UserRole } from '../../../src/mastra/db/users';
+import {
+  isUserPosition,
+  isUserRole,
+  listUsersForAdmin,
+  upsertLocalUser,
+  type AuthUser,
+  type UserPosition,
+  type UserRole,
+} from '../../../src/mastra/db/users';
 
 export const runtime = 'nodejs';
 
@@ -37,8 +45,8 @@ async function requireUserManager(request: Request): Promise<AuthUser> {
 }
 
 function assertAssignableRole(actor: AuthUser, role: UserRole) {
-  if (actor.role === 'pi' && ['administrator', 'pi', 'service'].includes(role)) {
-    throw new Error('PI users can only create member, organizer, or viewer accounts.');
+  if (actor.role === 'pi' && ['administrator', 'pi', 'service', 'viewer'].includes(role)) {
+    throw new Error('PI users can only create member or organizer accounts.');
   }
 }
 
@@ -49,6 +57,15 @@ function parseRole(value: unknown): UserRole {
   }
 
   return role;
+}
+
+function parsePosition(value: unknown): UserPosition | null {
+  const position = text(value);
+  if (!position) return null;
+  if (!isUserPosition(position)) {
+    throw new Error('Invalid position.');
+  }
+  return position;
 }
 
 export async function GET(request: Request) {
@@ -67,6 +84,7 @@ export async function POST(request: Request) {
     const username = text(body.username);
     const email = text(body.email);
     const nextRole = parseRole(body.role);
+    const position = parsePosition(body.position);
     if (!username) {
       throw new Error('Username is required.');
     }
@@ -80,9 +98,10 @@ export async function POST(request: Request) {
       email,
       displayName: text(body.displayName),
       role: nextRole,
+      position,
       passwordResetRequired: true,
       source: 'manual',
-      metadata: { aliases: textArray(body.aliases), email, created_by: 'admin-ui' },
+      metadata: { aliases: textArray(body.aliases), email, position, created_by: 'admin-ui' },
     });
 
     await recordAuditLog({
@@ -93,6 +112,7 @@ export async function POST(request: Request) {
       summary: 'Admin created local user.',
       metadata: {
         role: createdUser.role,
+        position,
         provisioningStatus: createdUser.provisioningStatus,
         passwordResetRequired: createdUser.passwordResetRequired,
       },

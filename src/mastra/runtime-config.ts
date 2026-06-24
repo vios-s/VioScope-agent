@@ -1,22 +1,31 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
-export const runtimeConfigCachePath = process.env.VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH
-  ? resolve(process.env.VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH)
-  : resolve(
-      /* turbopackIgnore: true */ process.cwd(),
-      '.local',
-      'state',
-      'app-settings-runtime.json',
-    );
+let runtimeOverrides: Record<string, string> | null = null;
+
+function runtimeCachePath(): string {
+  const configuredPath = process.env.VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH;
+  if (configuredPath) {
+    return isAbsolute(configuredPath) ? configuredPath : join(/*turbopackIgnore: true*/ process.cwd(), configuredPath);
+  }
+
+  return join(/*turbopackIgnore: true*/ process.cwd(), '.local', 'state', 'app-settings-runtime.json');
+}
+
+export const runtimeConfigCachePath = runtimeCachePath();
 
 function loadRuntimeOverrides(): Record<string, string> {
   try {
-    if (!existsSync(runtimeConfigCachePath)) {
+    const fs = (process as typeof process & { getBuiltinModule?: (name: string) => unknown }).getBuiltinModule?.(
+      'node:fs',
+    ) as typeof import('node:fs') | undefined;
+    if (!fs) {
+      return {};
+    }
+    if (!fs.existsSync(runtimeConfigCachePath)) {
       return {};
     }
 
-    const parsed = JSON.parse(readFileSync(runtimeConfigCachePath, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(runtimeConfigCachePath, 'utf8'));
     const settings = parsed?.settings;
     if (!settings || typeof settings !== 'object') {
       return {};
@@ -30,9 +39,8 @@ function loadRuntimeOverrides(): Record<string, string> {
   }
 }
 
-const runtimeOverrides = loadRuntimeOverrides();
-
 export function runtimeEnv(name: string, fallback = ''): string {
+  runtimeOverrides ||= loadRuntimeOverrides();
   return runtimeOverrides[name] ?? process.env[name] ?? fallback;
 }
 

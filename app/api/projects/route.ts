@@ -50,6 +50,7 @@ function projectInput(body: Record<string, unknown>): ProjectCreateInput {
     collaborators: textArray(body.collaborators),
     track: text(body.track),
     stage: integer(body.stage),
+    stageProgress: integer(body.stageProgress),
     lifecycle: text(body.lifecycle) as ProjectCreateInput['lifecycle'],
     status: text(body.status) as ProjectCreateInput['status'],
     stageSince: optionalText(body.stageSince),

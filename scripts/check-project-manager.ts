@@ -11,7 +11,8 @@ const slug = `pm-${stamp}`;
 const usernames = {
   owner: `pm.owner.${stamp}`,
   collaborator: `pm.collab.${stamp}`,
-  coordinator: `pm.coord.${stamp}`,
+  ownerThemeCoordinator: `pm.owner.coord.${stamp}`,
+  trackNameCoordinator: `pm.track.coord.${stamp}`,
   outsider: `pm.out.${stamp}`,
   pi: `pm.pi.${stamp}`,
 };
@@ -118,29 +119,44 @@ async function installThemeConfigOverride() {
       'administrator: Admin User',
       'themes:',
       '  - theme_id: A',
-      '    title: Project Manager Coordinator Check',
+      '    title: Project Manager Track Name Is Not Theme Check',
       '    cycle_group: AB',
       '    weekday: Wednesday',
       '    time: "10:00"',
       '    duration_minutes: 60',
-      '    coordinator: Project Coordinator',
-      `    coordinator_user: ${usernames.coordinator}`,
+      '    coordinator: Track Name Coordinator',
+      `    coordinator_user: ${usernames.trackNameCoordinator}`,
+      '    members:',
+      '      - Project Outsider',
+      '    member_users:',
+      `      - ${usernames.outsider}`,
+      '  - theme_id: B',
+      '    title: Project Manager Owner Theme Check',
+      '    cycle_group: AB',
+      '    weekday: Wednesday',
+      '    time: "11:00"',
+      '    duration_minutes: 60',
+      '    coordinator: Owner Theme Coordinator',
+      `    coordinator_user: ${usernames.ownerThemeCoordinator}`,
       '    members:',
       '      - Project Owner',
       '    member_users:',
       `      - ${usernames.owner}`,
       'submission:',
-      '  progress_word_target: 30',
+      '  progress_word_target: 50',
       '  update_types:',
       '    nothing_to_report:',
       '      duration_minutes: 0',
       '      questions_required: false',
-      '    short_update:',
-      '      duration_minutes: 10',
-      '      questions_required: true',
       '    deep_dive:',
       '      duration_minutes: 30',
-      '      questions_required: true',
+      '      questions_required: false',
+      '    milestone_check:',
+      '      duration_minutes: 10',
+      '      questions_required: false',
+      '    strategic_slot:',
+      '      duration_minutes: 10',
+      '      questions_required: false',
       'reminders: []',
       'permissions: {}',
       '',
@@ -191,12 +207,34 @@ async function auditActionsForProject(projectId: string): Promise<string[]> {
   }
 }
 
+async function auditActionExistsForActor(username: string, action: string): Promise<boolean> {
+  const postgres = createPostgresClient('project-manager-check-audit-actor');
+
+  try {
+    const result = await postgres.pool.query<{ exists: boolean }>(
+      `
+        SELECT EXISTS (
+          SELECT 1
+          FROM audit_log
+          WHERE actor_username = $1
+            AND action = $2
+        ) AS exists
+      `,
+      [username, action],
+    );
+    return Boolean(result.rows[0]?.exists);
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
 async function main() {
   await cleanup();
   await installThemeConfigOverride();
   const owner = await seedUser(usernames.owner);
   const collaborator = await seedUser(usernames.collaborator);
-  const coordinator = await seedUser(usernames.coordinator, 'organizer');
+  const ownerThemeCoordinator = await seedUser(usernames.ownerThemeCoordinator, 'organizer');
+  const trackNameCoordinator = await seedUser(usernames.trackNameCoordinator, 'organizer');
   const outsider = await seedUser(usernames.outsider);
   const pi = await seedUser(usernames.pi, 'pi');
 
@@ -204,6 +242,7 @@ async function main() {
   const projectRoute = await import('../app/api/projects/[projectId]/route');
   const updatesRoute = await import('../app/api/projects/[projectId]/updates/route');
   const commentsRoute = await import('../app/api/project-updates/[updateId]/comments/route');
+  const planningRoute = await import('../app/api/projects/planning/route');
 
   try {
     const createResponse = await projectsRoute.POST(jsonRequest('/api/projects', {
@@ -213,6 +252,7 @@ async function main() {
       collaborators: [collaborator.username, 'External Advisor'],
       track: 'A',
       stage: 3,
+      stageProgress: 20,
       status: 'on_track',
       lifecycle: 'active',
       stageSince: '2026-06-10',
@@ -226,6 +266,7 @@ async function main() {
     const project = createBody.project;
     assert.ok(project?.id, 'Expected created project id.');
     assert.equal(project.watchPath, `project://${owner.username}/${slug}`, 'Watch path should be assigned from owner and slug.');
+    assert.equal(project.stageProgress, 20, 'Initial stage progress should be saved.');
     assert.ok(project.collaborators.includes('external advisor'), 'External collaborators should be saved.');
 
     const duplicateResponse = await projectsRoute.POST(jsonRequest('/api/projects', {
@@ -269,16 +310,24 @@ async function main() {
     const outsiderList = await bodyOf<{ projects?: any[] }>(
       await projectsRoute.GET(getRequest('/api/projects?includeArchived=true', outsider)),
     );
-    const coordinatorList = await bodyOf<{ projects?: any[] }>(
-      await projectsRoute.GET(getRequest('/api/projects?includeArchived=true', coordinator)),
+    const ownerThemeCoordinatorList = await bodyOf<{ projects?: any[] }>(
+      await projectsRoute.GET(getRequest('/api/projects?includeArchived=true', ownerThemeCoordinator)),
+    );
+    const trackNameCoordinatorList = await bodyOf<{ projects?: any[] }>(
+      await projectsRoute.GET(getRequest('/api/projects?includeArchived=true', trackNameCoordinator)),
     );
     const piList = await bodyOf<{ projects?: any[] }>(
       await projectsRoute.GET(getRequest('/api/projects?includeArchived=true', pi)),
     );
     assert.ok(ownerList.projects?.some((nextProject) => nextProject.id === project.id), 'Owner should see project.');
-    assert.ok(collaboratorList.projects?.some((nextProject) => nextProject.id === project.id), 'Collaborator should see project.');
+    assert.equal(collaboratorList.projects?.some((nextProject) => nextProject.id === project.id), false, 'Collaborator metadata should not grant project access.');
     assert.equal(outsiderList.projects?.some((nextProject) => nextProject.id === project.id), false, 'Outsider should not see project.');
-    assert.ok(coordinatorList.projects?.some((nextProject) => nextProject.id === project.id), 'Track coordinator should see project.');
+    assert.ok(ownerThemeCoordinatorList.projects?.some((nextProject) => nextProject.id === project.id), 'Owner theme coordinator should see project.');
+    assert.equal(
+      trackNameCoordinatorList.projects?.some((nextProject) => nextProject.id === project.id),
+      false,
+      'Coordinator of Theme A should not see a Track A project unless the owner is in that theme.',
+    );
     assert.ok(piList.projects?.some((nextProject) => nextProject.id === project.id), 'PI should see project.');
 
     const titleLookupResponse = await projectRoute.GET(getRequest('/api/projects/Project%20manager%20smoke', owner), projectContext('Project manager smoke'));
@@ -292,11 +341,20 @@ async function main() {
     );
     assert.equal(forbiddenOwnerChange.status, 400, 'Owner must not be allowed to transfer ownership.');
 
-    const coordinatorEditResponse = await projectRoute.PATCH(
-      jsonRequest(`/api/projects/${project.id}`, { status: 'blocked' }, coordinator, 'PATCH'),
+    const collaboratorDetailResponse = await projectRoute.GET(getRequest(`/api/projects/${project.id}`, collaborator), projectContext(project.id));
+    assert.equal(collaboratorDetailResponse.status, 404, 'Collaborator metadata should not grant project detail access.');
+
+    const trackNameCoordinatorDetailResponse = await projectRoute.GET(
+      getRequest(`/api/projects/${project.id}`, trackNameCoordinator),
       projectContext(project.id),
     );
-    assert.notEqual(coordinatorEditResponse.status, 200, 'Coordinator visibility should not grant project editing.');
+    assert.equal(trackNameCoordinatorDetailResponse.status, 404, 'Theme A coordinator should not see Track A project detail by track name.');
+
+    const coordinatorEditResponse = await projectRoute.PATCH(
+      jsonRequest(`/api/projects/${project.id}`, { status: 'blocked' }, ownerThemeCoordinator, 'PATCH'),
+      projectContext(project.id),
+    );
+    assert.notEqual(coordinatorEditResponse.status, 200, 'Owner theme coordinator visibility should not grant project editing.');
 
     const piEditResponse = await projectRoute.PATCH(
       jsonRequest(`/api/projects/${project.id}`, { status: 'needs_input', blocker: 'Waiting for baseline rerun.' }, pi, 'PATCH'),
@@ -309,8 +367,14 @@ async function main() {
     const firstUpdateResponse = await updatesRoute.POST(
       jsonRequest(`/api/projects/${project.id}/updates`, {
         date: '2026-06-20',
-        type: 'artifact',
+        type: 'progress',
         text: 'Finished first artifact summary.',
+        stage: 3,
+        stageProgress: 60,
+        status: 'on_track',
+        blocker: null,
+        target: 'Finish ablation study.',
+        milestone: true,
         artifact: {
           title: 'Design note',
           kind: 'document',
@@ -322,12 +386,40 @@ async function main() {
     );
     const firstUpdateBody = await bodyOf<{ project?: any }>(firstUpdateResponse);
     assert.equal(firstUpdateResponse.status, 200, firstUpdateBody.error || 'First project update failed.');
+    assert.equal(firstUpdateBody.project?.stageProgress, 60, 'Progress update should sync project stage progress.');
+    assert.equal(firstUpdateBody.project?.updates?.[0]?.milestone, true, 'Progress update should store milestone.');
+    assert.equal(firstUpdateBody.project?.recommendation, 'milestone_check', 'Milestone should recommend milestone check.');
+
+    const planningResponse = await planningRoute.POST(emptyRequest('/api/projects/planning', pi, 'POST'));
+    const planningBody = await bodyOf<{ report?: any }>(planningResponse);
+    assert.equal(planningResponse.status, 200, planningBody.error || 'Project planning scan failed.');
+    assert.ok(
+      planningBody.report?.attentionItems?.some((item: any) => item.id === project.id),
+      'Planning scan should include milestone project in attention items.',
+    );
+    assert.ok(
+      planningBody.report?.updatedProjects?.some((item: any) => item.id === project.id),
+      'Planning scan should include recent project progress in updated projects.',
+    );
+
+    const longProgressResponse = await updatesRoute.POST(
+      jsonRequest(`/api/projects/${project.id}/updates`, {
+        date: '2026-06-20',
+        type: 'progress',
+        text: Array.from({ length: 51 }, (_, index) => `word${index}`).join(' '),
+      }, owner),
+      projectContext(project.id),
+    );
+    assert.equal(longProgressResponse.status, 400, 'Progress updates over 50 words should be rejected.');
 
     const secondUpdateResponse = await updatesRoute.POST(
       jsonRequest(`/api/projects/${project.id}/updates`, {
         date: '2026-06-21',
         type: 'artifact',
         text: 'Uploaded revised design note.',
+        stage: 3,
+        stageProgress: 65,
+        status: 'on_track',
         artifact: {
           title: 'Design note',
           kind: 'document',
@@ -387,17 +479,21 @@ async function main() {
     for (const action of ['project.create', 'project.update', 'project.update_add', 'project.update_comment', 'project.archive']) {
       assert.ok(actions.includes(action), `Expected audit action ${action}. Saw ${actions.join(', ')}`);
     }
+    assert.equal(await auditActionExistsForActor(pi.username, 'project.planning_scan'), true, 'Planning scan should be audited.');
 
     console.log('Project manager check passed.');
     console.log(
       JSON.stringify(
         {
           projectVisibility: 'passed',
-          coordinatorVisibility: 'passed',
+          ownerThemeCoordinatorVisibility: 'passed',
+          trackNameCoordinatorDenied: 'passed',
+          collaboratorVisibilityDenied: 'passed',
           piEdit: 'passed',
           archiveRank: 'passed',
           unarchive: 'passed',
           artifactCurrentVersion: 'passed',
+          projectPlanningScan: 'passed',
           timelineComment: 'passed',
           auditActions: actions,
         },

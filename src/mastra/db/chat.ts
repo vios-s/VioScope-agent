@@ -1,5 +1,5 @@
 import { createPostgresClient } from './postgres';
-import { ensureUsersTable, type AuthUser } from './users';
+import { ensureUsersTable, normalizeNotificationPreferences, type AuthUser, type NotificationPreferences } from './users';
 
 export type ChatSourceRecord = {
   title: string;
@@ -11,6 +11,10 @@ export type ChatMessageRecord = {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  actorUserId?: string;
+  actorUsername?: string;
+  actorDisplayName?: string;
+  actorAvatarUrl?: string;
   status?: 'answer' | 'refusal';
   sources?: ChatSourceRecord[];
   createdAt: string;
@@ -81,6 +85,10 @@ type MessageRow = {
   session_id: string;
   role: 'user' | 'assistant';
   content: string;
+  actor_user_id: string | null;
+  actor_username: string | null;
+  actor_display_name: string | null;
+  actor_avatar_url: string | null;
   status: 'answer' | 'refusal' | null;
   sources: ChatSourceRecord[] | string | null;
   created_at: string;
@@ -91,6 +99,11 @@ type UserRow = {
   username: string;
   display_name: string;
   role: AuthUser['role'];
+  metadata?: Record<string, unknown> | string | null;
+};
+
+type MentionRecipient = MentionableUser & {
+  notificationPreferences: NotificationPreferences;
 };
 
 type NotificationRow = {
@@ -138,6 +151,10 @@ function toMessage(row: MessageRow): ChatMessageRecord {
     id: row.id,
     role: row.role,
     text: row.content,
+    actorUserId: row.actor_user_id || undefined,
+    actorUsername: row.actor_username || undefined,
+    actorDisplayName: row.actor_display_name || undefined,
+    actorAvatarUrl: row.actor_avatar_url || undefined,
     status: row.status || undefined,
     sources: sourcesFromDb(row.sources),
     createdAt: row.created_at,
@@ -157,6 +174,18 @@ function toNotification(row: NotificationRow): ChatNotificationRecord {
     readAt: row.read_at,
     createdAt: row.created_at,
   };
+}
+
+function notificationPreferencesFromUserMetadata(metadata: UserRow['metadata']): NotificationPreferences {
+  if (!metadata) return normalizeNotificationPreferences(undefined);
+  if (typeof metadata === 'string') {
+    try {
+      return normalizeNotificationPreferences((JSON.parse(metadata) as Record<string, unknown>).notification_preferences);
+    } catch {
+      return normalizeNotificationPreferences(undefined);
+    }
+  }
+  return normalizeNotificationPreferences(metadata.notification_preferences);
 }
 
 async function ensureChatTablesOnce(): Promise<void> {
@@ -425,7 +454,7 @@ export async function shareChatSessionWithMentions(input: {
   try {
     const userResult = await postgres.pool.query<UserRow>(
       `
-        SELECT id::text, username, display_name, role
+        SELECT id::text, username, display_name, role, metadata
         FROM users
         WHERE provisioning_status = 'active'
           AND username = ANY($1::text[])
@@ -433,11 +462,12 @@ export async function shareChatSessionWithMentions(input: {
       [usernames],
     );
     const userRows = userResult.rows as UserRow[];
-    const found = userRows.map((row) => ({
+    const found: MentionRecipient[] = userRows.map((row) => ({
       id: row.id,
       username: row.username,
       displayName: row.display_name,
       role: row.role,
+      notificationPreferences: notificationPreferencesFromUserMetadata(row.metadata),
     }));
     const foundNames = new Set(found.map((user) => user.username));
     const unknown = usernames.filter((username) => !foundNames.has(username));
@@ -463,6 +493,8 @@ export async function shareChatSessionWithMentions(input: {
     }
 
     for (const recipient of recipients) {
+      const title = `${input.actor.displayName} mentioned you in "${session.title}"`;
+      const body = snippet(input.message);
       await postgres.pool.query(
         `
           INSERT INTO chat_session_members (session_id, user_id, shared_by_user_id, membership_kind)
@@ -471,19 +503,15 @@ export async function shareChatSessionWithMentions(input: {
         `,
         [input.sessionId, recipient.id, input.actor.id],
       );
-      await postgres.pool.query(
-        `
-          INSERT INTO chat_notifications (recipient_user_id, actor_user_id, title, body, session_id)
-          VALUES ($1, $2, $3, $4, $5)
-        `,
-        [
-          recipient.id,
-          input.actor.id,
-          `${input.actor.displayName} mentioned you in "${session.title}"`,
-          snippet(input.message),
-          input.sessionId,
-        ],
-      );
+      if (recipient.notificationPreferences.chat_mentions.web) {
+        await postgres.pool.query(
+          `
+            INSERT INTO chat_notifications (recipient_user_id, actor_user_id, title, body, session_id)
+            VALUES ($1, $2, $3, $4, $5)
+          `,
+          [recipient.id, input.actor.id, title, body, input.sessionId],
+        );
+      }
     }
 
     await postgres.pool.query('COMMIT');
@@ -532,10 +560,22 @@ export async function listChatSessionsForUser(userId: string): Promise<ChatSessi
 
     const messageResult = await postgres.pool.query<MessageRow>(
       `
-        SELECT id::text, session_id, role, content, status, sources, created_at::text
-        FROM chat_messages
-        WHERE session_id = ANY($1::text[])
-        ORDER BY created_at ASC
+        SELECT
+          msg.id::text,
+          msg.session_id,
+          msg.role,
+          msg.content,
+          msg.actor_user_id::text,
+          actor.username AS actor_username,
+          actor.display_name AS actor_display_name,
+          actor.metadata->>'avatar_url' AS actor_avatar_url,
+          msg.status,
+          msg.sources,
+          msg.created_at::text
+        FROM chat_messages msg
+        LEFT JOIN users actor ON actor.id = msg.actor_user_id
+        WHERE msg.session_id = ANY($1::text[])
+        ORDER BY msg.created_at ASC
       `,
       [sessionIds],
     );
@@ -562,6 +602,78 @@ export async function listChatSessionsForUser(userId: string): Promise<ChatSessi
   } finally {
     await postgres.disconnect();
   }
+}
+
+export async function deleteChatSessionForUser(input: { sessionId: string; userId: string }): Promise<'deleted' | 'removed'> {
+  await ensureChatTables();
+  const postgres = createPostgresClient('vioscope-chat');
+
+  try {
+    await postgres.pool.query('BEGIN');
+    const sessionResult = await postgres.pool.query<{ owner_user_id: string; membership_kind: 'owner' | 'shared' }>(
+      `
+        SELECT s.owner_user_id::text, m.membership_kind
+        FROM chat_sessions s
+        JOIN chat_session_members m ON m.session_id = s.id
+        WHERE s.id = $1 AND m.user_id = $2
+      `,
+      [input.sessionId, input.userId],
+    );
+    const session = sessionResult.rows[0];
+    if (!session) {
+      throw new Error('Chat session not found.');
+    }
+
+    if (session.owner_user_id === input.userId || session.membership_kind === 'owner') {
+      await postgres.pool.query('DELETE FROM chat_sessions WHERE id = $1 AND owner_user_id = $2', [input.sessionId, input.userId]);
+      await postgres.pool.query('COMMIT');
+      return 'deleted';
+    }
+
+    await postgres.pool.query('DELETE FROM chat_session_members WHERE session_id = $1 AND user_id = $2', [input.sessionId, input.userId]);
+    await postgres.pool.query('DELETE FROM chat_notifications WHERE session_id = $1 AND recipient_user_id = $2', [input.sessionId, input.userId]);
+    await postgres.pool.query('COMMIT');
+    return 'removed';
+  } catch (error) {
+    await postgres.pool.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
+export async function renameChatSessionForUser(input: { sessionId: string; userId: string; title: string }): Promise<ChatSessionRecord> {
+  const title = input.title.replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!title) {
+    throw new Error('Session title is required.');
+  }
+
+  await ensureChatTables();
+  const postgres = createPostgresClient('vioscope-chat');
+
+  try {
+    const result = await postgres.pool.query<{ id: string }>(
+      `
+        UPDATE chat_sessions
+        SET title = $3, updated_at = now()
+        WHERE id = $1 AND owner_user_id = $2
+        RETURNING id
+      `,
+      [input.sessionId, input.userId, title],
+    );
+    if (!result.rowCount) {
+      throw new Error('Only the owner can rename this chat session.');
+    }
+  } finally {
+    await postgres.disconnect();
+  }
+
+  const sessions = await listChatSessionsForUser(input.userId);
+  const session = sessions.find((candidate) => candidate.threadId === input.sessionId);
+  if (!session) {
+    throw new Error('Chat session not found.');
+  }
+  return session;
 }
 
 export async function listChatNotificationsForUser(userId: string): Promise<ChatNotificationRecord[]> {

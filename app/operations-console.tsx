@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -48,6 +48,7 @@ import type {
   ThemeMeetingPlan,
   ThemeUpdateType,
 } from '../src/mastra/theme-meetings/schema';
+import { vioscopeChatUiConfig } from '../src/mastra/agents/vioscope.chat-ui.config';
 
 type ActiveView = 'dashboard' | 'chat' | 'meeting' | 'checklists' | 'alerts' | 'users';
 type DashboardMode = 'member' | 'pi';
@@ -57,6 +58,10 @@ type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  actorUserId?: string;
+  actorUsername?: string;
+  actorDisplayName?: string;
+  actorAvatarUrl?: string;
   status?: ChatMessageStatus;
   sources?: ChatSource[];
   createdAt?: string;
@@ -128,8 +133,10 @@ type LabStatePayload = {
 
 type ProjectLifecycle = 'active' | 'paused' | 'finished' | 'archived';
 type ProjectUpdateType = 'progress' | 'note' | 'decision' | 'blocker' | 'artifact';
-type ProjectAccessReason = 'owner' | 'collaborator' | 'coordinator' | 'pi_admin';
+type ProjectAccessReason = 'owner' | 'coordinator' | 'pi_admin';
 type ProjectTrack = 'A' | 'B';
+type ProjectSlotRecommendation = 'deep_dive' | 'milestone_check' | 'strategic_slot' | 'none';
+type UserPosition = 'pi' | 'student' | 'postdoc' | 'software_engineer' | 'visitor';
 
 type ManagedProjectArtifact = {
   id: string;
@@ -158,6 +165,12 @@ type ManagedProjectUpdate = {
   byUsername: string;
   type: ProjectUpdateType;
   text: string;
+  stage: number | null;
+  stageProgress: number | null;
+  status: ProjectStatus | null;
+  blocker: string | null;
+  target: string | null;
+  milestone: boolean;
   artifactIds: string[];
   comments: ManagedProjectUpdateComment[];
   createdAt: string;
@@ -171,6 +184,7 @@ type ManagedProject = {
   collaborators: string[];
   track: string;
   stage: number;
+  stageProgress: number;
   lifecycle: ProjectLifecycle;
   status: ProjectStatus;
   stageSince: string | null;
@@ -186,6 +200,10 @@ type ManagedProject = {
   updatedAt: string;
   artifacts: ManagedProjectArtifact[];
   updates: ManagedProjectUpdate[];
+  needsUpdate: boolean;
+  overdue: boolean;
+  attentionReason: string | null;
+  recommendation: ProjectSlotRecommendation;
   access: {
     canEdit: boolean;
     canArchive: boolean;
@@ -202,6 +220,39 @@ type ProjectsPayload = {
   error?: string;
 };
 
+type ProjectPlanningItem = {
+  id: string;
+  title: string;
+  project: string;
+  ownerUsername: string;
+  stage: number;
+  stageProgress: number;
+  status: ProjectStatus;
+  target: string | null;
+  blocker: string | null;
+  lastUpdate: string | null;
+  recommendation: ProjectSlotRecommendation;
+  attentionReason: string | null;
+  progressText: string | null;
+  updatedAt: string | null;
+};
+
+type ProjectPlanningReport = {
+  generatedAt: string;
+  cycleStart: string;
+  cycleDays: number;
+  projectCount: number;
+  activeProjectCount: number;
+  attentionItems: ProjectPlanningItem[];
+  updatedProjects: ProjectPlanningItem[];
+  markdown: string;
+};
+
+type ProjectPlanningPayload = {
+  report?: ProjectPlanningReport;
+  error?: string;
+};
+
 type ProjectDraft = {
   id?: string;
   project: string;
@@ -210,6 +261,7 @@ type ProjectDraft = {
   collaboratorsText: string;
   track: ProjectTrack;
   stage: string;
+  stageProgress: string;
   lifecycle: ProjectLifecycle;
   status: ProjectStatus;
   stageSince: string;
@@ -226,12 +278,40 @@ type ProjectTimelineDraft = {
   type: ProjectUpdateType;
   date: string;
   text: string;
+  stage: string;
+  stageProgress: string;
+  status: ProjectStatus;
+  blocker: string;
+  target: string;
+  milestone: boolean;
   artifactFile: File | null;
   artifactFileName: string;
 };
 
+type ThemeMeetingOverviewPlan = {
+  meeting_date: string;
+  timezone: string;
+  cycle_group: string;
+  generated_at: string;
+  meetings: {
+    theme_id: string;
+    title: string;
+    time: string;
+    duration_minutes: number;
+    coordinator: string;
+    member_count: number;
+    submitted_count: number;
+    planned_minutes: number;
+    agenda_count: number;
+    overbooked: boolean;
+  }[];
+};
+
 type ThemeMeetingPayload = {
   plan: ThemeMeetingPlan;
+  overviewPlan?: ThemeMeetingOverviewPlan;
+  submissionPlan?: ThemeMeetingPlan | null;
+  pastPlans?: ThemeMeetingOverviewPlan[];
   notifications: ThemeMeetingNotification[];
   access?: {
     canManageThemeIds: string[];
@@ -248,9 +328,11 @@ type CurrentUser = {
   displayName: string;
   email: string | null;
   role: 'administrator' | 'pi' | 'organizer' | 'member' | 'viewer' | 'service';
+  position: UserPosition | null;
   provisioningStatus: string;
   sourceProfileId: string | null;
   aliases: string[];
+  notificationPreferences: NotificationPreferences;
   profile?: {
     email?: string;
     avatarUrl?: string;
@@ -264,6 +346,20 @@ type CurrentUser = {
   lastLoginAt: string | null;
 };
 
+type NotificationPreferenceTopic =
+  | 'chat_mentions'
+  | 'project_progress_reminders'
+  | 'theme_meeting_reminders'
+  | 'project_planning_brief'
+  | 'checklist_results';
+
+type NotificationPreferenceChannels = {
+  web: boolean;
+  email: boolean;
+};
+
+type NotificationPreferences = Record<NotificationPreferenceTopic, NotificationPreferenceChannels>;
+
 type ManagedUser = CurrentUser & {
   source: string;
   hasPassword: boolean;
@@ -274,6 +370,7 @@ type UserDraft = {
   email: string;
   avatarUrl: string;
   role: CurrentUser['role'];
+  position: UserPosition | '';
   provisioningStatus: CurrentUser['provisioningStatus'];
   aliasesText: string;
   temporaryPassword: string;
@@ -321,7 +418,7 @@ type AdminConfigSetting = {
   key: string;
   label: string;
   section: 'model' | 'rag' | 'paths' | 'submission' | 'operations';
-  valueType: 'string' | 'number' | 'path';
+  valueType: 'string' | 'number' | 'path' | 'time' | 'weekday';
   value: string;
   defaultValue: string;
   source: 'database' | 'env' | 'default';
@@ -337,12 +434,18 @@ type AdminConfigSetting = {
 
 type AdminConfigPayload = {
   settings?: AdminConfigSetting[];
-  secrets?: Array<{ key: string; label: string; configured: boolean }>;
   restart?: { configured: boolean };
   error?: string;
 };
 
 type ConsoleTheme = 'light' | 'dark' | 'system';
+type ConsoleAccentTheme = 'cyan' | 'blue' | 'green' | 'indigo' | 'orange' | 'red';
+type ConsoleFontTheme = 'public' | 'mulish' | 'quicksand' | 'mali' | 'jura';
+type ConsoleThemeSettings = {
+  mode: ConsoleTheme;
+  accent: ConsoleAccentTheme;
+  font: ConsoleFontTheme;
+};
 type SettingsTab = 'general' | 'notifications' | 'integrations' | 'users' | 'config' | 'audit' | 'about';
 type PasswordStrength = 'weak' | 'medium' | 'strong';
 type ChecklistTemplateId = 'idea' | 'skeleton' | 'pdra' | 'red';
@@ -361,6 +464,66 @@ type ChecklistTemplate = {
     tag: ChecklistTag;
   }>;
 };
+
+const notificationPreferenceRows: Array<{
+  key: NotificationPreferenceTopic;
+  title: string;
+  desc: string;
+  emailDisabled?: boolean;
+}> = [
+  {
+    key: 'chat_mentions',
+    title: 'Chat mentions',
+    desc: 'When someone shares a chat with @username.',
+    emailDisabled: true,
+  },
+  {
+    key: 'project_progress_reminders',
+    title: 'Project progress reminders',
+    desc: 'Bi-weekly project update nudges before theme meetings.',
+  },
+  {
+    key: 'theme_meeting_reminders',
+    title: 'Theme meeting reminders',
+    desc: 'Agenda, cutoff, and meeting-related reminders.',
+  },
+  {
+    key: 'project_planning_brief',
+    title: 'Project planning brief',
+    desc: 'Attention items and updated project summaries for PI/admin review.',
+  },
+  {
+    key: 'checklist_results',
+    title: 'Checklist results',
+    desc: 'When an advisory checklist or review result is ready.',
+  },
+];
+
+function defaultNotificationPreferences(): NotificationPreferences {
+  return {
+    chat_mentions: { web: true, email: false },
+    project_progress_reminders: { web: true, email: true },
+    theme_meeting_reminders: { web: true, email: true },
+    project_planning_brief: { web: true, email: true },
+    checklist_results: { web: true, email: true },
+  };
+}
+
+function normalizedNotificationPreferences(input?: Partial<NotificationPreferences>): NotificationPreferences {
+  const defaults = defaultNotificationPreferences();
+  if (!input) return defaults;
+  for (const row of notificationPreferenceRows) {
+    const current = input[row.key];
+    if (current) {
+      defaults[row.key] = {
+        web: typeof current.web === 'boolean' ? current.web : defaults[row.key].web,
+        email: row.emailDisabled ? false : typeof current.email === 'boolean' ? current.email : defaults[row.key].email,
+      };
+    }
+  }
+  defaults.chat_mentions.email = false;
+  return defaults;
+}
 
 const statusLabels: Record<ProjectStatus, string> = {
   on_track: 'On track',
@@ -405,10 +568,25 @@ const recommendationLabels: Record<ProjectRecommendation, string> = {
   none: 'None',
 };
 
+const projectSlotLabels: Record<ProjectSlotRecommendation, string> = {
+  deep_dive: 'Deep dive',
+  milestone_check: 'Milestone check',
+  strategic_slot: 'Strategic slot',
+  none: 'No slot',
+};
+
 const updateTypeLabels: Record<ThemeUpdateType, string> = {
   nothing_to_report: 'Nothing to report',
-  short_update: 'Short update',
   deep_dive: 'Deep dive',
+  milestone_check: 'Milestone check',
+  strategic_slot: 'Strategic slot',
+};
+
+const updateTypeOptionLabels: Record<ThemeUpdateType, string> = {
+  nothing_to_report: 'Nothing to report (0 min)',
+  deep_dive: 'Deep dive (20-30 min)',
+  milestone_check: 'Milestone check (10 min)',
+  strategic_slot: 'Strategic slot (paper or idea)',
 };
 
 const signalLabels: Record<string, string> = {
@@ -421,13 +599,6 @@ const signalLabels: Record<string, string> = {
   missing_last_update: 'missing last update',
   missing_stage_since: 'missing stage date',
 };
-
-const prompts = [
-  "What's our standard chunking strategy for the RAG pipeline?",
-  'Who needs a nudge before the next theme meeting?',
-  'What should I check before running Skeleton Lock?',
-  "What's the GPU quota policy on EIDF?",
-];
 
 const checklistTemplates: ChecklistTemplate[] = [
   {
@@ -492,8 +663,27 @@ const checklistTemplates: ChecklistTemplate[] = [
   },
 ];
 
-const userRoleOptions: CurrentUser['role'][] = ['administrator', 'pi', 'organizer', 'member', 'viewer', 'service'];
-const provisioningStatusOptions = ['profile_only', 'invited', 'active', 'disabled'];
+const userPermissionOptions: CurrentUser['role'][] = ['administrator', 'pi', 'organizer', 'member'];
+const userPositionOptions: UserPosition[] = ['pi', 'student', 'postdoc', 'software_engineer', 'visitor'];
+const provisioningStatusOptions = ['profile_only', 'active', 'disabled'];
+const consoleAccentOptions: Array<{ id: ConsoleAccentTheme; label: string; color: string }> = [
+  { id: 'cyan', label: 'Cyan', color: '#219f94' },
+  { id: 'blue', label: 'Blue', color: '#1363df' },
+  { id: 'green', label: 'Green', color: '#8cba51' },
+  { id: 'indigo', label: 'Indigo', color: '#655d8a' },
+  { id: 'orange', label: 'Orange', color: '#f59f00' },
+  { id: 'red', label: 'Red', color: '#f73859' },
+];
+const consoleFontOptions: Array<{ id: ConsoleFontTheme; label: string }> = [
+  { id: 'public', label: 'Public Sans' },
+  { id: 'mulish', label: 'Mulish' },
+  { id: 'quicksand', label: 'Quicksand' },
+  { id: 'mali', label: 'Mali' },
+  { id: 'jura', label: 'Jura' },
+];
+const rowMenuWidth = 190;
+const rowMenuHeight = 88;
+const rowMenuGutter = 10;
 const refusalPattern = /could not find|cannot find|not enough|insufficient|knowledge gap|limited to VIOS lab|non-lab topics/i;
 const activeViews: ActiveView[] = ['dashboard', 'chat', 'meeting', 'checklists', 'alerts', 'users'];
 const viewQueryParam = 'view';
@@ -573,6 +763,7 @@ function projectDraftFromProject(project: ManagedProject | null, viewer: Current
     collaboratorsText: project?.collaborators.join(', ') || '',
     track: project?.track === 'B' ? 'B' : 'A',
     stage: String(project?.stage || 1),
+    stageProgress: String(project?.stageProgress ?? 0),
     lifecycle: project?.lifecycle || 'active',
     status: project?.status || 'on_track',
     stageSince: project?.stageSince || new Date().toISOString().slice(0, 10),
@@ -595,6 +786,7 @@ function projectRequestBody(draft: ProjectDraft) {
     collaborators: collaboratorTokens(draft.collaboratorsText),
     track: draft.track,
     stage: Number(draft.stage),
+    stageProgress: Number(draft.stageProgress || 0),
     lifecycle: draft.lifecycle,
     status: draft.status,
     stageSince: draft.stageSince || null,
@@ -608,14 +800,24 @@ function projectRequestBody(draft: ProjectDraft) {
   };
 }
 
-function defaultTimelineDraft(): ProjectTimelineDraft {
+function defaultTimelineDraft(project?: ManagedProject | null): ProjectTimelineDraft {
   return {
     type: 'progress',
     date: new Date().toISOString().slice(0, 10),
     text: '',
+    stage: String(project?.stage || 1),
+    stageProgress: String(project?.stageProgress ?? 0),
+    status: project?.status || 'on_track',
+    blocker: project?.blocker || '',
+    target: project?.target || '',
+    milestone: false,
     artifactFile: null,
     artifactFileName: '',
   };
+}
+
+function countWords(value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).length;
 }
 
 function inferArtifactKind(fileName: string) {
@@ -648,16 +850,21 @@ function withSelectedCollaborator(value: string, username: string) {
 }
 
 function projectNeedsAttention(project: ManagedProject) {
-  return project.status !== 'on_track' || Boolean(project.blocker);
+  return project.needsUpdate || project.recommendation !== 'none' || project.status !== 'on_track' || Boolean(project.blocker);
 }
 
 function projectEvidence(project: ManagedProject) {
   const signals = [
+    project.attentionReason,
     project.status !== 'on_track' ? statusLabels[project.status].toLowerCase() : null,
     project.blocker ? 'blocker present' : null,
     daysSinceDate(project.lastUpdate) !== null && (daysSinceDate(project.lastUpdate) || 0) > 14 ? 'stale update' : null,
   ].filter(Boolean);
   return signals.join(', ') || 'no risk signals';
+}
+
+function projectPlanningLine(item: ProjectPlanningItem) {
+  return `${item.title} / ${item.ownerUsername} / ${projectSlotLabels[item.recommendation]} / stage ${item.stage} (${item.stageProgress}%)`;
 }
 
 function normalizedName(value: string) {
@@ -825,6 +1032,7 @@ const configSectionLabels: Record<AdminConfigSetting['section'], string> = {
   submission: 'Submission',
   operations: 'Operations',
 };
+const configWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 function groupedConfigSettings(settings: AdminConfigSetting[]) {
   return (Object.keys(configSectionLabels) as AdminConfigSetting['section'][]).map((section) => ({
@@ -1052,6 +1260,22 @@ function AvatarCircle({ user, className = '' }: { user: CurrentUser; className?:
   );
 }
 
+function ChatActorAvatar({ message, viewer }: { message: ChatMessage; viewer: CurrentUser }) {
+  const name = message.actorDisplayName || message.actorUsername || 'Teammate';
+  const avatarUrl = message.actorAvatarUrl || (message.actorUserId === viewer.id ? profileAvatarUrl(viewer) : '');
+  return (
+    <span className="user-avatar chat-message-avatar">
+      {avatarUrl ? <img src={avatarUrl} alt="" /> : initials(name)}
+    </span>
+  );
+}
+
+function chatActorLabel(message: ChatMessage, viewer: CurrentUser) {
+  if (message.actorUserId === viewer.id) return 'You';
+  const name = message.actorDisplayName || message.actorUsername || 'Teammate';
+  return message.actorUsername ? `${name} (@${message.actorUsername})` : name;
+}
+
 function evidence(project: DerivedLabStateProject) {
   return project.derived.signals.map((signal) => signalLabels[signal] || signal).join(', ') || 'no risk signals';
 }
@@ -1154,11 +1378,44 @@ function applyConsoleTheme(theme: ConsoleTheme) {
   }
 }
 
-function readStoredTheme(): ConsoleTheme {
-  if (typeof window === 'undefined') return 'light';
-  const stored = window.localStorage.getItem('vios-theme');
-  if (stored === 'dark' || stored === 'light' || stored === 'system') return stored;
-  return 'system';
+function normalizeConsoleThemeSettings(input: Partial<ConsoleThemeSettings> | null | undefined): ConsoleThemeSettings {
+  return {
+    mode: input?.mode === 'dark' || input?.mode === 'light' || input?.mode === 'system' ? input.mode : 'system',
+    accent: consoleAccentOptions.some((option) => option.id === input?.accent) ? input!.accent! : 'cyan',
+    font: consoleFontOptions.some((option) => option.id === input?.font) ? input!.font! : 'public',
+  };
+}
+
+function themeSettingsStorageKey(userId?: string) {
+  return `vios-theme-settings:${userId || 'default'}`;
+}
+
+function applyConsoleAppearance(settings: ConsoleThemeSettings) {
+  if (typeof document === 'undefined') return;
+  applyConsoleTheme(settings.mode);
+  document.documentElement.dataset.accentTheme = settings.accent;
+  document.documentElement.dataset.consoleFont = settings.font;
+}
+
+function readStoredThemeSettings(userId?: string): ConsoleThemeSettings {
+  if (typeof window === 'undefined') return normalizeConsoleThemeSettings(null);
+  const stored = window.localStorage.getItem(themeSettingsStorageKey(userId));
+  if (stored) {
+    try {
+      return normalizeConsoleThemeSettings(JSON.parse(stored) as Partial<ConsoleThemeSettings>);
+    } catch {
+      return normalizeConsoleThemeSettings(null);
+    }
+  }
+  const legacyTheme = window.localStorage.getItem('vios-theme');
+  return normalizeConsoleThemeSettings({
+    mode: legacyTheme === 'dark' || legacyTheme === 'light' || legacyTheme === 'system' ? legacyTheme : 'system',
+  });
+}
+
+function saveStoredThemeSettings(userId: string, settings: ConsoleThemeSettings) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(themeSettingsStorageKey(userId), JSON.stringify(settings));
 }
 
 function AuthLoading() {
@@ -1558,10 +1815,12 @@ function AccountDetailsPanel({
 
 function ProjectCard({
   project,
-  onOpen,
+  onOpenDetails,
+  onOpenProgress,
 }: {
   project: ManagedProject;
-  onOpen: (project: ManagedProject) => void;
+  onOpenDetails: (project: ManagedProject) => void;
+  onOpenProgress: (project: ManagedProject) => void;
 }) {
   const currentArtifacts = currentProjectArtifacts(project);
   const age = formatAge(daysSinceDate(project.lastUpdate));
@@ -1576,7 +1835,7 @@ function ProjectCard({
       </div>
       <div className="stage-row">
         <span>
-          Stage {project.stage} / 5 - {lifecycleLabels[project.lifecycle]}
+          Stage {project.stage} / 5 - {project.stageProgress}% - {lifecycleLabels[project.lifecycle]}
         </span>
         <StageBar stage={project.stage} />
       </div>
@@ -1592,16 +1851,29 @@ function ProjectCard({
         <span>Artifacts</span>
         <strong>{currentArtifacts.length} current / {project.artifacts.length} total</strong>
       </div>
+      <div className="project-meta-row">
+        <span>Meeting slot</span>
+        <strong>{projectSlotLabels[project.recommendation]}</strong>
+      </div>
       {project.blocker && <p className="project-blocker">{project.blocker}</p>}
       <div className="button-row">
         <button
-          className="ops-primary icon-only-button"
+          className="ops-secondary icon-only-button"
           type="button"
-          onClick={() => onOpen(project)}
-          aria-label={`Manage ${project.title}`}
-          title="Manage project"
+          onClick={() => onOpenDetails(project)}
+          aria-label={`Project details for ${project.title}`}
+          title="Project details"
         >
           <FileText aria-hidden="true" />
+        </button>
+        <button
+          className="ops-primary icon-only-button"
+          type="button"
+          onClick={() => onOpenProgress(project)}
+          aria-label={`Progress update for ${project.title}`}
+          title="Progress update"
+        >
+          <Plus aria-hidden="true" />
         </button>
       </div>
     </article>
@@ -1780,23 +2052,13 @@ function ProjectEditorModal({
         </div>
 
         <div className="modal-fieldset">
-          <h3>Status</h3>
+          <h3>Project details</h3>
           <label>
             <span>Track</span>
             <select value={draft.track} onChange={(event) => setDraft((current) => ({ ...current, track: event.target.value as ProjectTrack }))}>
               {(Object.keys(projectTrackLabels) as ProjectTrack[]).map((track) => (
                 <option key={track} value={track}>
                   {projectTrackLabels[track]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Stage</span>
-            <select value={draft.stage} onChange={(event) => setDraft((current) => ({ ...current, stage: event.target.value }))}>
-              {[1, 2, 3, 4, 5].map((stage) => (
-                <option key={stage} value={stage}>
-                  {stageLabels[stage]}
                 </option>
               ))}
             </select>
@@ -1813,55 +2075,6 @@ function ProjectEditorModal({
                 </option>
               ))}
             </select>
-          </label>
-          <label>
-            <span>Status</span>
-            <select
-              value={draft.status}
-              onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as ProjectStatus }))}
-            >
-              {(Object.keys(statusLabels) as ProjectStatus[]).map((status) => (
-                <option key={status} value={status}>
-                  {statusLabels[status]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Stage since</span>
-            <input
-              type="date"
-              value={draft.stageSince}
-              onChange={(event) => setDraft((current) => ({ ...current, stageSince: event.target.value }))}
-            />
-          </label>
-          <label>
-            <span>Last update</span>
-            <input
-              type="date"
-              value={draft.lastUpdate}
-              onChange={(event) => setDraft((current) => ({ ...current, lastUpdate: event.target.value }))}
-            />
-          </label>
-        </div>
-
-        <div className="modal-fieldset full">
-          <h3>Plan</h3>
-          <label>
-            <span>Target</span>
-            <textarea
-              rows={3}
-              value={draft.target}
-              onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))}
-            />
-          </label>
-          <label>
-            <span>Blocker</span>
-            <textarea
-              rows={3}
-              value={draft.blocker}
-              onChange={(event) => setDraft((current) => ({ ...current, blocker: event.target.value }))}
-            />
           </label>
           <label>
             <span>Venue</span>
@@ -1885,6 +2098,10 @@ function ProjectEditorModal({
               onChange={(event) => setDraft((current) => ({ ...current, submissionDeadline: event.target.value }))}
             />
           </label>
+        </div>
+
+        <div className="modal-fieldset full">
+          <h3>Notes and links</h3>
           <label>
             <span>Watch path</span>
             <input
@@ -1922,6 +2139,7 @@ function ProjectDetailModal({
   viewer,
   collaboratorUsers,
   existingProjects,
+  initialMode,
   onClose,
   onSaved,
   onChanged,
@@ -1932,13 +2150,15 @@ function ProjectDetailModal({
   viewer: CurrentUser;
   collaboratorUsers: MentionableUser[];
   existingProjects: ManagedProject[];
+  initialMode: 'details' | 'progress';
   onClose: () => void;
   onSaved: (project: ManagedProject) => Promise<void>;
   onChanged: (project: ManagedProject) => Promise<void>;
   onArchive: (project: ManagedProject) => Promise<void>;
   onUnarchive: (project: ManagedProject) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(defaultTimelineDraft);
+  const [mode, setMode] = useState<'details' | 'progress'>(initialMode);
+  const [draft, setDraft] = useState(() => defaultTimelineDraft(project));
   const [editDraft, setEditDraft] = useState(() => projectDraftFromProject(project, viewer));
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -1950,8 +2170,10 @@ function ProjectDetailModal({
 
   useEffect(() => {
     setEditDraft(projectDraftFromProject(project, viewer));
+    setDraft(defaultTimelineDraft(project));
+    setMode(initialMode);
     setError(null);
-  }, [project, viewer]);
+  }, [initialMode, project, viewer]);
 
   function postUpdateWithProgress(formData: FormData): Promise<ProjectsPayload> {
     return new Promise((resolvePromise, rejectPromise) => {
@@ -2015,12 +2237,21 @@ function ProjectDetailModal({
     setUploadProgress(draft.artifactFile ? 0 : null);
     setError(null);
     try {
+      if (draft.type === 'progress' && countWords(draft.text) > 50) {
+        throw new Error('Progress update must be 50 words or fewer.');
+      }
       const body = draft.artifactFile
         ? await postUpdateWithProgress((() => {
             const formData = new FormData();
             formData.set('type', draft.type);
             if (draft.date) formData.set('date', draft.date);
             formData.set('text', draft.text);
+            formData.set('stage', draft.stage);
+            formData.set('stageProgress', draft.stageProgress);
+            formData.set('status', draft.status);
+            formData.set('blocker', draft.blocker);
+            formData.set('target', draft.target);
+            if (draft.milestone) formData.set('milestone', 'true');
             formData.set('artifactFile', draft.artifactFile);
             return formData;
           })())
@@ -2031,15 +2262,21 @@ function ProjectDetailModal({
               type: draft.type,
               date: draft.date || null,
               text: draft.text,
+              stage: Number(draft.stage),
+              stageProgress: Number(draft.stageProgress),
+              status: draft.status,
+              blocker: draft.blocker || null,
+              target: draft.target || null,
+              milestone: draft.milestone,
               artifact: null,
             }),
           }).then(async (response) => {
             const responseBody = (await response.json()) as ProjectsPayload;
             if (!response.ok) throw new Error(responseBody.error || 'Could not add project update.');
             return responseBody;
-          }));
+      }));
       if (!body.project) throw new Error(body.error || 'Could not add project update.');
-      setDraft(defaultTimelineDraft());
+      setDraft(defaultTimelineDraft(body.project));
       setUploadProgress(null);
       await onChanged(body.project);
     } catch (caught) {
@@ -2115,14 +2352,27 @@ function ProjectDetailModal({
         <header>
           <div>
             <h2>{project.title}</h2>
-            <p>{project.ownerUsername} / Track {project.track} / Stage {project.stage}</p>
+            <p>{project.ownerUsername} / Track {project.track} / Stage {project.stage} ({project.stageProgress}%)</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close project details">
             <X aria-hidden="true" />
           </button>
         </header>
 
-        {project.access.canEdit ? (
+        <div className="prototype-segmented project-modal-tabs" role="group" aria-label="Project modal section">
+          <button className={mode === 'details' ? 'selected' : ''} type="button" onClick={() => setMode('details')}>
+            <FileText aria-hidden="true" />
+            Details
+          </button>
+          <button className={mode === 'progress' ? 'selected' : ''} type="button" onClick={() => setMode('progress')}>
+            <Plus aria-hidden="true" />
+            Progress update
+          </button>
+        </div>
+
+        {mode === 'details' && (
+          <div className="project-modal-two-column project-details-layout">
+            {project.access.canEdit ? (
           <form className="project-manage-form" onSubmit={submitProjectEdit}>
             <label className="full">
               <span>Full project name</span>
@@ -2166,31 +2416,11 @@ function ProjectDetailModal({
               </select>
             </label>
             <label>
-              <span>Stage</span>
-              <select value={editDraft.stage} onChange={(event) => setEditDraft((current) => ({ ...current, stage: event.target.value }))}>
-                {[1, 2, 3, 4, 5].map((stage) => (
-                  <option key={stage} value={stage}>
-                    {stageLabels[stage]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
               <span>Lifecycle</span>
               <select value={editDraft.lifecycle} onChange={(event) => setEditDraft((current) => ({ ...current, lifecycle: event.target.value as ProjectLifecycle }))}>
                 {(Object.keys(lifecycleLabels) as ProjectLifecycle[]).map((lifecycle) => (
                   <option key={lifecycle} value={lifecycle}>
                     {lifecycleLabels[lifecycle]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Status</span>
-              <select value={editDraft.status} onChange={(event) => setEditDraft((current) => ({ ...current, status: event.target.value as ProjectStatus }))}>
-                {(Object.keys(statusLabels) as ProjectStatus[]).map((status) => (
-                  <option key={status} value={status}>
-                    {statusLabels[status]}
                   </option>
                 ))}
               </select>
@@ -2210,14 +2440,6 @@ function ProjectDetailModal({
             <label className="full">
               <span>Watch path</span>
               <input value={generatedWatchPath(editDraft.ownerUsername, project.project)} disabled />
-            </label>
-            <label className="full">
-              <span>Target</span>
-              <textarea rows={3} value={editDraft.target} onChange={(event) => setEditDraft((current) => ({ ...current, target: event.target.value }))} />
-            </label>
-            <label className="full">
-              <span>Blocker</span>
-              <textarea rows={3} value={editDraft.blocker} onChange={(event) => setEditDraft((current) => ({ ...current, blocker: event.target.value }))} />
             </label>
             <label className="full">
               <span>Notes</span>
@@ -2243,7 +2465,7 @@ function ProjectDetailModal({
               )}
             </div>
           </form>
-        ) : (
+            ) : (
           <div className="project-detail-grid">
             <div>
               <span>Lifecycle</span>
@@ -2252,6 +2474,10 @@ function ProjectDetailModal({
             <div>
               <span>Status</span>
               <StatusChip status={project.status} />
+            </div>
+            <div>
+              <span>Stage progress</span>
+              <strong>{project.stageProgress}%</strong>
             </div>
             <div>
               <span>Venue</span>
@@ -2270,7 +2496,7 @@ function ProjectDetailModal({
               <strong>{project.watchPath || 'Not set'}</strong>
             </div>
           </div>
-        )}
+            )}
 
         <section className="project-artifact-panel">
           <div className="ops-panel-head">
@@ -2333,7 +2559,14 @@ function ProjectDetailModal({
             {oldArtifacts.length > 0 && <div className="ops-muted-line">{oldArtifacts.length} previous versions retained</div>}
           </div>
         </section>
+          </div>
+        )}
 
+        {mode === 'progress' && (
+          <div className={[
+            'project-modal-two-column project-progress-layout',
+            project.access.canAddUpdate ? '' : 'timeline-only',
+          ].filter(Boolean).join(' ')}>
         <section className="project-timeline-panel">
           <div className="ops-panel-head">
             <div>
@@ -2352,7 +2585,19 @@ function ProjectDetailModal({
                       <strong>{projectUpdateTypeLabels[update.type]}</strong>
                       <span>{formatDate(update.date)} / {update.byUsername}</span>
                     </div>
+                    <div className="ops-muted-line">
+                      {update.stage ? `Stage ${update.stage}${update.stageProgress !== null ? ` / ${update.stageProgress}%` : ''}` : 'Stage not recorded'}
+                      {update.status ? ` / ${statusLabels[update.status]}` : ''}
+                      {update.milestone ? ' / milestone' : ''}
+                    </div>
                     <p>{update.text}</p>
+                    {(update.target || update.blocker) && (
+                      <p className="project-blocker">
+                        {[update.target ? `Target: ${update.target}` : null, update.blocker ? `Blocker: ${update.blocker}` : null]
+                          .filter(Boolean)
+                          .join(' / ')}
+                      </p>
+                    )}
                     {update.comments.map((comment) => (
                       <div className="timeline-comment" key={comment.id}>
                         <strong>{comment.byUsername}</strong>
@@ -2388,7 +2633,7 @@ function ProjectDetailModal({
 
         {project.access.canAddUpdate && (
           <form className="project-update-form" onSubmit={submitUpdate}>
-            <h3>Add update</h3>
+            <h3>Progress update</h3>
             <label>
               <span>Type</span>
               <select value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as ProjectUpdateType }))}>
@@ -2403,8 +2648,54 @@ function ProjectDetailModal({
               <span>Date</span>
               <input type="date" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} />
             </label>
+            <label>
+              <span>Stage</span>
+              <select value={draft.stage} onChange={(event) => setDraft((current) => ({ ...current, stage: event.target.value }))}>
+                {[1, 2, 3, 4, 5].map((stage) => (
+                  <option key={stage} value={stage}>
+                    {stageLabels[stage]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Stage progress</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={draft.stageProgress}
+                onChange={(event) => setDraft((current) => ({ ...current, stageProgress: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>Status</span>
+              <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as ProjectStatus }))}>
+                {(Object.keys(statusLabels) as ProjectStatus[]).map((status) => (
+                  <option key={status} value={status}>
+                    {statusLabels[status]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={draft.milestone}
+                onChange={(event) => setDraft((current) => ({ ...current, milestone: event.target.checked }))}
+              />
+              <span>Milestone reached</span>
+            </label>
             <label className="full">
-              <span>Text</span>
+              <span>Target</span>
+              <textarea rows={2} value={draft.target} onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))} />
+            </label>
+            <label className="full">
+              <span>Blocker</span>
+              <textarea rows={2} value={draft.blocker} onChange={(event) => setDraft((current) => ({ ...current, blocker: event.target.value }))} />
+            </label>
+            <label className="full">
+              <span>Progress text ({countWords(draft.text)}/50 words)</span>
               <textarea rows={4} value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} />
             </label>
             <div className="full artifact-upload-field">
@@ -2446,6 +2737,8 @@ function ProjectDetailModal({
             </button>
           </form>
         )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2464,7 +2757,7 @@ function ThemeMeetingPanel({
 }) {
   const [themeId, setThemeId] = useState('');
   const [member, setMember] = useState('');
-  const [updateType, setUpdateType] = useState<ThemeUpdateType>('short_update');
+  const [updateType, setUpdateType] = useState<ThemeUpdateType>('nothing_to_report');
   const [progressText, setProgressText] = useState('');
   const [questions, setQuestions] = useState('');
   const [status, setStatus] = useState<string | null>(null);
@@ -2472,30 +2765,60 @@ function ThemeMeetingPanel({
   const [memberCandidateByTheme, setMemberCandidateByTheme] = useState<Record<string, string>>({});
 
   const plan = payload?.plan;
+  const overviewPlan = payload?.overviewPlan;
+  const pastPlans = payload?.pastPlans || [];
   const userDirectory = payload?.users || [];
+  const planningOnly = canSeeAllRole(viewer.role);
+  const updatePlan = planningOnly ? null : payload?.submissionPlan || plan || null;
   const managedThemeIds = useMemo(() => new Set(payload?.access?.canManageThemeIds || []), [payload?.access?.canManageThemeIds]);
-  const selectedMeeting = plan?.meetings.find((meeting) => meeting.theme_id === themeId) || plan?.meetings[0];
+  const weekMeetings = useMemo(() => {
+    if (overviewPlan) {
+      return overviewPlan.meetings;
+    }
+
+    return (plan?.meetings || []).map((meeting) => ({
+      theme_id: meeting.theme_id,
+      title: meeting.title,
+      time: meeting.time,
+      duration_minutes: meeting.duration_minutes,
+      coordinator: meeting.coordinator,
+      member_count: meeting.members.length,
+      submitted_count: meeting.submitted_members.length,
+      planned_minutes: meeting.planned_minutes,
+      agenda_count: meeting.agenda_items.length,
+      overbooked: meeting.overbooked,
+    }));
+  }, [overviewPlan, plan]);
+  const personalUpdateMeetings = useMemo(() => {
+    if (!updatePlan || planningOnly) {
+      return [];
+    }
+
+    return updatePlan.meetings.filter((meeting) =>
+      meeting.members.some((displayName, index) => {
+        const username = meeting.member_usernames[index] || '';
+        return normalizedName(username) === normalizedName(viewer.username) || isViewerName(displayName, viewer);
+      }),
+    );
+  }, [planningOnly, updatePlan, viewer]);
+  const selectedMeeting = personalUpdateMeetings.find((meeting) => meeting.theme_id === themeId) || personalUpdateMeetings[0];
   const selectedThemeId = selectedMeeting?.theme_id || '';
   const submitMembers = useMemo(() => {
     if (!selectedMeeting) {
       return [];
     }
 
-    if (canSeeAllRole(viewer.role)) {
-      return selectedMeeting.members.map((displayName, index) => ({
-        displayName,
-        username: selectedMeeting.member_usernames[index] || displayName,
-      }));
-    }
-
-    const ownMembers = selectedMeeting.members
+    return selectedMeeting.members
       .map((displayName, index) => ({
         displayName,
         username: selectedMeeting.member_usernames[index] || displayName,
       }))
-      .filter((nextMember) => nextMember.username === viewer.username || isViewerName(nextMember.displayName, viewer));
-    return ownMembers.length ? ownMembers : [{ displayName: viewer.displayName || viewer.username, username: viewer.username }];
+      .filter(
+        (nextMember) => normalizedName(nextMember.username) === normalizedName(viewer.username) || isViewerName(nextMember.displayName, viewer),
+      );
   }, [selectedMeeting, viewer]);
+  const showPersonalUpdateForm = submitMembers.length > 0;
+  const planLabel = overviewPlan || plan || updatePlan;
 
   useEffect(() => {
     if (selectedThemeId && themeId !== selectedThemeId) {
@@ -2533,8 +2856,8 @@ function ThemeMeetingPanel({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        meetingDate: plan?.meeting_date,
-        themeId,
+        meetingDate: updatePlan?.meeting_date,
+        themeId: selectedThemeId,
         member,
         updateType,
         progressText,
@@ -2551,7 +2874,7 @@ function ThemeMeetingPanel({
     setProgressText('');
     setQuestions('');
     if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('Theme update saved', { body: `${member} / Theme ${themeId}` });
+      new Notification('Theme update saved', { body: `${member} / Theme ${selectedThemeId}` });
     }
     await onChanged();
   }
@@ -2607,8 +2930,8 @@ function ThemeMeetingPanel({
         <div>
           <h2>Theme meeting planner</h2>
           <p>
-            {plan
-              ? `${plan.meeting_date} / ${plan.cycle_group} / ${plan.timezone}`
+            {planLabel
+              ? `${planLabel.meeting_date} / ${planLabel.cycle_group} / ${planLabel.timezone}`
               : loading
                 ? 'Loading current theme meeting cycle.'
                 : 'Theme meeting data is unavailable.'}
@@ -2620,7 +2943,10 @@ function ThemeMeetingPanel({
         </button>
       </div>
 
-      {!plan ? (
+      {formError && <div className="theme-meeting-message form-message error">{formError}</div>}
+      {status && <div className="theme-meeting-message form-message">{status}</div>}
+
+      {!plan && !overviewPlan ? (
         <div className="ops-empty">
           {loading ? (
             <>
@@ -2631,158 +2957,194 @@ function ThemeMeetingPanel({
             'Could not load theme meetings. Check the error above, then refresh.'
           )}
         </div>
-      ) : !plan.meetings.length ? (
-        <div className="ops-empty">No active theme meeting for this account</div>
+      ) : !weekMeetings.length ? (
+        <div className="ops-empty">No theme meetings are scheduled for this week</div>
       ) : (
-        <div className="theme-meeting-grid">
-          <div className="theme-meeting-list">
-            {plan.meetings.map((meeting) => (
-              <article className="theme-meeting-card" key={meeting.theme_id}>
-                <div className="theme-meeting-card-head">
-                  <div>
-                    <span className="track-chip">Theme {meeting.theme_id}</span>
-                    <h3>{meeting.title}</h3>
-                  </div>
-                  <strong>{meeting.time}</strong>
-                </div>
-                <div className="theme-stats">
-                  <span>{meeting.duration_minutes} min</span>
-                  <span>{meeting.submitted_members.length}/{meeting.members.length} submitted</span>
-                  <span>{meeting.planned_minutes}/{meeting.duration_minutes} planned</span>
-                </div>
-                <p className="theme-coordinator">Coordinator: {meeting.coordinator}</p>
-                <div className="agenda-mini">
-                  {meeting.agenda_items.length ? (
-                    meeting.agenda_items.map((item) => (
-                      <div key={`${item.member}-${item.submitted_at}`}>
-                        <strong>{item.member}</strong>
-                        <span>
-                          {updateTypeLabels[item.update_type]} / {item.duration_minutes} min
-                        </span>
+        <div className="theme-meeting-content">
+          <div className={`theme-meeting-grid${showPersonalUpdateForm ? '' : ' planning-only'}`}>
+            <div className="theme-meeting-list">
+              {weekMeetings.map((summary) => {
+                const meeting = plan?.meetings.find((candidate) => candidate.theme_id === summary.theme_id);
+                return (
+                  <article className="theme-meeting-card" key={summary.theme_id}>
+                    <div className="theme-meeting-card-head">
+                      <div>
+                        <span className="track-chip">Theme {summary.theme_id}</span>
+                        <h3>{summary.title}</h3>
                       </div>
-                    ))
-                  ) : (
-                    <div className="ops-muted-line">No planned updates yet</div>
-                  )}
-                </div>
-                <p className="theme-missing">Missing: {meeting.missing_members.join(', ') || 'none'}</p>
-                {managedThemeIds.has(meeting.theme_id) && (
-                  <div className="theme-member-manager">
-                    <button
-                      className="ops-secondary"
-                      type="button"
-                      disabled={!meeting.missing_members.length}
-                      onClick={() => sendMissingReminders(meeting.theme_id)}
-                    >
-                      <Bell aria-hidden="true" />
-                      Remind missing
-                    </button>
-                    <div className="theme-member-list">
-                      {meeting.members.map((nextMember, index) => {
-                        const username = meeting.member_usernames[index] || nextMember;
-                        return (
-                          <span key={`${meeting.theme_id}-${username}`}>
-                            {nextMember}
-                            <button
-                              aria-label={`Remove ${nextMember}`}
-                              type="button"
-                              onClick={() => changeThemeMember(meeting.theme_id, 'remove', username)}
-                            >
-                              <X aria-hidden="true" />
-                            </button>
-                          </span>
-                        );
-                      })}
+                      <strong>{summary.time}</strong>
                     </div>
-                    <div className="theme-member-add">
-                      <select
-                        value={memberCandidateByTheme[meeting.theme_id] || ''}
-                        onChange={(event) =>
-                          setMemberCandidateByTheme((current) => ({ ...current, [meeting.theme_id]: event.target.value }))
-                        }
-                      >
-                        <option value="">Add user</option>
-                        {userDirectory
-                          .filter((userOption) => !meeting.member_usernames.includes(userOption.username))
-                          .map((userOption) => (
-                            <option key={userOption.id} value={userOption.username}>
-                              {userOption.displayName}
-                            </option>
-                          ))}
-                      </select>
-                      <button
-                        className="ops-secondary"
-                        type="button"
-                        disabled={!memberCandidateByTheme[meeting.theme_id]}
-                        onClick={() => changeThemeMember(meeting.theme_id, 'add', memberCandidateByTheme[meeting.theme_id])}
-                      >
-                        <Plus aria-hidden="true" />
-                        Add
-                      </button>
+                    <div className="theme-stats">
+                      <span>{summary.duration_minutes} min</span>
+                      <span>{summary.submitted_count}/{summary.member_count} submitted</span>
+                      <span>{summary.planned_minutes}/{summary.duration_minutes} planned</span>
                     </div>
-                  </div>
-                )}
-              </article>
-            ))}
+                    <p className="theme-coordinator">Coordinator: {summary.coordinator}</p>
+                    <div className="agenda-mini">
+                      {meeting?.agenda_items.length ? (
+                        meeting.agenda_items.map((item) => (
+                          <div key={`${item.member}-${item.submitted_at}`}>
+                            <strong>{item.member}</strong>
+                            <span>
+                              {updateTypeLabels[item.update_type]} / {item.duration_minutes} min
+                            </span>
+                          </div>
+                        ))
+                      ) : summary.agenda_count ? (
+                        <div className="ops-muted-line">{summary.agenda_count} planned updates</div>
+                      ) : (
+                        <div className="ops-muted-line">No planned updates yet</div>
+                      )}
+                    </div>
+                    {meeting && <p className="theme-missing">Missing: {meeting.missing_members.join(', ') || 'none'}</p>}
+                    {meeting && !planningOnly && managedThemeIds.has(meeting.theme_id) && (
+                      <div className="theme-member-manager">
+                        <button
+                          className="ops-secondary"
+                          type="button"
+                          disabled={!meeting.missing_members.length}
+                          onClick={() => sendMissingReminders(meeting.theme_id)}
+                        >
+                          <Bell aria-hidden="true" />
+                          Remind missing
+                        </button>
+                        <div className="theme-member-list">
+                          {meeting.members.map((nextMember, index) => {
+                            const username = meeting.member_usernames[index] || nextMember;
+                            return (
+                              <span key={`${meeting.theme_id}-${username}`}>
+                                {nextMember}
+                                <button
+                                  aria-label={`Remove ${nextMember}`}
+                                  type="button"
+                                  onClick={() => changeThemeMember(meeting.theme_id, 'remove', username)}
+                                >
+                                  <X aria-hidden="true" />
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                        <div className="theme-member-add">
+                          <select
+                            value={memberCandidateByTheme[meeting.theme_id] || ''}
+                            onChange={(event) =>
+                              setMemberCandidateByTheme((current) => ({ ...current, [meeting.theme_id]: event.target.value }))
+                            }
+                          >
+                            <option value="">Add user</option>
+                            {userDirectory
+                              .filter((userOption) => !meeting.member_usernames.includes(userOption.username))
+                              .map((userOption) => (
+                                <option key={userOption.id} value={userOption.username}>
+                                  {userOption.displayName}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            className="ops-secondary"
+                            type="button"
+                            disabled={!memberCandidateByTheme[meeting.theme_id]}
+                            onClick={() => changeThemeMember(meeting.theme_id, 'add', memberCandidateByTheme[meeting.theme_id])}
+                          >
+                            <Plus aria-hidden="true" />
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+
+            {showPersonalUpdateForm && (
+              <form className="theme-update-form" onSubmit={submitUpdate}>
+                <h3>Suggest theme slot</h3>
+                {updatePlan && <p>For {updatePlan.meeting_date}</p>}
+                <label>
+                  <span>Theme</span>
+                  <select value={themeId} onChange={(event) => setThemeId(event.target.value)}>
+                    {personalUpdateMeetings.map((meeting) => (
+                      <option key={meeting.theme_id} value={meeting.theme_id}>
+                        Theme {meeting.theme_id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Member</span>
+                  <select value={member} onChange={(event) => setMember(event.target.value)}>
+                    {submitMembers.map((nextMember) => (
+                      <option key={nextMember.username} value={nextMember.username}>
+                        {nextMember.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Slot type</span>
+                  <select value={updateType} onChange={(event) => setUpdateType(event.target.value as ThemeUpdateType)}>
+                    {(Object.keys(updateTypeLabels) as ThemeUpdateType[]).map((nextType) => (
+                      <option key={nextType} value={nextType}>
+                        {updateTypeOptionLabels[nextType]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Progress</span>
+                  <textarea
+                    value={progressText}
+                    onChange={(event) => setProgressText(event.target.value)}
+                    placeholder="Project progress summary, up to 50 words"
+                    rows={4}
+                  />
+                </label>
+                <label>
+                  <span>Questions</span>
+                  <textarea
+                    value={questions}
+                    onChange={(event) => setQuestions(event.target.value)}
+                    placeholder="Optional context or question for the slot"
+                    rows={3}
+                  />
+                </label>
+                <button className="ops-primary" type="submit">
+                  <Check aria-hidden="true" />
+                  Save slot
+                </button>
+              </form>
+            )}
           </div>
 
-          <form className="theme-update-form" onSubmit={submitUpdate}>
-            <h3>Submit personal update</h3>
-            <label>
-              <span>Theme</span>
-              <select value={themeId} onChange={(event) => setThemeId(event.target.value)}>
-                {plan.meetings.map((meeting) => (
-                  <option key={meeting.theme_id} value={meeting.theme_id}>
-                    Theme {meeting.theme_id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Member</span>
-              <select value={member} onChange={(event) => setMember(event.target.value)}>
-                {submitMembers.map((nextMember) => (
-                  <option key={nextMember.username} value={nextMember.username}>
-                    {nextMember.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Update type</span>
-              <select value={updateType} onChange={(event) => setUpdateType(event.target.value as ThemeUpdateType)}>
-                {(Object.keys(updateTypeLabels) as ThemeUpdateType[]).map((nextType) => (
-                  <option key={nextType} value={nextType}>
-                    {updateTypeLabels[nextType]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Progress</span>
-              <textarea
-                value={progressText}
-                onChange={(event) => setProgressText(event.target.value)}
-                placeholder="About 30 words"
-                rows={4}
-              />
-            </label>
-            <label>
-              <span>Questions</span>
-              <textarea
-                value={questions}
-                onChange={(event) => setQuestions(event.target.value)}
-                placeholder={updateType === 'nothing_to_report' ? 'Optional' : 'Required for help from the group'}
-                rows={3}
-              />
-            </label>
-            {formError && <div className="form-message error">{formError}</div>}
-            {status && <div className="form-message">{status}</div>}
-            <button className="ops-primary" type="submit">
-              <Check aria-hidden="true" />
-              Save update
-            </button>
-          </form>
+          {pastPlans.length > 0 && (
+            <section className="past-meetings-panel">
+              <div className="past-meetings-head">
+                <h3>Past meetings</h3>
+                <span>{pastPlans.length} recent</span>
+              </div>
+              <div className="past-meeting-list">
+                {pastPlans.map((past) => {
+                  const submitted = past.meetings.reduce((total, meeting) => total + meeting.submitted_count, 0);
+                  const members = past.meetings.reduce((total, meeting) => total + meeting.member_count, 0);
+                  return (
+                    <article className="past-meeting-item" key={past.meeting_date}>
+                      <div>
+                        <strong>{past.meeting_date} / {past.cycle_group}</strong>
+                        <span>{submitted}/{members} submitted</span>
+                      </div>
+                      <p>
+                        {past.meetings
+                          .map((meeting) => `Theme ${meeting.theme_id}: ${meeting.agenda_count || 0} planned`)
+                          .join(' / ')}
+                      </p>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
         </div>
       )}
     </section>
@@ -2812,20 +3174,27 @@ function DashboardView({
   const [agendaState, setAgendaState] = useState<Record<string, 'added' | 'dismissed'>>({});
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailProject, setDetailProject] = useState<ManagedProject | null>(null);
+  const [detailMode, setDetailMode] = useState<'details' | 'progress'>('details');
   const [actionError, setActionError] = useState<string | null>(null);
+  const [planningReport, setPlanningReport] = useState<ProjectPlanningReport | null>(null);
+  const [planningBusy, setPlanningBusy] = useState(false);
 
   const projects = projectsPayload?.projects || [];
   const activeProjects = projects.filter((project) => project.lifecycle !== 'archived');
   const archivedProjects = projects.filter((project) => project.lifecycle === 'archived');
   const attentionProjects = activeProjects.filter(projectNeedsAttention);
   const agendaCandidates = attentionProjects.filter((project) => agendaState[project.id] !== 'dismissed');
-  const deepDiveProjects = agendaCandidates.filter((project) => project.status === 'blocked' || Boolean(project.blocker));
   const memberArtifacts = activeProjects.flatMap((project) =>
     currentProjectArtifacts(project).map((artifact) => ({ project, artifact })),
   );
 
   function openCreateProject() {
     setEditorOpen(true);
+  }
+
+  function openProject(project: ManagedProject, mode: 'details' | 'progress') {
+    setDetailMode(mode);
+    setDetailProject(project);
   }
 
   async function handleProjectSaved(project: ManagedProject) {
@@ -2874,6 +3243,23 @@ function DashboardView({
     }
   }
 
+  async function runProjectPlanningScan() {
+    setPlanningBusy(true);
+    setActionError(null);
+    try {
+      const response = await fetch('/api/projects/planning', { method: 'POST' });
+      const body = (await response.json()) as ProjectPlanningPayload;
+      if (!response.ok || !body.report) {
+        throw new Error(body.error || 'Could not run project planning scan.');
+      }
+      setPlanningReport(body.report);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : 'Could not run project planning scan.');
+    } finally {
+      setPlanningBusy(false);
+    }
+  }
+
   return (
     <ConsolePageFrame
       title="Dashboard"
@@ -2904,13 +3290,6 @@ function DashboardView({
           <span>{actionError}</span>
         </div>
       )}
-      {payload?.source === 'fixture' && (
-        <div className="ops-notice">
-          <AlertCircle aria-hidden="true" />
-          <span>Legacy lab-state is using fixture data. Project Manager records below come from the database.</span>
-        </div>
-      )}
-
       {!projectsPayload ? (
         <div className="ops-empty">
           {projectsLoading || loading ? (
@@ -2934,7 +3313,12 @@ function DashboardView({
           <div className="project-grid">
             {activeProjects.length ? (
               activeProjects.map((project) => (
-                <ProjectCard key={project.id} project={project} onOpen={setDetailProject} />
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  onOpenDetails={(nextProject) => openProject(nextProject, 'details')}
+                  onOpenProgress={(nextProject) => openProject(nextProject, 'progress')}
+                />
               ))
             ) : (
               <div className="ops-empty">No visible projects yet. Add one to start tracking work.</div>
@@ -2952,8 +3336,8 @@ function DashboardView({
               </div>
               <ol className="agenda-list">
                 <li>Round-table status check</li>
-                {(deepDiveProjects.length ? deepDiveProjects : attentionProjects).slice(0, 2).map((project) => (
-                  <li key={project.id}>Deep dive: {project.title}</li>
+                {attentionProjects.slice(0, 2).map((project) => (
+                  <li key={project.id}>{projectSlotLabels[project.recommendation]}: {project.title}</li>
                 ))}
                 <li>Submission and materials follow-ups</li>
               </ol>
@@ -3017,7 +3401,7 @@ function DashboardView({
                       <p>{project.ownerUsername} / archived {project.archivedAt ? formatDate(project.archivedAt.slice(0, 10)) : ''}</p>
                     </div>
                     <div className="button-row compact">
-                      <button className="ops-secondary icon-only-button" type="button" onClick={() => setDetailProject(project)} aria-label={`View ${project.title}`} title="Details">
+                      <button className="ops-secondary icon-only-button" type="button" onClick={() => openProject(project, 'details')} aria-label={`View ${project.title}`} title="Details">
                         <FileText aria-hidden="true" />
                       </button>
                       {project.access.canArchive && (
@@ -3041,6 +3425,77 @@ function DashboardView({
             <strong>{archivedProjects.length} archived</strong>
           </div>
 
+          <section className="ops-panel project-planning-panel">
+            <div className="ops-panel-head">
+              <div>
+                <h2>Project planning brief</h2>
+                <p>Attention items first, then projects updated in the current two-week cycle.</p>
+              </div>
+              <button className="ops-primary" type="button" disabled={planningBusy} onClick={() => void runProjectPlanningScan()}>
+                <RefreshCw aria-hidden="true" className={planningBusy ? 'spin' : undefined} />
+                {planningBusy ? 'Scanning' : 'Run project scan'}
+              </button>
+            </div>
+            {planningReport ? (
+              <div className="planning-brief-grid">
+                <div className="summary-strip compact">
+                  <strong>{planningReport.attentionItems.length} attention</strong>
+                  <strong>{planningReport.updatedProjects.length} updated</strong>
+                  <strong>Since {planningReport.cycleStart}</strong>
+                </div>
+                <div className="planning-brief-columns">
+                  <div>
+                    <h3>Attention</h3>
+                    {planningReport.attentionItems.length ? (
+                      planningReport.attentionItems.slice(0, 5).map((item) => {
+                        const project = projects.find((candidate) => candidate.id === item.id);
+                        return (
+                          <button
+                            className="planning-brief-item"
+                            disabled={!project}
+                            key={item.id}
+                            type="button"
+                            onClick={() => project && openProject(project, 'progress')}
+                          >
+                            <strong>{projectPlanningLine(item)}</strong>
+                            <span>{item.attentionReason || item.blocker || 'Needs review'}</span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="ops-muted-line">No attention items</div>
+                    )}
+                  </div>
+                  <div>
+                    <h3>Updated</h3>
+                    {planningReport.updatedProjects.length ? (
+                      planningReport.updatedProjects.slice(0, 5).map((item) => {
+                        const project = projects.find((candidate) => candidate.id === item.id);
+                        return (
+                          <button
+                            className="planning-brief-item"
+                            disabled={!project}
+                            key={item.id}
+                            type="button"
+                            onClick={() => project && openProject(project, 'progress')}
+                          >
+                            <strong>{projectPlanningLine(item)}</strong>
+                            <span>{item.progressText || 'Progress recorded'}</span>
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="ops-muted-line">No project progress updates in this cycle</div>
+                    )}
+                  </div>
+                </div>
+                <pre className="project-brief-preview">{planningReport.markdown}</pre>
+              </div>
+            ) : (
+              <div className="ops-muted-line">Run a scan to build the current project brief.</div>
+            )}
+          </section>
+
           <section className="ops-panel">
             <div className="ops-panel-head">
               <div>
@@ -3056,12 +3511,15 @@ function DashboardView({
                     <div>
                       <h3>{project.title}</h3>
                       <p>
-                        {project.ownerUsername} / stage {project.stage} / last update {formatAge(daysSinceDate(project.lastUpdate))} ago
+                        {project.ownerUsername} / stage {project.stage} ({project.stageProgress}%) / last update {formatAge(daysSinceDate(project.lastUpdate))} ago
                       </p>
                     </div>
                     <StatusChip status={project.status} />
                     <p>
                       <strong>Evidence:</strong> {projectEvidence(project)}
+                    </p>
+                    <p>
+                      <strong>Suggested slot:</strong> {projectSlotLabels[project.recommendation]}
                     </p>
                     <div className="button-row">
                       <button
@@ -3118,7 +3576,7 @@ function DashboardView({
                       <td>
                         <div className="table-stage">
                           <StageBar stage={project.stage} />
-                          <span>{project.stage}/5</span>
+                          <span>{project.stage}/5 · {project.stageProgress}%</span>
                         </div>
                       </td>
                       <td>
@@ -3131,12 +3589,23 @@ function DashboardView({
                           <button
                             className="ops-secondary icon-only-button"
                             type="button"
-                            onClick={() => setDetailProject(project)}
-                            aria-label={`Manage ${project.title}`}
-                            title="Manage project"
+                            onClick={() => openProject(project, 'details')}
+                            aria-label={`Project details for ${project.title}`}
+                            title="Project details"
                           >
                             <FileText aria-hidden="true" />
                           </button>
+                          {project.access.canAddUpdate && project.lifecycle !== 'archived' && (
+                            <button
+                              className="ops-primary icon-only-button"
+                              type="button"
+                              onClick={() => openProject(project, 'progress')}
+                              aria-label={`Progress update for ${project.title}`}
+                              title="Progress update"
+                            >
+                              <Plus aria-hidden="true" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -3165,6 +3634,7 @@ function DashboardView({
           viewer={viewer}
           collaboratorUsers={collaboratorUsers}
           existingProjects={projects}
+          initialMode={detailMode}
           onClose={() => setDetailProject(null)}
           onSaved={handleProjectChanged}
           onChanged={handleProjectChanged}
@@ -3216,13 +3686,15 @@ function ChatView({
   onOpenThreadHandled: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const draftBeforeHistoryRef = useRef('');
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [threadId, setThreadId] = useState(() => `web-${Date.now()}`);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [historyMode, setHistoryMode] = useState<ChatHistoryMode>('owned');
   const [mentionUsers, setMentionUsers] = useState<MentionableUser[]>([]);
+  const [draftHistoryCursor, setDraftHistoryCursor] = useState<number | null>(null);
   const [sendStatus, setSendStatus] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
 
@@ -3313,19 +3785,112 @@ function ChatView({
     setThreadId(`web-${Date.now()}`);
     setMessages([]);
     setDraft('');
+    setDraftHistoryCursor(null);
     setSendStatus(null);
-    setHistoryOpen(false);
   }
 
   function restoreChat(session: ChatSession) {
     setThreadId(session.threadId);
     setMessages(session.messages);
+    setDraft('');
+    setDraftHistoryCursor(null);
     setSendStatus(null);
-    setHistoryOpen(false);
+  }
+
+  function usePrompt(prompt: string) {
+    setDraft(prompt);
+    setDraftHistoryCursor(null);
+    setSendStatus(null);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  async function deleteSession(session: ChatSession) {
+    const action = session.membershipKind === 'shared' ? 'remove this shared session from your history' : 'delete this chat session';
+    if (!window.confirm(`Are you sure you want to ${action}?`)) return;
+
+    try {
+      const response = await fetch('/api/chat/sessions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: session.threadId }),
+      });
+      const body = (await response.json()) as { result?: 'deleted' | 'removed'; error?: string };
+      if (!response.ok) {
+        throw new Error(body.error || 'Could not delete chat session.');
+      }
+
+      setSessions((current) => current.filter((candidate) => candidate.threadId !== session.threadId));
+      if (threadId === session.threadId) {
+        setThreadId(`web-${Date.now()}`);
+        setMessages([]);
+        setDraft('');
+        setDraftHistoryCursor(null);
+      }
+      setSendStatus(body.result === 'removed' ? 'Removed shared chat session.' : 'Deleted chat session.');
+    } catch (caught) {
+      setSendStatus(caught instanceof Error ? caught.message : 'Could not delete chat session.');
+    }
+  }
+
+  async function renameSession(session: ChatSession) {
+    const title = window.prompt('Rename chat session', session.title);
+    if (title === null) return;
+
+    try {
+      const response = await fetch('/api/chat/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: session.threadId, title }),
+      });
+      const body = (await response.json()) as { session?: ChatSession; error?: string };
+      if (!response.ok || !body.session) {
+        throw new Error(body.error || 'Could not rename chat session.');
+      }
+
+      setSessions((current) => current.map((candidate) => (candidate.threadId === session.threadId ? body.session! : candidate)));
+      setSendStatus('Renamed chat session.');
+    } catch (caught) {
+      setSendStatus(caught instanceof Error ? caught.message : 'Could not rename chat session.');
+    }
   }
 
   function chooseMention(username: string) {
     setDraft((current) => insertMention(current, username));
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }
+
+  function moveDraftHistory(direction: -1 | 1) {
+    const sentMessages = messages.filter((message) => message.role === 'user').map((message) => message.text);
+    if (!sentMessages.length) return;
+    if (draftHistoryCursor === null && direction === 1) return;
+
+    if (draftHistoryCursor === null) {
+      draftBeforeHistoryRef.current = draft;
+    }
+
+    const nextCursor = draftHistoryCursor === null ? sentMessages.length - 1 : draftHistoryCursor + direction;
+    if (nextCursor >= sentMessages.length) {
+      setDraft(draftBeforeHistoryRef.current);
+      setDraftHistoryCursor(null);
+      return;
+    }
+
+    const clampedCursor = Math.max(0, nextCursor);
+    setDraft(sentMessages[clampedCursor]);
+    setDraftHistoryCursor(clampedCursor);
+  }
+
+  function handleDraftKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Tab' && mentionQuery !== null && mentionOptions.length > 0) {
+      event.preventDefault();
+      chooseMention(mentionOptions[0].username);
+      return;
+    }
+
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      moveDraftHistory(event.key === 'ArrowUp' ? -1 : 1);
+    }
   }
 
   async function send(nextQuestion = draft) {
@@ -3333,12 +3898,21 @@ function ChatView({
     if (!trimmed || isSending) return;
     const assistantId = chatMessageId('assistant');
     setDraft('');
+    setDraftHistoryCursor(null);
     setSendStatus(null);
     setIsSending(true);
     setMessages((current) => [
       ...current,
-      { id: chatMessageId('user'), role: 'user', text: trimmed },
-      { id: assistantId, role: 'assistant', text: 'Searching the wiki', status: 'thinking' },
+      {
+        id: chatMessageId('user'),
+        role: 'user',
+        text: trimmed,
+        actorUserId: viewer.id,
+        actorUsername: viewer.username,
+        actorDisplayName: viewer.displayName,
+        actorAvatarUrl: profileAvatarUrl(viewer),
+      },
+      { id: assistantId, role: 'assistant', text: vioscopeChatUiConfig.thinkingText, status: 'thinking' },
     ]);
 
     try {
@@ -3402,65 +3976,54 @@ function ChatView({
 
   return (
     <ConsolePageFrame
-      title="Wiki assistant"
+      title={vioscopeChatUiConfig.title}
       className="chat-page"
       badge={
         <span className="prototype-pill">
           <span className="live-dot" aria-hidden="true" />
-          Grounded in VIOS wiki
+          {vioscopeChatUiConfig.badge}
         </span>
       }
       actions={
         <div className="chat-actions">
-          <button
-            className="icon-button"
-            type="button"
-            onClick={() => setHistoryOpen((current) => !current)}
-            aria-label="Chat history"
-            title="Chat history"
-          >
-            <History aria-hidden="true" />
-          </button>
-          <button className="icon-button" type="button" onClick={newChat} aria-label="New chat" title="New chat">
+          <button className="ops-primary" type="button" onClick={newChat}>
             <Plus aria-hidden="true" />
+            New chat
           </button>
         </div>
       }
     >
       <section className="chat-view">
-
-      <div className="chat-scroll" ref={scrollRef}>
-        {historyOpen && (
-          <section className="chat-history-panel">
-            <div className="chat-history-head">
-              <strong>{historyMode === 'owned' ? 'History' : 'Shared sessions'}</strong>
-              <small>{visibleSessions.length} session{visibleSessions.length === 1 ? '' : 's'}</small>
-            </div>
-            <div className="chat-history-tabs" role="tablist" aria-label="Chat session lists">
-              <button
-                className={historyMode === 'owned' ? 'active' : ''}
-                type="button"
-                onClick={() => setHistoryMode('owned')}
-              >
-                History
-              </button>
-              <button
-                className={historyMode === 'shared' ? 'active' : ''}
-                type="button"
-                onClick={() => setHistoryMode('shared')}
-              >
-                Shared
-              </button>
-            </div>
-            {visibleSessions.length ? (
-              <div className="chat-history-list">
-                {visibleSessions.map((session) => (
-                  <button
-                    className={session.threadId === threadId ? 'active' : ''}
-                    key={session.threadId}
-                    type="button"
-                    onClick={() => restoreChat(session)}
-                  >
+        <aside className="chat-session-column" aria-label="Chat sessions">
+          <div className="chat-session-search">
+            <Search aria-hidden="true" />
+            <span>{visibleSessions.length} {historyMode === 'owned' ? 'history sessions' : 'shared sessions'}</span>
+          </div>
+          <div className="chat-history-tabs" role="tablist" aria-label="Chat session lists">
+            <button
+              className={historyMode === 'owned' ? 'active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={historyMode === 'owned'}
+              onClick={() => setHistoryMode('owned')}
+            >
+              History
+            </button>
+            <button
+              className={historyMode === 'shared' ? 'active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={historyMode === 'shared'}
+              onClick={() => setHistoryMode('shared')}
+            >
+              Shared
+            </button>
+          </div>
+          {visibleSessions.length ? (
+            <div className="chat-history-list">
+              {visibleSessions.map((session) => (
+                <div className={`chat-history-item${session.threadId === threadId ? ' active' : ''}`} key={session.threadId}>
+                  <button className="chat-history-open" type="button" onClick={() => restoreChat(session)}>
                     <span>{session.title}</span>
                     <small>
                       {historyMode === 'shared'
@@ -3469,121 +4032,175 @@ function ChatView({
                       {chatSessionTime(session.updatedAt)}
                     </small>
                   </button>
-                ))}
-              </div>
-            ) : (
-              <p className="chat-history-empty">
-                {historyMode === 'shared' ? 'No shared chat sessions yet.' : 'No saved chat sessions yet.'}
-              </p>
-            )}
-          </section>
-        )}
-
-        {messages.length === 0 && (
-          <div className="chat-empty">
-            <DotMatrixIcon iconIndex={0} size={48} />
-            <h2>I answer questions from the VIOS lab wiki</h2>
-            <div className="prompt-grid">
-              {prompts.map((prompt) => (
-                <button key={prompt} type="button" onClick={() => send(prompt)}>
-                  {prompt}
-                </button>
+                  <div className="chat-history-actions">
+                    {session.membershipKind !== 'shared' && (
+                      <button
+                        className="chat-history-rename"
+                        type="button"
+                        onClick={() => renameSession(session)}
+                        aria-label="Rename chat session"
+                        title="Rename chat session"
+                      >
+                        <Pencil aria-hidden="true" />
+                      </button>
+                    )}
+                    <button
+                      className="chat-history-delete"
+                      type="button"
+                      onClick={() => deleteSession(session)}
+                      aria-label={session.membershipKind === 'shared' ? 'Remove shared chat session' : 'Delete chat session'}
+                      title={session.membershipKind === 'shared' ? 'Remove shared chat session' : 'Delete chat session'}
+                    >
+                      <Trash2 aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <p className="chat-history-empty">
+              {historyMode === 'shared' ? 'No shared chat sessions yet.' : 'No saved chat sessions yet.'}
+            </p>
+          )}
+        </aside>
 
-        {messages.length > 0 && (
-          <div className="conversation">
-            {messages.map((message) =>
-              message.role === 'user' ? (
-                <div className="user-bubble" key={message.id}>{message.text}</div>
-              ) : (
-                <div className="assistant-turn" key={message.id}>
-                  <div className="assistant-label">
-                    <DotMatrixIcon iconIndex={message.status === 'thinking' ? 1 : 3} size={24} autoPlay={message.status === 'thinking'} />
-                    VioScope
-                  </div>
-                  {message.status === 'refusal' ? (
-                    <div className="refusal-box">
-                      <AlertCircle aria-hidden="true" />
-                      <div>
-                        <strong>VioScope could not complete that request</strong>
-                        <p>{message.text || 'Please try again with a little more detail.'}</p>
+        <div className="chat-main">
+          <div className="chat-main-head">
+            <div>
+              <strong>{threadId.startsWith('web-') && messages.length === 0 ? 'New VioScope session' : 'VioScope session'}</strong>
+              <span>{messages.length} message{messages.length === 1 ? '' : 's'}</span>
+            </div>
+            <span className="chat-presence">
+              <span aria-hidden="true" />
+              Ready
+            </span>
+          </div>
+
+          <div className="chat-scroll" ref={scrollRef}>
+            {messages.length === 0 && (
+              <div className="chat-empty">
+                <DotMatrixIcon iconIndex={0} size={48} />
+                <h2>{vioscopeChatUiConfig.emptyTitle}</h2>
+                <div className="prompt-grid">
+                  {vioscopeChatUiConfig.starterPrompts.map((prompt) => (
+                    <button key={prompt} type="button" onClick={() => usePrompt(prompt)}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.length > 0 && (
+              <div className="conversation">
+                {messages.map((message) =>
+                  message.role === 'user' ? (
+                    <div
+                      className={`chat-user-turn${message.actorUserId === viewer.id ? ' own' : ''}`}
+                      key={message.id}
+                    >
+                      <ChatActorAvatar message={message} viewer={viewer} />
+                      <div className="chat-user-message">
+                        <div className="chat-user-meta">{chatActorLabel(message, viewer)}</div>
+                        <div className="user-bubble">{message.text}</div>
                       </div>
                     </div>
                   ) : (
-                    <div className="assistant-answer">
-                      {message.status === 'thinking' ? (
-                        <span>
-                          Searching the wiki
-                          <span className="typing-dots" aria-hidden="true">
-                            <span />
-                            <span />
-                            <span />
-                          </span>
-                        </span>
+                    <div className="assistant-turn" key={message.id}>
+                      <div className="assistant-label">
+                        <DotMatrixIcon iconIndex={message.status === 'thinking' ? 1 : 3} size={24} autoPlay={message.status === 'thinking'} />
+                        VioScope
+                      </div>
+                      {message.status === 'refusal' ? (
+                        <div className="refusal-box">
+                          <AlertCircle aria-hidden="true" />
+                          <div>
+                            <strong>VioScope could not complete that request</strong>
+                            <p>{message.text || 'Please try again with a little more detail.'}</p>
+                          </div>
+                        </div>
                       ) : (
-                        <>
-                          <MarkdownText text={message.text} />
-                          {Boolean(message.sources?.length) && (
-                            <div className="chat-sources">
-                              <strong>Sources</strong>
-                              {message.sources?.map((source) => (
-                                <a href={source.url} key={source.url} target="_blank" rel="noreferrer">
-                                  <span>{source.title}</span>
-                                  {source.path && <small>{source.path}</small>}
-                                </a>
-                              ))}
-                            </div>
+                        <div className="assistant-answer">
+                          {message.status === 'thinking' ? (
+                            <span>
+                              {vioscopeChatUiConfig.thinkingText}
+                              <span className="typing-dots" aria-hidden="true">
+                                <span />
+                                <span />
+                                <span />
+                              </span>
+                            </span>
+                          ) : (
+                            <>
+                              <MarkdownText text={message.text} />
+                              {Boolean(message.sources?.length) && (
+                                <div className="chat-sources">
+                                  <strong>Sources</strong>
+                                  {message.sources?.map((source) => (
+                                    <a href={source.url} key={source.url} target="_blank" rel="noreferrer">
+                                      <span>{source.title}</span>
+                                      {source.path && <small>{source.path}</small>}
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </>
                           )}
-                        </>
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              ),
+                  ),
+                )}
+              </div>
             )}
           </div>
-        )}
-      </div>
 
-      <div className="chat-input-wrap">
-        {mentionQuery !== null && mentionOptions.length > 0 && (
-          <div className="mention-menu">
-            {mentionOptions.map((user) => (
-              <button key={user.id} type="button" onClick={() => chooseMention(user.username)}>
-                <strong>@{user.username}</strong>
-                <span>{user.displayName}</span>
+          <div className="chat-input-wrap">
+            {mentionQuery !== null && mentionOptions.length > 0 && (
+              <div className="mention-menu">
+                {mentionOptions.map((user) => (
+                  <button
+                    className={mentionOptions[0]?.id === user.id ? 'active' : ''}
+                    key={user.id}
+                    type="button"
+                    onClick={() => chooseMention(user.username)}
+                  >
+                    <strong>@{user.username}</strong>
+                    <span>{user.displayName}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <form
+              className="chat-input"
+              onSubmit={(event) => {
+                event.preventDefault();
+                send();
+              }}
+            >
+              <span>{viewer.displayName || 'VioScope'}</span>
+              <input
+                ref={inputRef}
+                value={draft}
+                onChange={(event) => {
+                  setDraft(event.target.value);
+                  setDraftHistoryCursor(null);
+                }}
+                onKeyDown={handleDraftKeyDown}
+                placeholder={vioscopeChatUiConfig.inputPlaceholder}
+                disabled={isSending}
+              />
+              <button aria-label="Send" type="submit" disabled={isSending || !draft.trim()}>
+                <Send aria-hidden="true" />
               </button>
-            ))}
+            </form>
+            {sendStatus && <small className="chat-send-status">{sendStatus}</small>}
           </div>
-        )}
-        <form
-          className="chat-input"
-          onSubmit={(event) => {
-            event.preventDefault();
-            send();
-          }}
-        >
-          <span>{viewer.displayName || 'VioScope'}</span>
-          <input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Ask or @mention a teammate"
-            disabled={isSending}
-          />
-          <button aria-label="Send" type="submit" disabled={isSending || !draft.trim()}>
-            <Send aria-hidden="true" />
-          </button>
-        </form>
-        {sendStatus && <small className="chat-send-status">{sendStatus}</small>}
-      </div>
+        </div>
       </section>
     </ConsolePageFrame>
   );
 }
-
 function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
   const [activeChecklistId, setActiveChecklistId] = useState<ChecklistTemplateId>('idea');
   const workbenchRef = useRef<HTMLDivElement | null>(null);
@@ -3861,6 +4478,170 @@ function AlertsView({
   );
 }
 
+type TopbarNotificationTab = 'messages' | 'events' | 'logs';
+
+function TopbarNotificationCenter({
+  open,
+  activeCount,
+  chatNotifications,
+  themeNotifications,
+  attentionProjects,
+  onToggle,
+  onOpenAlerts,
+  onOpenChatSession,
+  onMarkAllMessagesRead,
+}: {
+  open: boolean;
+  activeCount: number;
+  chatNotifications: ChatNotification[];
+  themeNotifications: ThemeMeetingNotification[];
+  attentionProjects: ManagedProject[];
+  onToggle: () => void;
+  onOpenAlerts: () => void;
+  onOpenChatSession: (sessionId: string, notificationId?: string) => void;
+  onMarkAllMessagesRead: () => void;
+}) {
+  const [tab, setTab] = useState<TopbarNotificationTab>('messages');
+  const unreadMessages = chatNotifications.filter((notification) => !notification.readAt);
+  const visibleMessages = (unreadMessages.length ? unreadMessages : chatNotifications).slice(0, 6);
+  const visibleEvents = themeNotifications.slice(0, 6);
+  const visibleLogs = attentionProjects.slice(0, 6);
+
+  return (
+    <div className="topbar-notification">
+      <button
+        className="topbar-notification-button"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+      >
+        <Bell aria-hidden="true" />
+        <span>Notification</span>
+        {activeCount > 0 && <strong>{activeCount}</strong>}
+      </button>
+      {open && (
+        <section className="notification-popover" aria-label="Notifications Center">
+          <header>
+            <strong>Notifications Center</strong>
+            <div>
+              {unreadMessages.length > 0 && (
+                <button type="button" onClick={onMarkAllMessagesRead}>
+                  Mark read
+                </button>
+              )}
+              <span>{activeCount}</span>
+            </div>
+          </header>
+          <div className="notification-tabs" role="tablist" aria-label="Notification categories">
+            <button
+              className={tab === 'messages' ? 'active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={tab === 'messages'}
+              onClick={() => setTab('messages')}
+            >
+              Message
+            </button>
+            <button
+              className={tab === 'events' ? 'active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={tab === 'events'}
+              onClick={() => setTab('events')}
+            >
+              Events
+            </button>
+            <button
+              className={tab === 'logs' ? 'active' : ''}
+              type="button"
+              role="tab"
+              aria-selected={tab === 'logs'}
+              onClick={() => setTab('logs')}
+            >
+              Logs
+            </button>
+          </div>
+          <div className="notification-list">
+            {tab === 'messages' &&
+              (visibleMessages.length ? (
+                visibleMessages.map((notification) => (
+                  <button
+                    className={`notification-row${notification.readAt ? '' : ' unread'}`}
+                    key={notification.id}
+                    type="button"
+                    onClick={() => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id)}
+                  >
+                    <AvatarCircle
+                      user={{
+                        id: notification.actorUserId,
+                        username: notification.actorUsername,
+                        displayName: notification.actorDisplayName,
+                        email: null,
+                        role: 'member',
+                        position: null,
+                        provisioningStatus: 'active',
+                        sourceProfileId: null,
+                        aliases: [],
+                        notificationPreferences: defaultNotificationPreferences(),
+                        passwordResetRequired: false,
+                        passwordChangedAt: null,
+                        lastLoginAt: null,
+                      }}
+                    />
+                    <span>
+                      <strong>{notification.title}</strong>
+                      <small>{notification.body}</small>
+                    </span>
+                    <em>{chatSessionTime(notification.createdAt)}</em>
+                  </button>
+                ))
+              ) : (
+                <p className="notification-empty">No chat messages right now.</p>
+              ))}
+            {tab === 'events' &&
+              (visibleEvents.length ? (
+                visibleEvents.map((notification) => (
+                  <div className="notification-row" key={notification.id}>
+                    <span className="notification-glyph">
+                      <CalendarDays aria-hidden="true" />
+                    </span>
+                    <span>
+                      <strong>{notification.title}</strong>
+                      <small>{notification.body}</small>
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="notification-empty">No meeting events right now.</p>
+              ))}
+            {tab === 'logs' &&
+              (visibleLogs.length ? (
+                visibleLogs.map((project) => (
+                  <div className="notification-row" key={project.id}>
+                    <span className="notification-glyph">
+                      <AlertCircle aria-hidden="true" />
+                    </span>
+                    <span>
+                      <strong>{project.title}</strong>
+                      <small>{projectSlotLabels[project.recommendation]} · {project.attentionReason || project.blocker || statusLabels[project.status]}</small>
+                    </span>
+                    <em>{project.ownerUsername}</em>
+                  </div>
+                ))
+              ) : (
+                <p className="notification-empty">No project logs right now.</p>
+              ))}
+          </div>
+          <button className="notification-view-all" type="button" onClick={onOpenAlerts}>
+            View all notifications
+          </button>
+        </section>
+      )}
+    </div>
+  );
+}
+
 function draftFromUser(user: ManagedUser): UserDraft {
   const email = profileEmail(user);
   return {
@@ -3868,6 +4649,7 @@ function draftFromUser(user: ManagedUser): UserDraft {
     email: email === '-' ? '' : email,
     avatarUrl: profileAvatarUrl(user),
     role: user.role,
+    position: user.position || '',
     provisioningStatus: user.provisioningStatus,
     aliasesText: user.aliases.filter((alias) => alias !== email).join(', '),
     temporaryPassword: '',
@@ -3884,8 +4666,15 @@ function profileEmail(user: CurrentUser): string {
 
 function roleLabel(role: CurrentUser['role']) {
   if (role === 'pi') return 'PI';
-  if (role === 'administrator') return 'Admin';
+  if (role === 'administrator') return 'Administrator';
   return titleCase(role);
+}
+
+function positionLabel(position: UserPosition | null | '') {
+  if (!position) return '-';
+  if (position === 'pi') return 'PI';
+  if (position === 'software_engineer') return 'Software Engineer';
+  return titleCase(position);
 }
 
 function provisioningLabel(value: string) {
@@ -3898,11 +4687,13 @@ function AdminConfigurationPanel() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [restartBusy, setRestartBusy] = useState(false);
+  const [activeConfigSection, setActiveConfigSection] = useState<AdminConfigSetting['section']>('model');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const settings = payload?.settings || [];
   const configGroups = useMemo(() => groupedConfigSettings(settings), [settings]);
+  const activeConfigGroup = configGroups.find((group) => group.section === activeConfigSection) || configGroups[0] || null;
   const changedKeys = settings
     .filter((setting) => drafts[setting.key] !== undefined && drafts[setting.key] !== setting.value)
     .map((setting) => setting.key);
@@ -3931,6 +4722,12 @@ function AdminConfigurationPanel() {
   useEffect(() => {
     void loadConfig();
   }, [loadConfig]);
+
+  useEffect(() => {
+    if (configGroups.length && !configGroups.some((group) => group.section === activeConfigSection)) {
+      setActiveConfigSection(configGroups[0].section);
+    }
+  }, [activeConfigSection, configGroups]);
 
   async function saveConfig() {
     const settingsPatch = Object.fromEntries(
@@ -4007,7 +4804,7 @@ function AdminConfigurationPanel() {
     <section className="settings-section settings-section-config">
       <div className="settings-section-heading">
         <h2>Configuration</h2>
-        <p>Runtime settings, secret status, and service restart controls.</p>
+        <p>Runtime settings and service restart controls.</p>
       </div>
       {error && <div className="form-message error">{error}</div>}
       {message && <div className="form-message">{message}</div>}
@@ -4021,25 +4818,6 @@ function AdminConfigurationPanel() {
           <section className="ops-panel config-panel">
             <div className="ops-panel-head">
               <div>
-                <h2>Secrets</h2>
-                <p>Values stay in the deployment environment.</p>
-              </div>
-            </div>
-            <div className="config-secret-grid">
-              {(payload?.secrets || []).map((secret) => (
-                <div className="config-secret" key={secret.key}>
-                  <span>{secret.label}</span>
-                  <strong className={secret.configured ? 'configured' : 'missing'}>
-                    {secret.configured ? 'Configured' : 'Missing'}
-                  </strong>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="ops-panel config-panel">
-            <div className="ops-panel-head">
-              <div>
                 <h2>Runtime settings</h2>
                 <p>{changedKeys.length ? `${changedKeys.length} pending change(s)` : 'No pending changes'}</p>
               </div>
@@ -4048,11 +4826,26 @@ function AdminConfigurationPanel() {
                 {busy ? 'Saving' : 'Save changes'}
               </button>
             </div>
-            <div className="config-groups">
+            <div className="config-section-tabs" role="tablist" aria-label="Configuration sections">
               {configGroups.map((group) => (
-                <section className="config-group" key={group.section}>
-                  <h3>{group.label}</h3>
-                  {group.settings.map((setting) => (
+                <button
+                  key={group.section}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeConfigGroup?.section === group.section}
+                  className={activeConfigGroup?.section === group.section ? 'active' : ''}
+                  onClick={() => setActiveConfigSection(group.section)}
+                >
+                  <span>{group.label}</span>
+                  <strong>{group.settings.length}</strong>
+                </button>
+              ))}
+            </div>
+            <div className="config-groups">
+              {activeConfigGroup ? (
+                <section className="config-group" key={activeConfigGroup.section}>
+                  <h3>{activeConfigGroup.label}</h3>
+                  {activeConfigGroup.settings.map((setting) => (
                     <div className="config-row" key={setting.key}>
                       <div>
                         <strong>{setting.label}</strong>
@@ -4066,12 +4859,25 @@ function AdminConfigurationPanel() {
                         </div>
                       </div>
                       <div className="config-control">
-                        <input
-                          type={setting.valueType === 'number' ? 'number' : 'text'}
-                          value={drafts[setting.key] ?? ''}
-                          onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
-                          placeholder={setting.optional ? 'optional' : undefined}
-                        />
+                        {setting.valueType === 'weekday' ? (
+                          <select
+                            value={drafts[setting.key] ?? ''}
+                            onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
+                          >
+                            {configWeekdays.map((weekday) => (
+                              <option key={weekday} value={weekday}>
+                                {weekday}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type={setting.valueType === 'number' || setting.valueType === 'time' ? setting.valueType : 'text'}
+                            value={drafts[setting.key] ?? ''}
+                            onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
+                            placeholder={setting.optional ? 'optional' : undefined}
+                          />
+                        )}
                         <button
                           className="tiny-button"
                           type="button"
@@ -4084,7 +4890,9 @@ function AdminConfigurationPanel() {
                     </div>
                   ))}
                 </section>
-              ))}
+              ) : (
+                <div className="ops-empty">No configuration settings available.</div>
+              )}
             </div>
           </section>
 
@@ -4326,6 +5134,11 @@ function UsersView({
   personalDetailsSignal,
   theme,
   setTheme,
+  accentTheme,
+  setAccentTheme,
+  fontTheme,
+  setFontTheme,
+  onSaveThemeSettings,
   canManageUsers,
 }: {
   user: CurrentUser;
@@ -4333,6 +5146,11 @@ function UsersView({
   personalDetailsSignal: number;
   theme: ConsoleTheme;
   setTheme: (theme: ConsoleTheme) => void;
+  accentTheme: ConsoleAccentTheme;
+  setAccentTheme: (theme: ConsoleAccentTheme) => void;
+  fontTheme: ConsoleFontTheme;
+  setFontTheme: (font: ConsoleFontTheme) => void;
+  onSaveThemeSettings: () => void;
   canManageUsers: boolean;
 }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
@@ -4340,19 +5158,23 @@ function UsersView({
   const [userQuery, setUserQuery] = useState('');
   const [usersLoaded, setUsersLoaded] = useState(false);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
-  const [notificationPrefs, setNotificationPrefs] = useState({
-    digest: true,
-    deepdive: true,
-    checklist: true,
-    meeting: true,
-  });
+  const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>(() =>
+    normalizedNotificationPreferences(user.notificationPreferences),
+  );
+  const [notificationPermission, setNotificationPermission] = useState<'default' | 'granted' | 'denied' | 'unsupported'>('unsupported');
+  const [busyNotifications, setBusyNotifications] = useState(false);
+  const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
+  const [notificationError, setNotificationError] = useState<string | null>(null);
+  const [themeMessage, setThemeMessage] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [actionUserId, setActionUserId] = useState<string | null>(null);
+  const [actionMenuPosition, setActionMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const [createDraft, setCreateDraft] = useState({
     username: '',
     displayName: '',
     email: '',
+    position: 'student' as UserPosition,
     role: 'member' as CurrentUser['role'],
     aliasesText: '',
     temporaryPassword: '',
@@ -4363,8 +5185,17 @@ function UsersView({
   const [error, setError] = useState<string | null>(null);
   const editingUser = users.find((user) => user.id === editingUserId) || null;
   const editingDraft = editingUser ? drafts[editingUser.id] || draftFromUser(editingUser) : null;
+  const actionUser = actionUserId ? users.find((user) => user.id === actionUserId) || null : null;
   const canViewAudit = user.role === 'administrator';
   const canViewConfig = user.role === 'administrator';
+
+  useEffect(() => {
+    setNotificationPrefs(normalizedNotificationPreferences(user.notificationPreferences));
+  }, [user.notificationPreferences]);
+
+  useEffect(() => {
+    setNotificationPermission('Notification' in window ? Notification.permission : 'unsupported');
+  }, []);
 
   const filteredUsers = useMemo(() => {
     const query = userQuery.trim().toLowerCase();
@@ -4372,11 +5203,12 @@ function UsersView({
     return users.filter((user) => (
       user.displayName.toLowerCase().includes(query) ||
       user.username.toLowerCase().includes(query) ||
-      user.role.toLowerCase().includes(query) ||
+      roleLabel(user.role).toLowerCase().includes(query) ||
+      positionLabel(user.position).toLowerCase().includes(query) ||
       user.aliases.some((alias) => alias.toLowerCase().includes(query))
     ));
   }, [userQuery, users]);
-  const activeUserCount = users.filter((user) => user.provisioningStatus !== 'disabled').length;
+  const activeUserCount = users.filter((user) => user.provisioningStatus === 'active').length;
 
   const applyUsers = useCallback((nextUsers: ManagedUser[]) => {
     setUsers(nextUsers);
@@ -4433,6 +5265,46 @@ function UsersView({
     setSettingsTab('general');
   }, [personalDetailsSignal]);
 
+  useEffect(() => {
+    if (!actionUserId) return undefined;
+
+    const closeMenu = () => {
+      setActionUserId(null);
+      setActionMenuPosition(null);
+    };
+
+    window.addEventListener('resize', closeMenu);
+    return () => {
+      window.removeEventListener('resize', closeMenu);
+    };
+  }, [actionUserId]);
+
+  function closeUserActions() {
+    setActionUserId(null);
+    setActionMenuPosition(null);
+  }
+
+  function toggleUserActions(event: MouseEvent<HTMLButtonElement>, userId: string) {
+    if (actionUserId === userId) {
+      closeUserActions();
+      return;
+    }
+
+    const rect = event.currentTarget.getBoundingClientRect();
+    const left = Math.max(
+      rowMenuGutter,
+      Math.min(window.innerWidth - rowMenuWidth - rowMenuGutter, rect.right - rowMenuWidth),
+    );
+    const preferredTop = rect.bottom + 8;
+    const maxTop = window.innerHeight - rowMenuHeight - rowMenuGutter;
+    const top = preferredTop > maxTop
+      ? Math.max(rowMenuGutter, rect.top - rowMenuHeight - 8)
+      : preferredTop;
+
+    setActionMenuPosition({ top, left });
+    setActionUserId(userId);
+  }
+
   function setDraft(userId: string, patch: Partial<UserDraft>) {
     setDrafts((current) => ({ ...current, [userId]: { ...current[userId], ...patch } }));
   }
@@ -4472,6 +5344,7 @@ function UsersView({
         body: JSON.stringify({
           displayName: draft.displayName,
           role: draft.role,
+          position: draft.position || null,
           provisioningStatus: draft.provisioningStatus,
           email: draft.email,
           aliases: aliasesFromText(draft.aliasesText),
@@ -4487,7 +5360,7 @@ function UsersView({
       setDrafts((current) => ({ ...current, [body.user!.id]: draftFromUser(body.user!) }));
       setMessage(`Saved ${body.user.displayName}.`);
       setEditingUserId(null);
-      setActionUserId(null);
+      closeUserActions();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save user.');
     } finally {
@@ -4510,6 +5383,7 @@ function UsersView({
           displayName: createDraft.displayName,
           email: createDraft.email,
           role: createDraft.role,
+          position: createDraft.position,
           aliases: aliasesFromText(createDraft.aliasesText),
           temporaryPassword: createDraft.temporaryPassword,
         }),
@@ -4519,7 +5393,7 @@ function UsersView({
         throw new Error(body.error || 'Could not create user.');
       }
       applyUsers(body.users);
-      setCreateDraft({ username: '', displayName: '', email: '', role: 'member', aliasesText: '', temporaryPassword: '' });
+      setCreateDraft({ username: '', displayName: '', email: '', position: 'student', role: 'member', aliasesText: '', temporaryPassword: '' });
       setCreateOpen(false);
       setMessage('Created user with a forced password reset.');
     } catch (caught) {
@@ -4527,6 +5401,62 @@ function UsersView({
     } finally {
       setBusyCreate(false);
     }
+  }
+
+  function updateNotificationPreference(topic: NotificationPreferenceTopic, channel: keyof NotificationPreferenceChannels) {
+    if (topic === 'chat_mentions' && channel === 'email') return;
+    setNotificationPrefs((current) => ({
+      ...current,
+      [topic]: {
+        ...current[topic],
+        [channel]: !current[topic][channel],
+        email: topic === 'chat_mentions' ? false : channel === 'email' ? !current[topic].email : current[topic].email,
+      },
+    }));
+    setNotificationMessage(null);
+    setNotificationError(null);
+  }
+
+  async function enableBrowserNotifications() {
+    setNotificationError(null);
+    setNotificationMessage(null);
+    if (!('Notification' in window)) {
+      setNotificationPermission('unsupported');
+      setNotificationError('This browser does not support notifications.');
+      return;
+    }
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+    setNotificationMessage(permission === 'granted' ? 'Browser notifications enabled.' : 'Browser notifications not enabled.');
+  }
+
+  async function saveNotificationPreferences() {
+    setBusyNotifications(true);
+    setNotificationError(null);
+    setNotificationMessage(null);
+    try {
+      const response = await fetch('/api/account', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationPreferences: notificationPrefs }),
+      });
+      const body = (await response.json()) as AuthPayload;
+      if (!response.ok || !body.user) {
+        throw new Error(body.error || 'Could not save notification preferences.');
+      }
+      onUserChanged(body.user);
+      setNotificationPrefs(normalizedNotificationPreferences(body.user.notificationPreferences));
+      setNotificationMessage('Notification preferences saved.');
+    } catch (caught) {
+      setNotificationError(caught instanceof Error ? caught.message : 'Could not save notification preferences.');
+    } finally {
+      setBusyNotifications(false);
+    }
+  }
+
+  function saveThemeSettings() {
+    onSaveThemeSettings();
+    setThemeMessage('Theme settings saved for this account on this browser.');
   }
 
   const userActions = (
@@ -4544,7 +5474,7 @@ function UsersView({
         className="ops-primary"
         type="button"
         onClick={() => {
-          setActionUserId(null);
+          closeUserActions();
           setCreateOpen(true);
         }}
       >
@@ -4554,12 +5484,6 @@ function UsersView({
     </div>
   );
 
-  const notificationRows: Array<{ key: keyof typeof notificationPrefs; title: string; desc: string }> = [
-    { key: 'digest', title: 'Weekly digest', desc: 'A Monday summary of lab activity by email.' },
-    { key: 'deepdive', title: 'Deep-dive suggestions', desc: 'When VioScope flags a project for a meeting deep dive.' },
-    { key: 'checklist', title: 'Checklist results', desc: 'When an advisory verdict is ready on your document.' },
-    { key: 'meeting', title: 'Meeting reminders', desc: 'A nudge before each theme meeting cutoff.' },
-  ];
   const integrationRows = [
     { mark: 'OL', name: 'Overleaf', desc: 'Import LaTeX drafts for checklist runs.', status: 'Backlog' },
   ];
@@ -4639,33 +5563,92 @@ function UsersView({
               <section className="ops-panel settings-panel">
                 <div className="ops-panel-head">
                   <div>
-                    <h2>Appearance</h2>
-                    <p>Personal display settings for this browser.</p>
+                    <h2>Theme Setting</h2>
+                    <p>Personal Swift-style appearance settings for this account on this browser.</p>
                   </div>
                 </div>
-                <div className="preference-row">
-                  <div>
-                    <strong>Theme</strong>
-                    <p>Choose how VioScope appears on this device.</p>
+                <div className="theme-setting-panel">
+                  <div className="theme-setting-row">
+                    <div>
+                      <strong>Mode</strong>
+                      <p>Choose how VioScope appears on this device.</p>
+                    </div>
+                    <div className="prototype-segmented" role="group" aria-label="Theme mode">
+                      <button className={theme === 'light' ? 'selected' : ''} type="button" onClick={() => { setTheme('light'); setThemeMessage(null); }}>
+                        Light
+                      </button>
+                      <button className={theme === 'dark' ? 'selected' : ''} type="button" onClick={() => { setTheme('dark'); setThemeMessage(null); }}>
+                        Dark
+                      </button>
+                      <button className={theme === 'system' ? 'selected' : ''} type="button" onClick={() => { setTheme('system'); setThemeMessage(null); }}>
+                        System
+                      </button>
+                    </div>
                   </div>
-                  <div className="prototype-segmented" role="group" aria-label="Theme preference">
-                    <button className={theme === 'light' ? 'selected' : ''} type="button" onClick={() => setTheme('light')}>
-                      Light
-                    </button>
-                    <button className={theme === 'dark' ? 'selected' : ''} type="button" onClick={() => setTheme('dark')}>
-                      Dark
-                    </button>
-                    <button className={theme === 'system' ? 'selected' : ''} type="button" onClick={() => setTheme('system')}>
-                      System
+                  <div className="theme-setting-row">
+                    <div>
+                      <strong>Color scheme</strong>
+                      <p>Accent palette used for navigation, buttons, chat bubbles, and states.</p>
+                    </div>
+                    <div className="theme-swatch-grid" role="radiogroup" aria-label="Color scheme">
+                      {consoleAccentOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          className={accentTheme === option.id ? 'active' : ''}
+                          type="button"
+                          role="radio"
+                          aria-checked={accentTheme === option.id}
+                          onClick={() => {
+                            setAccentTheme(option.id);
+                            setThemeMessage(null);
+                          }}
+                        >
+                          <span style={{ background: option.color }} aria-hidden="true" />
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="theme-setting-row">
+                    <div>
+                      <strong>Font</strong>
+                      <p>Pick the dashboard typeface family.</p>
+                    </div>
+                    <div className="theme-font-grid" role="radiogroup" aria-label="Font family">
+                      {consoleFontOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          className={fontTheme === option.id ? 'active' : ''}
+                          type="button"
+                          role="radio"
+                          aria-checked={fontTheme === option.id}
+                          onClick={() => {
+                            setFontTheme(option.id);
+                            setThemeMessage(null);
+                          }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="theme-preview-card">
+                    <span className="theme-preview-sidebar" aria-hidden="true" />
+                    <div>
+                      <strong>VioScope preview</strong>
+                      <p>Cards, notifications, and chat bubbles follow this palette.</p>
+                    </div>
+                    <button className="ops-primary" type="button">
+                      Action
                     </button>
                   </div>
-                </div>
-                <div className="preference-row">
-                  <div>
-                    <strong>Default landing area</strong>
-                    <p>Where VioScope opens when you sign in.</p>
+                  {themeMessage && <div className="form-message">{themeMessage}</div>}
+                  <div className="button-row">
+                    <button className="ops-primary" type="button" onClick={saveThemeSettings}>
+                      <Save aria-hidden="true" />
+                      Save theme settings
+                    </button>
                   </div>
-                  <span className="settings-select-like">Dashboard</span>
                 </div>
               </section>
             </div>
@@ -4676,28 +5659,79 @@ function UsersView({
                 <p>Choose what reaches you, and where.</p>
               </div>
               <div className="ops-panel settings-list-panel">
-                {notificationRows.map((row) => {
-                  const enabled = notificationPrefs[row.key];
+                <div className="notification-grid-head">
+                  <span>Situation</span>
+                  <span>Web</span>
+                  <span>Email</span>
+                </div>
+                {notificationPreferenceRows.map((row) => {
+                  const prefs = notificationPrefs[row.key];
                   return (
-                    <div className="settings-list-row" key={row.key}>
+                    <div className="settings-list-row notification-preference-row" key={row.key}>
                       <div>
                         <strong>{row.title}</strong>
                         <p>{row.desc}</p>
                       </div>
-                      <button
-                        className={`settings-switch ${enabled ? 'on' : ''}`}
-                        type="button"
-                        aria-label={`Toggle ${row.title}`}
-                        aria-pressed={enabled}
-                        onClick={() => setNotificationPrefs((current) => ({ ...current, [row.key]: !current[row.key] }))}
-                      >
-                        <span />
-                      </button>
+                      <div className="notification-channel-cell">
+                        <button
+                          className={`settings-switch ${prefs.web ? 'on' : ''}`}
+                          type="button"
+                          aria-label={`${row.title} web notifications`}
+                          aria-pressed={prefs.web}
+                          onClick={() => updateNotificationPreference(row.key, 'web')}
+                        >
+                          <span />
+                        </button>
+                      </div>
+                      <div className="notification-channel-cell">
+                        {row.emailDisabled ? (
+                          <span className="settings-disabled-text">Web only</span>
+                        ) : (
+                          <button
+                            className={`settings-switch ${prefs.email ? 'on' : ''}`}
+                            type="button"
+                            aria-label={`${row.title} email notifications`}
+                            aria-pressed={prefs.email}
+                            onClick={() => updateNotificationPreference(row.key, 'email')}
+                          >
+                            <span />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
               </div>
-              <p className="settings-footnote">In-app alerts always appear under Alerts; email and external push stay optional.</p>
+              <section className="ops-panel settings-panel">
+                <div className="preference-row">
+                  <div>
+                    <strong>Browser permission</strong>
+                    <p>
+                      {notificationPermission === 'unsupported'
+                        ? 'This browser does not support system notifications.'
+                        : `Current browser permission: ${notificationPermission}.`}
+                    </p>
+                  </div>
+                  <button
+                    className="ops-secondary"
+                    type="button"
+                    disabled={notificationPermission === 'unsupported' || notificationPermission === 'granted'}
+                    onClick={() => void enableBrowserNotifications()}
+                  >
+                    <Bell aria-hidden="true" />
+                    {notificationPermission === 'granted' ? 'Enabled' : 'Enable'}
+                  </button>
+                </div>
+              </section>
+              {notificationError && <div className="form-message error">{notificationError}</div>}
+              {notificationMessage && <div className="form-message">{notificationMessage}</div>}
+              <div className="button-row">
+                <button className="ops-primary" type="button" disabled={busyNotifications} onClick={() => void saveNotificationPreferences()}>
+                  <Save aria-hidden="true" />
+                  {busyNotifications ? 'Saving' : 'Save notification settings'}
+                </button>
+              </div>
+              <p className="settings-footnote">In-app alerts always appear under Alerts. Chat mentions are web-only; email is reserved for reminders and operational summaries.</p>
             </section>
           ) : settingsTab === 'integrations' ? (
             <section className="settings-section">
@@ -4789,7 +5823,8 @@ function UsersView({
                   <th>Name</th>
                   <th>Username</th>
                   <th>Email</th>
-                  <th>Role</th>
+                  <th>Position</th>
+                  <th>Permission</th>
                   <th>Status</th>
                   <th>Last active</th>
                   <th aria-label="Row actions" />
@@ -4809,6 +5844,9 @@ function UsersView({
                       <td className="mono-cell">{user.username}</td>
                       <td>{profileEmail(user)}</td>
                       <td>
+                        <span className="position-pill">{positionLabel(user.position)}</span>
+                      </td>
+                      <td>
                         <span className={`role-pill role-${user.role}`}>{roleLabel(user.role)}</span>
                       </td>
                       <td>
@@ -4823,49 +5861,53 @@ function UsersView({
                           className="row-action-button"
                           type="button"
                           aria-label={`Actions for ${user.displayName}`}
-                          onClick={() => setActionUserId((current) => (current === user.id ? null : user.id))}
+                          aria-expanded={actionUserId === user.id}
+                          aria-haspopup="menu"
+                          onClick={(event) => toggleUserActions(event, user.id)}
                         >
                           <MoreVertical aria-hidden="true" />
                         </button>
-                        {actionUserId === user.id && (
-                          <div className="row-menu">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingUserId(user.id);
-                                setActionUserId(null);
-                              }}
-                            >
-                              <Pencil aria-hidden="true" />
-                              Edit details
-                            </button>
-                            <button
-                              className={user.provisioningStatus === 'disabled' ? '' : 'danger'}
-                              type="button"
-                              disabled={busyId === user.id}
-                              onClick={() => saveUser(user, { provisioningStatus: user.provisioningStatus === 'disabled' ? 'active' : 'disabled' })}
-                            >
-                              <Power aria-hidden="true" />
-                              {user.provisioningStatus === 'disabled' ? 'Enable member' : 'Disable member'}
-                            </button>
-                          </div>
-                        )}
                       </td>
                     </tr>
                   );
                 })}
                 {!filteredUsers.length && (
                   <tr>
-                    <td colSpan={7}>No members match this search.</td>
+                    <td colSpan={8}>No members match this search.</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
         )}
+        {actionUser && actionMenuPosition && (
+          <div className="row-menu row-menu-floating" role="menu" style={{ top: actionMenuPosition.top, left: actionMenuPosition.left }}>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setEditingUserId(actionUser.id);
+                closeUserActions();
+              }}
+            >
+              <Pencil aria-hidden="true" />
+              Edit details
+            </button>
+            <button
+              className={actionUser.provisioningStatus === 'disabled' ? '' : 'danger'}
+              type="button"
+              role="menuitem"
+              disabled={busyId === actionUser.id}
+              onClick={() => saveUser(actionUser, { provisioningStatus: actionUser.provisioningStatus === 'disabled' ? 'active' : 'disabled' })}
+            >
+              <Power aria-hidden="true" />
+              {actionUser.provisioningStatus === 'disabled' ? 'Enable member' : 'Disable member'}
+            </button>
+          </div>
+        )}
       </section>
       <p className="members-footnote">
-        Roles govern what each person sees. Administrators and PIs can delegate lab roles; members cannot change their own role.
+        Permissions govern what each person sees. Administrators and PIs can delegate access; members cannot change their own permission.
       </p>
             </div>
           )}
@@ -4907,9 +5949,22 @@ function UsersView({
               />
             </label>
             <label>
-              <span>Role</span>
+              <span>Position</span>
+              <select
+                value={createDraft.position}
+                onChange={(event) => setCreateDraft((current) => ({ ...current, position: event.target.value as UserPosition }))}
+              >
+                {userPositionOptions.map((position) => (
+                  <option key={position} value={position}>
+                    {positionLabel(position)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Permission</span>
               <div className="role-picker">
-                {userRoleOptions.map((role) => (
+                {userPermissionOptions.map((role) => (
                   <button
                     key={role}
                     className={createDraft.role === role ? 'selected' : ''}
@@ -4997,6 +6052,20 @@ function UsersView({
                 />
               </label>
               <label>
+                <span>Position</span>
+                <select
+                  value={editingDraft.position}
+                  onChange={(event) => setDraft(editingUser.id, { position: event.target.value as UserPosition | '' })}
+                >
+                  <option value="">Set position</option>
+                  {userPositionOptions.map((position) => (
+                    <option key={position} value={position}>
+                      {positionLabel(position)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
                 <span>Aliases</span>
                 <input
                   value={editingDraft.aliasesText}
@@ -5007,11 +6076,11 @@ function UsersView({
             </section>
             <section className="modal-fieldset">
               <h3>Access control</h3>
-              <p>Role and status are delegated here; members cannot change these from their account settings.</p>
+              <p>Permission and status are delegated here; members cannot change these from their account settings.</p>
               <label>
-                <span>Role</span>
+                <span>Permission</span>
                 <div className="role-picker">
-                  {userRoleOptions.map((role) => (
+                  {userPermissionOptions.map((role) => (
                     <button
                       key={role}
                       className={editingDraft.role === role ? 'selected' : ''}
@@ -5065,9 +6134,12 @@ function UsersView({
 export function OperationsConsole() {
   const [activeView, setActiveView] = useState<ActiveView>('dashboard');
   const [theme, setTheme] = useState<ConsoleTheme>('light');
+  const [accentTheme, setAccentTheme] = useState<ConsoleAccentTheme>('cyan');
+  const [fontTheme, setFontTheme] = useState<ConsoleFontTheme>('public');
   const [themeReady, setThemeReady] = useState(false);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [personalDetailsSignal, setPersonalDetailsSignal] = useState(0);
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -5083,6 +6155,8 @@ export function OperationsConsole() {
   const [error, setError] = useState<string | null>(null);
 
   const selectView = useCallback((view: ActiveView, replace = false) => {
+    setAccountMenuOpen(false);
+    setNotificationsOpen(false);
     setActiveView(view);
     writeViewToUrl(view, replace);
   }, []);
@@ -5095,28 +6169,36 @@ export function OperationsConsole() {
   }, []);
 
   useEffect(() => {
-    const storedTheme = readStoredTheme();
-    setTheme(storedTheme);
-    applyConsoleTheme(storedTheme);
+    const storedTheme = readStoredThemeSettings();
+    setTheme(storedTheme.mode);
+    setAccentTheme(storedTheme.accent);
+    setFontTheme(storedTheme.font);
+    applyConsoleAppearance(storedTheme);
     setThemeReady(true);
   }, []);
 
   useEffect(() => {
     if (!themeReady) return;
-    applyConsoleTheme(theme);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('vios-theme', theme);
-    }
-  }, [theme, themeReady]);
+    applyConsoleAppearance({ mode: theme, accent: accentTheme, font: fontTheme });
+  }, [accentTheme, fontTheme, theme, themeReady]);
+
+  useEffect(() => {
+    if (!themeReady || !user) return;
+    const storedTheme = readStoredThemeSettings(user.id);
+    setTheme(storedTheme.mode);
+    setAccentTheme(storedTheme.accent);
+    setFontTheme(storedTheme.font);
+    applyConsoleAppearance(storedTheme);
+  }, [themeReady, user?.id]);
 
   useEffect(() => {
     if (!themeReady || theme !== 'system' || typeof window === 'undefined') return undefined;
     const media = window.matchMedia?.('(prefers-color-scheme: dark)');
     if (!media) return undefined;
-    const syncSystemTheme = () => applyConsoleTheme('system');
+    const syncSystemTheme = () => applyConsoleAppearance({ mode: 'system', accent: accentTheme, font: fontTheme });
     media.addEventListener('change', syncSystemTheme);
     return () => media.removeEventListener('change', syncSystemTheme);
-  }, [theme, themeReady]);
+  }, [accentTheme, fontTheme, theme, themeReady]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5150,6 +6232,20 @@ export function OperationsConsole() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  const loadLabState = useCallback(async () => {
+    setLabStateLoading(true);
+    try {
+      const response = await fetch('/api/lab-state');
+      const nextPayload = (await response.json()) as LabStatePayload & { error?: string };
+      if (!response.ok) {
+        throw new Error(nextPayload.error || 'Could not load lab state.');
+      }
+      setPayload(nextPayload);
+    } finally {
+      setLabStateLoading(false);
+    }
   }, []);
 
   const loadThemeMeetings = useCallback(async () => {
@@ -5215,29 +6311,11 @@ export function OperationsConsole() {
       };
     }
 
-    async function loadLabState() {
-      setLabStateLoading(true);
-      try {
-        const response = await fetch('/api/lab-state');
-        const nextPayload = (await response.json()) as LabStatePayload | { error?: string };
-        if (!response.ok) {
-          throw new Error('error' in nextPayload && nextPayload.error ? nextPayload.error : 'Could not load lab state.');
-        }
-        if (!cancelled) {
-          setPayload(nextPayload as LabStatePayload);
-        }
-      } catch (caught) {
-        if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : 'Could not load lab state.');
-        }
-      } finally {
-        if (!cancelled) {
-          setLabStateLoading(false);
-        }
+    void loadLabState().catch((caught) => {
+      if (!cancelled) {
+        setError(caught instanceof Error ? caught.message : 'Could not load lab state.');
       }
-    }
-
-    void loadLabState();
+    });
     void loadProjects().catch((caught) => {
       if (!cancelled) {
         setError(caught instanceof Error ? caught.message : 'Could not load projects.');
@@ -5261,7 +6339,7 @@ export function OperationsConsole() {
     return () => {
       cancelled = true;
     };
-  }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, user]);
+  }, [loadChatNotifications, loadCollaboratorUsers, loadLabState, loadProjects, loadThemeMeetings, user]);
 
   useEffect(() => {
     if (user && !user.passwordResetRequired && activeView === 'alerts') {
@@ -5302,6 +6380,7 @@ export function OperationsConsole() {
   }, []);
 
   function openChatSessionFromNotification(sessionId: string, notificationId?: string) {
+    setNotificationsOpen(false);
     setOpenChatThreadId(sessionId);
     selectView('chat');
     if (notificationId) {
@@ -5322,25 +6401,19 @@ export function OperationsConsole() {
   );
 
   const unreadChatNotificationCount = chatNotifications.filter((notification) => !notification.readAt).length;
-  const activeAlertCount =
-    unreadChatNotificationCount +
-    (themePayload?.notifications.length || 0) +
-    (projectsPayload?.projects?.filter((project) => project.lifecycle !== 'archived' && projectNeedsAttention(project)).length ||
-      payload?.summary.projectsNeedingAttention.length ||
-      0);
+  const attentionProjectNotifications =
+    projectsPayload?.projects?.filter((project) => project.lifecycle !== 'archived' && projectNeedsAttention(project)) || [];
 
   const bottomNavItems = useMemo(
-    () => [
-      { id: 'users' as const, label: 'Settings', icon: Settings },
-      { id: 'alerts' as const, label: 'Alerts', icon: Bell, hasDot: activeAlertCount > 0 },
-    ],
-    [activeAlertCount],
+    () => [{ id: 'users' as const, label: 'Settings', icon: Settings }],
+    [],
   );
 
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     setUser(null);
     setAccountMenuOpen(false);
+    setNotificationsOpen(false);
     setPayload(null);
     setProjectsPayload(null);
     setCollaboratorUsers([]);
@@ -5375,6 +6448,27 @@ export function OperationsConsole() {
           </div>
         </div>
         <div className="account-block">
+          <TopbarNotificationCenter
+            open={notificationsOpen}
+            activeCount={unreadChatNotificationCount}
+            chatNotifications={chatNotifications}
+            themeNotifications={themePayload?.notifications || []}
+            attentionProjects={attentionProjectNotifications}
+            onToggle={() => {
+              setAccountMenuOpen(false);
+              setNotificationsOpen((current) => !current);
+            }}
+            onOpenAlerts={() => {
+              setNotificationsOpen(false);
+              selectView('alerts');
+            }}
+            onOpenChatSession={openChatSessionFromNotification}
+            onMarkAllMessagesRead={() => {
+              void markAllChatNotificationsRead().catch((caught) => {
+                setError(caught instanceof Error ? caught.message : 'Could not mark notifications as read.');
+              });
+            }}
+          />
           <button
             className="theme-toggle"
             type="button"
@@ -5387,7 +6481,10 @@ export function OperationsConsole() {
           <button
             className="account-summary"
             type="button"
-            onClick={() => setAccountMenuOpen((current) => !current)}
+            onClick={() => {
+              setNotificationsOpen(false);
+              setAccountMenuOpen((current) => !current);
+            }}
             aria-expanded={accountMenuOpen}
             aria-haspopup="menu"
           >
@@ -5449,7 +6546,6 @@ export function OperationsConsole() {
               >
                 <span className="rail-icon-wrap">
                   <Icon aria-hidden="true" />
-                  {'hasDot' in item && item.hasDot && <span className="rail-dot" aria-hidden="true" />}
                 </span>
                 <span>{item.label}</span>
               </button>
@@ -5499,6 +6595,11 @@ export function OperationsConsole() {
               personalDetailsSignal={personalDetailsSignal}
               theme={theme}
               setTheme={setTheme}
+              accentTheme={accentTheme}
+              setAccentTheme={setAccentTheme}
+              fontTheme={fontTheme}
+              setFontTheme={setFontTheme}
+              onSaveThemeSettings={() => saveStoredThemeSettings(user.id, { mode: theme, accent: accentTheme, font: fontTheme })}
               canManageUsers={user.role === 'administrator' || user.role === 'pi'}
             />
           )}

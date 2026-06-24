@@ -48,13 +48,13 @@ export const readThemeMeetingPlanTool = createTool({
 export const submitThemeMeetingUpdateTool = createTool({
   id: 'submit-theme-meeting-update',
   description:
-    'Submit or replace one member theme-meeting update after the user explicitly asks to save it. Requires theme, member, update type, progress text, and questions for short/deep updates.',
+    'Submit or replace one advisory theme-meeting slot after the user explicitly asks to save it. Slot types are nothing_to_report, deep_dive, milestone_check, and strategic_slot.',
   inputSchema: z.object({
     meetingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     themeId: z.string().trim().min(1),
     member: z.string().trim().min(1),
     updateType: themeUpdateTypeSchema,
-    progressText: z.string().trim().min(1),
+    progressText: z.string().trim().optional(),
     questions: z.string().trim().optional(),
   }),
   outputSchema: z.object({

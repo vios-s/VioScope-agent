@@ -20,8 +20,10 @@ const receiverName = `chat.receiver.${stamp}`;
 const inactiveName = `chat.inactive.${stamp}`;
 const outsiderName = `chat.outsider.${stamp}`;
 const sessionId = `chat-collab-${stamp}`;
+const mutedSessionId = `chat-muted-${stamp}`;
 const legacyThreadId = `legacy-thread-${stamp}`;
 const projectSlug = `chat-private-project-${stamp}`;
+const ownerAvatarUrl = 'data:image/png;base64,Y2hhdC1vd25lcg==';
 
 function email(username: string): string {
   return `${username}@example.test`;
@@ -35,6 +37,7 @@ async function seedUser(username: string): Promise<AuthUser> {
     role: 'member',
     displayName: username,
     source: 'chat_collaboration_check',
+    metadata: username === ownerName ? { avatar_url: ownerAvatarUrl } : undefined,
   });
   const user = await getUserByUsername(username);
   assert.ok(user, `Expected ${username} to exist.`);
@@ -44,9 +47,7 @@ async function seedUser(username: string): Promise<AuthUser> {
 async function cleanup() {
   const postgres = createPostgresClient('chat-collaboration-cleanup');
   try {
-    await postgres.pool.query('DELETE FROM chat_sessions WHERE id = ANY($1::text[])', [
-      [sessionId, `legacy-${ownerName}-${legacyThreadId}`],
-    ]).catch(() => undefined);
+    await postgres.pool.query('DELETE FROM chat_sessions WHERE id = ANY($1::text[]) OR id LIKE $2', [[sessionId, mutedSessionId], `%${legacyThreadId}`]).catch(() => undefined);
     await postgres.pool.query('DELETE FROM project_records WHERE slug = $1', [projectSlug]).catch(() => undefined);
     await postgres.pool
       .query('DELETE FROM audit_log WHERE actor_username = ANY($1::text[])', [[ownerName, receiverName, inactiveName, outsiderName]])
@@ -106,10 +107,19 @@ async function main() {
     const ownerSession = ownerSessions.find((session) => session.threadId === sessionId);
     assert.equal(ownerSession?.membershipKind, 'owner', 'Owner should see the session in owned history.');
     assert.ok(ownerSession?.messages.length, 'Owner history should include server-side messages.');
+    const ownerUserMessage = ownerSession?.messages.find((message) => message.role === 'user');
+    assert.equal(ownerUserMessage?.actorUsername, owner.username, 'Owner user message should expose actor username.');
+    assert.equal(ownerUserMessage?.actorDisplayName, owner.displayName, 'Owner user message should expose actor display name.');
+    assert.equal(ownerUserMessage?.actorAvatarUrl, ownerAvatarUrl, 'Owner user message should expose avatar URL.');
 
     const receiverSessions = await listChatSessionsForUser(receiver.id);
     const receiverSession = receiverSessions.find((session) => session.threadId === sessionId);
     assert.equal(receiverSession?.membershipKind, 'shared', 'Receiver should see shared membership.');
+    assert.equal(
+      receiverSession?.messages.find((message) => message.role === 'user')?.actorUsername,
+      owner.username,
+      'Shared receiver should see who sent each user message.',
+    );
     assert.equal(
       receiverSessions.filter((session) => session.membershipKind !== 'shared').some((session) => session.threadId === sessionId),
       false,
@@ -181,6 +191,106 @@ async function main() {
       'Chat sessions API should expose shared sessions.',
     );
 
+    const renamedTitle = `Renamed collaboration chat ${stamp}`;
+    const renameOwnedResponse = await sessionsRoute.PATCH(
+      new Request('http://localhost/api/chat/sessions', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', cookie: cookieFor(owner) },
+        body: JSON.stringify({ threadId: sessionId, title: renamedTitle }),
+      }),
+    );
+    const renameOwnedBody = (await renameOwnedResponse.json()) as { session?: { title: string } };
+    assert.equal(renameOwnedResponse.status, 200, 'Owner should be able to rename an owned session.');
+    assert.equal(renameOwnedBody.session?.title, renamedTitle);
+    assert.equal(
+      (await listChatSessionsForUser(owner.id)).find((session) => session.threadId === sessionId)?.title,
+      renamedTitle,
+      'Renamed owned session should persist in owner history.',
+    );
+
+    const renameSharedResponse = await sessionsRoute.PATCH(
+      new Request('http://localhost/api/chat/sessions', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', cookie: cookieFor(receiver) },
+        body: JSON.stringify({ threadId: sessionId, title: 'Receiver rename attempt' }),
+      }),
+    );
+    assert.equal(renameSharedResponse.status, 403, 'Shared receiver should not rename the owner session.');
+
+    const removeSharedResponse = await sessionsRoute.DELETE(
+      new Request('http://localhost/api/chat/sessions', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json', cookie: cookieFor(receiver) },
+        body: JSON.stringify({ threadId: sessionId }),
+      }),
+    );
+    const removeSharedBody = (await removeSharedResponse.json()) as { result?: string };
+    assert.equal(removeSharedResponse.status, 200, 'Shared receiver should be able to remove the shared session.');
+    assert.equal(removeSharedBody.result, 'removed');
+    assert.equal(
+      (await listChatSessionsForUser(receiver.id)).some((session) => session.threadId === sessionId),
+      false,
+      'Removed shared session should disappear from receiver history.',
+    );
+    assert.ok(
+      (await listChatSessionsForUser(owner.id)).some((session) => session.threadId === sessionId),
+      'Removing a shared session should not delete the owner history.',
+    );
+    assert.equal((await listChatNotificationsForUser(receiver.id)).length, 0, 'Removing a shared session should clear its notification.');
+
+    const accountRoute = await import('../app/api/account/route');
+    const mutedPrefsResponse = await accountRoute.PATCH(
+      new Request('http://localhost/api/account', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', cookie: cookieFor(receiver) },
+        body: JSON.stringify({
+          notificationPreferences: {
+            chat_mentions: { web: false, email: true },
+          },
+        }),
+      }),
+    );
+    assert.equal(mutedPrefsResponse.status, 200, 'Receiver should save chat notification preferences.');
+    await saveChatTurn({
+      sessionId: mutedSessionId,
+      actor: owner,
+      userText: `Muted mention check @${receiver.username}`,
+      assistantText: 'Saved muted collaboration check.',
+      assistantStatus: 'answer',
+      sources: [],
+    });
+    const mutedMentions = await shareChatSessionWithMentions({
+      sessionId: mutedSessionId,
+      actor: owner,
+      message: `Muted mention check @${receiver.username}`,
+    });
+    assert.deepEqual(mutedMentions.shared.map((user) => user.username), [receiver.username]);
+    assert.ok(
+      (await listChatSessionsForUser(receiver.id)).some((session) => session.threadId === mutedSessionId),
+      'Muted receiver should still get shared session access.',
+    );
+    assert.equal(
+      (await listChatNotificationsForUser(receiver.id)).length,
+      0,
+      'Muted chat mention should not create a web notification.',
+    );
+
+    const deleteOwnedResponse = await sessionsRoute.DELETE(
+      new Request('http://localhost/api/chat/sessions', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json', cookie: cookieFor(owner) },
+        body: JSON.stringify({ threadId: sessionId }),
+      }),
+    );
+    const deleteOwnedBody = (await deleteOwnedResponse.json()) as { result?: string };
+    assert.equal(deleteOwnedResponse.status, 200, 'Owner should be able to delete the owned session.');
+    assert.equal(deleteOwnedBody.result, 'deleted');
+    assert.equal(
+      (await listChatSessionsForUser(owner.id)).some((session) => session.threadId === sessionId),
+      false,
+      'Deleted owned session should disappear from owner history.',
+    );
+
     console.log('Chat collaboration check passed.');
     console.log(
       JSON.stringify(
@@ -189,7 +299,12 @@ async function main() {
           mentionAutocomplete: 'passed',
           mentionShare: 'passed',
           notificationReadState: 'passed',
+          mutedMentionNotification: 'passed',
           legacyImportNoNotifications: 'passed',
+          ownedSessionRename: 'passed',
+          sharedRenameDenied: 'passed',
+          sharedSessionRemoval: 'passed',
+          ownedSessionDelete: 'passed',
           noPermissionEscalation: 'passed',
         },
         null,
