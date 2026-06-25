@@ -6,6 +6,7 @@ import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import {
   buildThemeMeetingPlan,
   buildThemeMeetingReminderRun,
+  sendThemeMeetingAgendaEmails,
   sendThemeMeetingReminderEmails,
 } from '../../../../src/mastra/theme-meetings/planner';
 import { themeReminderActionSchema } from '../../../../src/mastra/theme-meetings/schema';
@@ -46,6 +47,10 @@ export async function POST(request: Request) {
       themeId,
     });
     const emails = await sendThemeMeetingReminderEmails(run.notifications);
+    const agendaEmails =
+      run.action === 'agenda_cutoff'
+        ? await sendThemeMeetingAgendaEmails(run.plan, payload.config, { themeId })
+        : { sent: 0, skipped: 0, failed: 0 };
 
     await recordAuditLog({
       actor: user,
@@ -60,6 +65,9 @@ export async function POST(request: Request) {
         emailSent: emails.sent,
         emailSkipped: emails.skipped,
         emailFailed: emails.failed,
+        agendaEmailSent: agendaEmails.sent,
+        agendaEmailSkipped: agendaEmails.skipped,
+        agendaEmailFailed: agendaEmails.failed,
       },
     });
     return NextResponse.json({
@@ -68,6 +76,7 @@ export async function POST(request: Request) {
       notifications: run.notifications,
       markdown: run.markdown,
       emails,
+      agendaEmails,
     });
   } catch (error) {
     return errorResponse(error, error instanceof AuthError ? error.status : 400);

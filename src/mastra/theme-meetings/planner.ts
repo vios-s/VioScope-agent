@@ -49,6 +49,7 @@ export type SubmitThemeMeetingUpdateInput = ThemeMeetingStoreOptions & {
 
 export type ThemeMeetingReminderRun = {
   action: ThemeReminderAction;
+  config: ThemeMeetingConfig;
   plan: ThemeMeetingPlan;
   notifications: ThemeMeetingNotification[];
   markdown: string;
@@ -58,6 +59,10 @@ export type ThemeMeetingReminderEmailResult = {
   sent: number;
   skipped: number;
   failed: number;
+};
+
+export type ThemeMeetingAgendaEmailOptions = {
+  themeId?: string;
 };
 
 export type UpdateThemeMeetingMemberInput = ThemeMeetingStoreOptions & {
@@ -393,7 +398,7 @@ export async function buildThemeMeetingReminderRun(
   action: ThemeReminderAction,
   options: BuildThemeMeetingReminderRunOptions = {},
 ): Promise<ThemeMeetingReminderRun> {
-  const { plan } = await buildThemeMeetingPlan(options);
+  const { config, plan } = await buildThemeMeetingPlan(options);
   const reminderSchedule = await configuredReminderSchedule();
   const createdAt = (options.now || new Date()).toISOString();
   const meetings = options.themeId
@@ -436,6 +441,7 @@ export async function buildThemeMeetingReminderRun(
   await saveThemeMeetingNotifications(notifications, options);
   return {
     action,
+    config,
     plan,
     notifications,
     markdown: renderReminderRun(action, plan, notifications),
@@ -476,6 +482,68 @@ export async function sendThemeMeetingReminderEmails(
     } catch (error) {
       result.failed += 1;
       console.warn('Could not send theme meeting reminder email:', error);
+    }
+  }
+
+  return result;
+}
+
+function agendaRecipientUsernames(
+  plan: ThemeMeetingPlan,
+  config: ThemeMeetingConfig,
+  options: ThemeMeetingAgendaEmailOptions = {},
+): string[] {
+  const usernames = new Set<string>();
+  for (const username of [...config.pi_users, config.administrator_user || '']) {
+    const normalized = normalizeUsername(username);
+    if (normalized) usernames.add(normalized);
+  }
+
+  for (const meeting of plan.meetings.filter((meeting) => !options.themeId || meeting.theme_id === options.themeId)) {
+    const coordinator = normalizeUsername(meeting.coordinator_username);
+    if (coordinator) usernames.add(coordinator);
+    for (const username of meeting.member_usernames) {
+      const normalized = normalizeUsername(username);
+      if (normalized) usernames.add(normalized);
+    }
+  }
+
+  return [...usernames];
+}
+
+function themeScopedPlan(plan: ThemeMeetingPlan, themeId?: string): ThemeMeetingPlan {
+  return themeId ? { ...plan, meetings: plan.meetings.filter((meeting) => meeting.theme_id === themeId) } : plan;
+}
+
+export async function sendThemeMeetingAgendaEmails(
+  plan: ThemeMeetingPlan,
+  config: ThemeMeetingConfig,
+  options: ThemeMeetingAgendaEmailOptions = {},
+): Promise<ThemeMeetingReminderEmailResult> {
+  const result: ThemeMeetingReminderEmailResult = { sent: 0, skipped: 0, failed: 0 };
+  const markdown = renderThemeMeetingPlan(themeScopedPlan(plan, options.themeId));
+  const subject = `VioScope advisory theme meeting agenda ${plan.meeting_date}${
+    options.themeId ? ` Theme ${options.themeId}` : ''
+  }`;
+
+  for (const username of agendaRecipientUsernames(plan, config, options)) {
+    const user = await getUserByUsername(username);
+    if (!user || user.provisioningStatus !== 'active' || !user.notificationPreferences.theme_meeting_reminders.email) {
+      result.skipped += 1;
+      continue;
+    }
+
+    try {
+      const sent = await sendNotificationEmail({
+        to: user.email,
+        subject,
+        text: `${markdown}\n\nThis agenda is advisory until confirmed by a coordinator, PI, or administrator.`,
+      });
+      result.sent += sent ? 1 : 0;
+      result.skipped += sent ? 0 : 1;
+    } catch (error) {
+      result.failed += 1;
+      console.warn('Could not send theme meeting agenda email:', error);
     }
   }
 

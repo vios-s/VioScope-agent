@@ -20,6 +20,10 @@ function smtpTimeoutMs(): number {
   return Number.isFinite(timeout) && timeout > 0 ? timeout : 5000;
 }
 
+function addressFromHeader(value: string): string {
+  return value.match(/<([^>]+)>/)?.[1]?.trim() || value.trim();
+}
+
 export async function sendNotificationEmail(input: NotificationEmail): Promise<boolean> {
   if (!enabled(process.env.EMAIL_NOTIFICATIONS_ENABLED)) return false;
   const to = input.to?.trim();
@@ -32,17 +36,23 @@ export async function sendNotificationEmail(input: NotificationEmail): Promise<b
     host: process.env.SMTP_HOST || '127.0.0.1',
     port: smtpPort(),
     secure: enabled(process.env.SMTP_SECURE),
+    ignoreTLS: enabled(process.env.SMTP_IGNORE_TLS),
     auth: user ? { user, pass } : undefined,
     connectionTimeout: timeout,
     greetingTimeout: timeout,
     socketTimeout: timeout,
   });
 
+  const from = process.env.SMTP_FROM || 'VioScope <noreply@vioscope.local>';
   await transport.sendMail({
-    from: process.env.SMTP_FROM || 'VioScope <noreply@vioscope.local>',
+    from,
     to,
     subject: input.subject,
     text: input.text,
+    envelope: {
+      from: process.env.SMTP_ENVELOPE_FROM || addressFromHeader(from),
+      to,
+    },
   });
   return true;
 }

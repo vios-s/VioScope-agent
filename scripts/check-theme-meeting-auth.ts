@@ -284,6 +284,23 @@ async function main() {
         `Expected only Theme ${coordinator.themeId} notifications.`,
       );
 
+      const agendaCutoff = await expectJson<any>(
+        `${coordinator.username} agenda cutoff`,
+        await remindersRoute.POST(
+          requestFor(user, '/api/theme-meetings/reminders', {
+            method: 'POST',
+            body: jsonBody({
+              themeId: coordinator.themeId,
+              meetingDate: coordinator.meetingDate,
+              action: 'agenda_cutoff',
+            }),
+          }),
+        ),
+      );
+      assert.equal(agendaCutoff.agendaEmails.sent, 0, 'Agenda email should not send while email transport is disabled.');
+      assert.equal(agendaCutoff.agendaEmails.failed, 0, 'Disabled agenda email transport should not fail.');
+      assert.ok(agendaCutoff.agendaEmails.skipped > 0, 'Agenda email should find recipients and skip them while disabled.');
+
       await expectJson(
         `${coordinator.username} cross-theme reminder blocked`,
         await remindersRoute.POST(

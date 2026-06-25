@@ -37,10 +37,6 @@ import {
 import { DotMatrixIcon } from './dot-matrix-icon';
 import { ReviewForm } from './review-form';
 import type {
-  DerivedLabState,
-  DerivedLabStateProject,
-  LabStateSummary,
-  ProjectRecommendation,
   ProjectStatus,
 } from '../src/mastra/state/schema';
 import type {
@@ -122,13 +118,6 @@ type MentionUsersPayload = {
 type NotificationsPayload = {
   notifications?: ChatNotification[];
   error?: string;
-};
-
-type LabStatePayload = {
-  state: DerivedLabState;
-  summary: LabStateSummary;
-  source: 'configured' | 'fixture';
-  warning?: string;
 };
 
 type ProjectLifecycle = 'active' | 'paused' | 'finished' | 'archived';
@@ -562,12 +551,6 @@ const stageLabels: Record<number, string> = {
   5: '5: submission/finish',
 };
 
-const recommendationLabels: Record<ProjectRecommendation, string> = {
-  deep_dive: 'Deep dive',
-  nudge: 'Nudge',
-  none: 'None',
-};
-
 const projectSlotLabels: Record<ProjectSlotRecommendation, string> = {
   deep_dive: 'Deep dive',
   milestone_check: 'Milestone check',
@@ -587,17 +570,6 @@ const updateTypeOptionLabels: Record<ThemeUpdateType, string> = {
   deep_dive: 'Deep dive (20-30 min)',
   milestone_check: 'Milestone check (10 min)',
   strategic_slot: 'Strategic slot (paper or idea)',
-};
-
-const signalLabels: Record<string, string> = {
-  blocked_status: 'blocked',
-  blocker_present: 'blocker present',
-  needs_input_status: 'needs input',
-  stale_status: 'marked stale',
-  no_recent_update: 'no recent update',
-  long_time_in_stage: 'long time in stage',
-  missing_last_update: 'missing last update',
-  missing_stage_since: 'missing stage date',
 };
 
 const checklistTemplates: ChecklistTemplate[] = [
@@ -1276,10 +1248,6 @@ function chatActorLabel(message: ChatMessage, viewer: CurrentUser) {
   return message.actorUsername ? `${name} (@${message.actorUsername})` : name;
 }
 
-function evidence(project: DerivedLabStateProject) {
-  return project.derived.signals.map((signal) => signalLabels[signal] || signal).join(', ') || 'no risk signals';
-}
-
 function StageBar({ stage }: { stage: number }) {
   return (
     <div className="stage-bar" aria-label={`Stage ${stage} of 5`}>
@@ -1292,10 +1260,6 @@ function StageBar({ stage }: { stage: number }) {
 
 function StatusChip({ status }: { status: ProjectStatus }) {
   return <span className={`ops-chip status-${status}`}>{statusLabels[status]}</span>;
-}
-
-function RecommendationChip({ recommendation }: { recommendation: ProjectRecommendation }) {
-  return <span className={`ops-chip rec-${recommendation}`}>{recommendationLabels[recommendation]}</span>;
 }
 
 function ChecklistTagPill({ tag }: { tag: ChecklistTag }) {
@@ -3152,16 +3116,12 @@ function ThemeMeetingPanel({
 }
 
 function DashboardView({
-  payload,
-  loading,
   projectsPayload,
   projectsLoading,
   viewer,
   collaboratorUsers,
   onProjectsChanged,
 }: {
-  payload: LabStatePayload | null;
-  loading: boolean;
   projectsPayload: ProjectsPayload | null;
   projectsLoading: boolean;
   viewer: CurrentUser;
@@ -3292,7 +3252,7 @@ function DashboardView({
       )}
       {!projectsPayload ? (
         <div className="ops-empty">
-          {projectsLoading || loading ? (
+          {projectsLoading ? (
             <>
               <DotMatrixIcon variant="loading" size={24} />
               Loading projects
@@ -4317,14 +4277,14 @@ function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
 }
 
 function AlertsView({
-  payload,
+  attentionProjects,
   themePayload,
   chatNotifications,
   onMarkChatNotificationRead,
   onMarkAllChatNotificationsRead,
   onOpenChatSession,
 }: {
-  payload: LabStatePayload | null;
+  attentionProjects: ManagedProject[];
   themePayload: ThemeMeetingPayload | null;
   chatNotifications: ChatNotification[];
   onMarkChatNotificationRead: (notificationId: string) => Promise<void>;
@@ -4333,11 +4293,10 @@ function AlertsView({
 }) {
   const [markError, setMarkError] = useState<string | null>(null);
   const [isMarking, setIsMarking] = useState(false);
-  const attention = payload?.summary.projectsNeedingAttention || [];
   const themeNotifications = themePayload?.notifications || [];
   const unreadChatNotifications = chatNotifications.filter((notification) => !notification.readAt);
   const readChatNotifications = chatNotifications.filter((notification) => notification.readAt);
-  const activeCount = unreadChatNotifications.length + themeNotifications.length + attention.length;
+  const activeCount = unreadChatNotifications.length + themeNotifications.length + attentionProjects.length;
 
   async function markOne(notificationId: string) {
     try {
@@ -4429,14 +4388,14 @@ function AlertsView({
             </div>
           </article>
         ))}
-        {attention.length ? (
-          attention.map((project) => (
-            <article className="alert-item" key={project.project}>
+        {attentionProjects.length ? (
+          attentionProjects.map((project) => (
+            <article className="alert-item" key={project.id}>
               <Bell aria-hidden="true" />
               <div>
-                <strong>{titleCase(project.project)}</strong>
+                <strong>{project.title}</strong>
                 <p>
-                  {recommendationLabels[project.derived.recommendation]} suggested for {project.owner}: {evidence(project)}.
+                  {projectSlotLabels[project.recommendation]} suggested for {project.ownerUsername}: {projectEvidence(project)}.
                 </p>
               </div>
             </article>
@@ -4470,7 +4429,7 @@ function AlertsView({
             ))}
           </>
         ) : null}
-        {!chatNotifications.length && !themeNotifications.length && !attention.length ? (
+        {!chatNotifications.length && !themeNotifications.length && !attentionProjects.length ? (
           <div className="ops-empty">No alerts right now</div>
         ) : null}
       </div>
@@ -6143,8 +6102,6 @@ export function OperationsConsole() {
   const [personalDetailsSignal, setPersonalDetailsSignal] = useState(0);
   const [authChecked, setAuthChecked] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [payload, setPayload] = useState<LabStatePayload | null>(null);
-  const [labStateLoading, setLabStateLoading] = useState(false);
   const [projectsPayload, setProjectsPayload] = useState<ProjectsPayload | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [themePayload, setThemePayload] = useState<ThemeMeetingPayload | null>(null);
@@ -6234,20 +6191,6 @@ export function OperationsConsole() {
     };
   }, []);
 
-  const loadLabState = useCallback(async () => {
-    setLabStateLoading(true);
-    try {
-      const response = await fetch('/api/lab-state');
-      const nextPayload = (await response.json()) as LabStatePayload & { error?: string };
-      if (!response.ok) {
-        throw new Error(nextPayload.error || 'Could not load lab state.');
-      }
-      setPayload(nextPayload);
-    } finally {
-      setLabStateLoading(false);
-    }
-  }, []);
-
   const loadThemeMeetings = useCallback(async () => {
     setThemeMeetingsLoading(true);
     try {
@@ -6298,8 +6241,6 @@ export function OperationsConsole() {
     let cancelled = false;
 
     if (!user || user.passwordResetRequired) {
-      setPayload(null);
-      setLabStateLoading(false);
       setProjectsPayload(null);
       setProjectsLoading(false);
       setCollaboratorUsers([]);
@@ -6311,11 +6252,6 @@ export function OperationsConsole() {
       };
     }
 
-    void loadLabState().catch((caught) => {
-      if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : 'Could not load lab state.');
-      }
-    });
     void loadProjects().catch((caught) => {
       if (!cancelled) {
         setError(caught instanceof Error ? caught.message : 'Could not load projects.');
@@ -6339,7 +6275,7 @@ export function OperationsConsole() {
     return () => {
       cancelled = true;
     };
-  }, [loadChatNotifications, loadCollaboratorUsers, loadLabState, loadProjects, loadThemeMeetings, user]);
+  }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, user]);
 
   useEffect(() => {
     if (user && !user.passwordResetRequired && activeView === 'alerts') {
@@ -6414,7 +6350,6 @@ export function OperationsConsole() {
     setUser(null);
     setAccountMenuOpen(false);
     setNotificationsOpen(false);
-    setPayload(null);
     setProjectsPayload(null);
     setCollaboratorUsers([]);
     setThemePayload(null);
@@ -6562,8 +6497,6 @@ export function OperationsConsole() {
           )}
           {activeView === 'dashboard' && (
             <DashboardView
-              payload={payload}
-              loading={labStateLoading}
               projectsPayload={projectsPayload}
               projectsLoading={projectsLoading}
               viewer={user}
@@ -6580,7 +6513,7 @@ export function OperationsConsole() {
           {activeView === 'checklists' && <ChecklistsView canSignOff={canSeeAllRole(user.role)} />}
           {activeView === 'alerts' && (
             <AlertsView
-              payload={payload}
+              attentionProjects={attentionProjectNotifications}
               themePayload={themePayload}
               chatNotifications={chatNotifications}
               onMarkChatNotificationRead={markChatNotificationRead}
