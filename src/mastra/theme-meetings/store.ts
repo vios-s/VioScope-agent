@@ -1,13 +1,15 @@
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { runtimeEnv } from '../runtime-config';
 import {
   themeMeetingConfigSchema,
+  themeMeetingEmailDeliveriesFileSchema,
   themeMeetingNotificationsFileSchema,
   themeMeetingUpdatesFileSchema,
   type ThemeMeetingConfig,
+  type ThemeMeetingEmailDelivery,
   type ThemeMeetingNotification,
   type ThemeMeetingUpdate,
   type ThemeMeetingUpdatesFile,
@@ -15,6 +17,7 @@ import {
 
 export type ThemeMeetingStoreOptions = {
   configPath?: string;
+  emailDeliveriesPath?: string;
   updatesPath?: string;
   notificationsPath?: string;
 };
@@ -118,6 +121,28 @@ export function resolveThemeMeetingNotificationsPath(notificationsPath?: string)
   return fallbackRuntimePath('theme-meeting-notifications.yaml');
 }
 
+export function resolveThemeMeetingEmailDeliveriesPath(emailDeliveriesPath?: string): string {
+  if (emailDeliveriesPath) {
+    return resolveFromCwd(emailDeliveriesPath);
+  }
+
+  const configuredEmailDeliveriesPath = runtimeEnv('THEME_MEETING_EMAIL_DELIVERIES_PATH').trim();
+  if (configuredEmailDeliveriesPath) {
+    return resolveFromCwd(configuredEmailDeliveriesPath);
+  }
+
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
+  if (datastoreDir) {
+    return resolveFromCwd(join(datastoreDir, 'theme-meeting-email-deliveries.yaml'));
+  }
+
+  return fallbackRuntimePath('theme-meeting-email-deliveries.yaml');
+}
+
+function themeMeetingEmailDeliveryClaimPath(id: string, options: ThemeMeetingStoreOptions = {}): string {
+  return join(`${resolveThemeMeetingEmailDeliveriesPath(options.emailDeliveriesPath)}.claims`, encodeURIComponent(id));
+}
+
 export async function readThemeMeetingConfig(options: ThemeMeetingStoreOptions = {}): Promise<{
   path: string;
   config: ThemeMeetingConfig;
@@ -163,6 +188,18 @@ export async function readThemeMeetingNotifications(
   return { path, notifications: file.notifications };
 }
 
+export async function readThemeMeetingEmailDeliveries(
+  options: ThemeMeetingStoreOptions = {},
+): Promise<{ path: string; deliveries: ThemeMeetingEmailDelivery[] }> {
+  const path = resolveThemeMeetingEmailDeliveriesPath(options.emailDeliveriesPath);
+  if (!(await pathExists(path))) {
+    return { path, deliveries: [] };
+  }
+
+  const file = themeMeetingEmailDeliveriesFileSchema.parse(parseYaml(await readFile(/*turbopackIgnore: true*/ path, 'utf8')) || {});
+  return { path, deliveries: file.deliveries };
+}
+
 async function writeYaml(path: string, value: unknown) {
   await mkdir(/*turbopackIgnore: true*/ dirname(path), { recursive: true });
   await writeFile(/*turbopackIgnore: true*/ path, stringifyYaml(value), 'utf8');
@@ -202,4 +239,53 @@ export async function saveThemeMeetingNotifications(
   const nextNotifications = [...byId.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
   await writeYaml(path, { notifications: nextNotifications });
   return nextNotifications;
+}
+
+export async function hasThemeMeetingEmailDelivery(
+  id: string,
+  options: ThemeMeetingStoreOptions = {},
+): Promise<boolean> {
+  const { deliveries } = await readThemeMeetingEmailDeliveries(options);
+  return deliveries.some((delivery) => delivery.id === id);
+}
+
+export async function saveThemeMeetingEmailDelivery(
+  delivery: ThemeMeetingEmailDelivery,
+  options: ThemeMeetingStoreOptions = {},
+): Promise<ThemeMeetingEmailDelivery[]> {
+  const path = resolveThemeMeetingEmailDeliveriesPath(options.emailDeliveriesPath);
+  const existing = (await readThemeMeetingEmailDeliveries(options)).deliveries;
+  const byId = new Map(existing.map((current) => [current.id, current]));
+  byId.set(delivery.id, delivery);
+
+  const deliveries = [...byId.values()].sort((a, b) => b.sent_at.localeCompare(a.sent_at));
+  await writeYaml(path, { deliveries });
+  return deliveries;
+}
+
+export async function claimThemeMeetingEmailDelivery(
+  id: string,
+  options: ThemeMeetingStoreOptions = {},
+): Promise<boolean> {
+  if (await hasThemeMeetingEmailDelivery(id, options)) return false;
+
+  const path = themeMeetingEmailDeliveryClaimPath(id, options);
+  await mkdir(/*turbopackIgnore: true*/ dirname(path), { recursive: true });
+
+  try {
+    await mkdir(/*turbopackIgnore: true*/ path);
+    return true;
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+export async function releaseThemeMeetingEmailDeliveryClaim(
+  id: string,
+  options: ThemeMeetingStoreOptions = {},
+): Promise<void> {
+  await rm(/*turbopackIgnore: true*/ themeMeetingEmailDeliveryClaimPath(id, options), { recursive: true, force: true });
 }

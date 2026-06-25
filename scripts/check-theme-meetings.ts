@@ -9,9 +9,17 @@ import {
 } from '../src/mastra/theme-meetings/planner';
 import { managedThemeIdsForUser, visiblePlanForUser } from '../src/mastra/theme-meetings/access';
 import { defaultNotificationPreferences, type AuthUser } from '../src/mastra/db/users';
+import {
+  claimThemeMeetingEmailDelivery,
+  hasThemeMeetingEmailDelivery,
+  readThemeMeetingEmailDeliveries,
+  releaseThemeMeetingEmailDeliveryClaim,
+  saveThemeMeetingEmailDelivery,
+} from '../src/mastra/theme-meetings/store';
 
 const storePaths = {
   configPath: 'fixtures/theme-meeting-config.example.yaml',
+  emailDeliveriesPath: join(tmpdir(), 'vioscope-agent-smoke', 'theme-meeting-email-deliveries-check.yaml'),
   updatesPath: join(tmpdir(), 'vioscope-agent-smoke', 'theme-meeting-updates-check.yaml'),
   notificationsPath: join(tmpdir(), 'vioscope-agent-smoke', 'theme-meeting-notifications-check.yaml'),
 };
@@ -35,6 +43,8 @@ function fakeUser(displayName: string, role: AuthUser['role'] = 'member'): AuthU
 }
 
 async function cleanupSmokeFiles() {
+  await rm(storePaths.emailDeliveriesPath, { force: true });
+  await rm(`${storePaths.emailDeliveriesPath}.claims`, { recursive: true, force: true });
   await rm(storePaths.updatesPath, { force: true });
   await rm(storePaths.notificationsPath, { force: true });
 }
@@ -140,6 +150,37 @@ async function main() {
 
   if (manualReminder.notifications.length !== 0) {
     throw new Error('Expected no missing Theme A members after both slots were submitted.');
+  }
+
+  const deliveryId = 'check:theme-meeting-email-delivery';
+  if (await hasThemeMeetingEmailDelivery(deliveryId, storePaths)) {
+    throw new Error('Expected no existing email delivery marker before save.');
+  }
+  await saveThemeMeetingEmailDelivery({ id: deliveryId, sent_at: '2026-06-23T10:00:00.000Z' }, storePaths);
+  await saveThemeMeetingEmailDelivery({ id: deliveryId, sent_at: '2026-06-23T11:00:00.000Z' }, storePaths);
+  const deliveries = (await readThemeMeetingEmailDeliveries(storePaths)).deliveries.filter(
+    (delivery) => delivery.id === deliveryId,
+  );
+  if (deliveries.length !== 1 || !(await hasThemeMeetingEmailDelivery(deliveryId, storePaths))) {
+    throw new Error('Expected email delivery markers to be idempotent by id.');
+  }
+
+  const claimId = 'check:theme-meeting-email-claim';
+  const claims = await Promise.all([
+    claimThemeMeetingEmailDelivery(claimId, storePaths),
+    claimThemeMeetingEmailDelivery(claimId, storePaths),
+  ]);
+  if (claims.filter(Boolean).length !== 1) {
+    throw new Error('Expected concurrent email delivery claims to allow exactly one sender.');
+  }
+  await releaseThemeMeetingEmailDeliveryClaim(claimId, storePaths);
+  if (!(await claimThemeMeetingEmailDelivery(claimId, storePaths))) {
+    throw new Error('Expected released email delivery claim to be claimable again.');
+  }
+  await saveThemeMeetingEmailDelivery({ id: claimId, sent_at: '2026-06-23T12:00:00.000Z' }, storePaths);
+  await releaseThemeMeetingEmailDeliveryClaim(claimId, storePaths);
+  if (await claimThemeMeetingEmailDelivery(claimId, storePaths)) {
+    throw new Error('Expected recorded email delivery to block future claims.');
   }
 
   console.log('Theme meeting check passed.');

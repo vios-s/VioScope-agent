@@ -156,11 +156,21 @@ export const themeMeetingNotificationsFileSchema = z.object({
   notifications: z.array(themeMeetingNotificationSchema).default([]),
 });
 
+export const themeMeetingEmailDeliverySchema = z.object({
+  id: z.string().trim().min(1),
+  sent_at: z.string().datetime(),
+});
+
+export const themeMeetingEmailDeliveriesFileSchema = z.object({
+  deliveries: z.array(themeMeetingEmailDeliverySchema).default([]),
+});
+
 export type ThemeMeetingConfig = z.infer<typeof themeMeetingConfigSchema>;
 export type ThemeMeetingUpdate = z.infer<typeof themeMeetingUpdateSchema>;
 export type ThemeMeetingUpdatesFile = z.infer<typeof themeMeetingUpdatesFileSchema>;
 export type ThemeMeetingPlan = z.infer<typeof themeMeetingPlanSchema>;
 export type ThemeMeetingAgendaItem = z.infer<typeof themeMeetingAgendaItemSchema>;
 export type ThemeMeetingNotification = z.infer<typeof themeMeetingNotificationSchema>;
+export type ThemeMeetingEmailDelivery = z.infer<typeof themeMeetingEmailDeliverySchema>;
 export type ThemeReminderAction = z.infer<typeof themeReminderActionSchema>;
 export type ThemeUpdateType = z.infer<typeof themeUpdateTypeSchema>;

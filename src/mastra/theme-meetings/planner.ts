@@ -1,7 +1,10 @@
 import {
+  claimThemeMeetingEmailDelivery,
   readThemeMeetingConfig,
   readThemeMeetingNotifications,
   readThemeMeetingUpdates,
+  releaseThemeMeetingEmailDeliveryClaim,
+  saveThemeMeetingEmailDelivery,
   saveThemeMeetingNotifications,
   saveThemeMeetingUpdate,
   type ThemeMeetingStoreOptions,
@@ -63,7 +66,7 @@ export type ThemeMeetingReminderEmailResult = {
 
 export type ThemeMeetingAgendaEmailOptions = {
   themeId?: string;
-};
+} & ThemeMeetingStoreOptions;
 
 export type UpdateThemeMeetingMemberInput = ThemeMeetingStoreOptions & {
   themeId: string;
@@ -72,6 +75,35 @@ export type UpdateThemeMeetingMemberInput = ThemeMeetingStoreOptions & {
   action: 'add' | 'remove';
   meetingDate?: string;
 };
+
+async function sendClaimedThemeMeetingEmail(
+  deliveryId: string,
+  email: { to: string | null | undefined; subject: string; text: string },
+  options: ThemeMeetingStoreOptions,
+): Promise<boolean> {
+  if (!(await claimThemeMeetingEmailDelivery(deliveryId, options))) return false;
+
+  let sent = false;
+  try {
+    sent = await sendNotificationEmail(email);
+  } catch (error) {
+    await releaseThemeMeetingEmailDeliveryClaim(deliveryId, options);
+    throw error;
+  }
+
+  if (!sent) {
+    await releaseThemeMeetingEmailDeliveryClaim(deliveryId, options);
+    return false;
+  }
+
+  try {
+    await saveThemeMeetingEmailDelivery({ id: deliveryId, sent_at: new Date().toISOString() }, options);
+  } catch (error) {
+    console.warn('Could not record theme meeting email delivery:', error);
+  }
+
+  return true;
+}
 
 function parseDateOnly(value: string): Date {
   return new Date(`${value}T00:00:00.000Z`);
@@ -450,6 +482,7 @@ export async function buildThemeMeetingReminderRun(
 
 export async function sendThemeMeetingReminderEmails(
   notifications: ThemeMeetingNotification[],
+  options: ThemeMeetingStoreOptions = {},
 ): Promise<ThemeMeetingReminderEmailResult> {
   const users = new Map<string, AuthUser | null>();
   const result: ThemeMeetingReminderEmailResult = { sent: 0, skipped: 0, failed: 0 };
@@ -470,13 +503,18 @@ export async function sendThemeMeetingReminderEmails(
       result.skipped += 1;
       continue;
     }
+    const deliveryId = `theme-reminder:${notification.id}:${username}`;
 
     try {
-      const sent = await sendNotificationEmail({
-        to: user.email,
-        subject: notification.title,
-        text: `${notification.body}\n\nMeeting date: ${notification.meeting_date}\nTheme: ${notification.theme_id}\n\nOpen VioScope to respond.`,
-      });
+      const sent = await sendClaimedThemeMeetingEmail(
+        deliveryId,
+        {
+          to: user.email,
+          subject: notification.title,
+          text: `${notification.body}\n\nMeeting date: ${notification.meeting_date}\nTheme: ${notification.theme_id}\n\nOpen VioScope to respond.`,
+        },
+        options,
+      );
       result.sent += sent ? 1 : 0;
       result.skipped += sent ? 0 : 1;
     } catch (error) {
@@ -532,13 +570,18 @@ export async function sendThemeMeetingAgendaEmails(
       result.skipped += 1;
       continue;
     }
+    const deliveryId = `theme-agenda:${plan.meeting_date}:${options.themeId || 'all'}:${username}`;
 
     try {
-      const sent = await sendNotificationEmail({
-        to: user.email,
-        subject,
-        text: `${markdown}\n\nThis agenda is advisory until confirmed by a coordinator, PI, or administrator.`,
-      });
+      const sent = await sendClaimedThemeMeetingEmail(
+        deliveryId,
+        {
+          to: user.email,
+          subject,
+          text: `${markdown}\n\nThis agenda is advisory until confirmed by a coordinator, PI, or administrator.`,
+        },
+        options,
+      );
       result.sent += sent ? 1 : 0;
       result.skipped += sent ? 0 : 1;
     } catch (error) {
