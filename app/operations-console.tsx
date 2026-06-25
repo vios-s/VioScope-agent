@@ -46,8 +46,8 @@ import type {
 } from '../src/mastra/theme-meetings/schema';
 import { vioscopeChatUiConfig } from '../src/mastra/agents/vioscope.chat-ui.config';
 
-type ActiveView = 'dashboard' | 'chat' | 'meeting' | 'checklists' | 'alerts' | 'users';
-type DashboardMode = 'member' | 'pi';
+type ActiveView = 'briefing' | 'projects' | 'chat' | 'meeting' | 'checklists' | 'alerts' | 'users';
+type ProjectsMode = 'member' | 'pi';
 type ChatMessageStatus = 'thinking' | 'answer' | 'refusal';
 
 type ChatMessage = {
@@ -428,8 +428,8 @@ type AdminConfigPayload = {
 };
 
 type ConsoleTheme = 'light' | 'dark' | 'system';
-type ConsoleAccentTheme = 'cyan' | 'blue' | 'green' | 'indigo' | 'orange' | 'red';
-type ConsoleFontTheme = 'public' | 'mulish' | 'quicksand' | 'mali' | 'jura';
+type ConsoleAccentTheme = 'cyan' | 'aegean' | 'blue' | 'green' | 'indigo' | 'orange' | 'red';
+type ConsoleFontTheme = 'public' | 'serif' | 'mulish' | 'quicksand' | 'mali' | 'jura';
 type ConsoleThemeSettings = {
   mode: ConsoleTheme;
   accent: ConsoleAccentTheme;
@@ -640,29 +640,32 @@ const userPositionOptions: UserPosition[] = ['pi', 'student', 'postdoc', 'softwa
 const provisioningStatusOptions = ['profile_only', 'active', 'disabled'];
 const consoleAccentOptions: Array<{ id: ConsoleAccentTheme; label: string; color: string }> = [
   { id: 'cyan', label: 'Cyan', color: '#219f94' },
+  { id: 'aegean', label: 'Aegean', color: '#387478' },
   { id: 'blue', label: 'Blue', color: '#1363df' },
   { id: 'green', label: 'Green', color: '#8cba51' },
   { id: 'indigo', label: 'Indigo', color: '#655d8a' },
   { id: 'orange', label: 'Orange', color: '#f59f00' },
   { id: 'red', label: 'Red', color: '#f73859' },
 ];
-const consoleFontOptions: Array<{ id: ConsoleFontTheme; label: string }> = [
-  { id: 'public', label: 'Public Sans' },
-  { id: 'mulish', label: 'Mulish' },
-  { id: 'quicksand', label: 'Quicksand' },
-  { id: 'mali', label: 'Mali' },
-  { id: 'jura', label: 'Jura' },
+const consoleFontOptions: Array<{ id: ConsoleFontTheme; label: string; fontFamily: string }> = [
+  { id: 'public', label: 'Public Sans', fontFamily: '"Public Sans", sans-serif' },
+  { id: 'serif', label: 'Source Serif', fontFamily: '"Source Serif 4", serif' },
+  { id: 'mulish', label: 'Mulish', fontFamily: 'Mulish, sans-serif' },
+  { id: 'quicksand', label: 'Quicksand', fontFamily: 'Quicksand, sans-serif' },
+  { id: 'mali', label: 'Mali', fontFamily: 'Mali, cursive' },
+  { id: 'jura', label: 'Jura', fontFamily: 'Jura, sans-serif' },
 ];
 const rowMenuWidth = 190;
 const rowMenuHeight = 88;
 const rowMenuGutter = 10;
 const refusalPattern = /could not find|cannot find|not enough|insufficient|knowledge gap|limited to VIOS lab|non-lab topics/i;
-const activeViews: ActiveView[] = ['dashboard', 'chat', 'meeting', 'checklists', 'alerts', 'users'];
+const activeViews: ActiveView[] = ['briefing', 'projects', 'chat', 'meeting', 'checklists', 'alerts', 'users'];
 const viewQueryParam = 'view';
 
 function activeViewFromSearch(search: string): ActiveView {
   const view = new URLSearchParams(search).get(viewQueryParam);
-  return activeViews.includes(view as ActiveView) ? (view as ActiveView) : 'dashboard';
+  if (view === 'dashboard') return 'projects';
+  return activeViews.includes(view as ActiveView) ? (view as ActiveView) : 'briefing';
 }
 
 function writeViewToUrl(view: ActiveView, replace = false) {
@@ -1307,20 +1310,22 @@ function AuthFrame({ children }: { children: ReactNode }) {
   return (
     <main className="console-app auth-shell">
       <div className="auth-wrap">
-        <div className="auth-brand">
-          <span className="brand-mark auth-mark" aria-hidden="true">
-            <span />
-          </span>
-          <div>
-            <strong>VioScope</strong>
-            <small>The VIOS lab assistant</small>
+        <div className="auth-panel">
+          <div className="auth-brand">
+            <span className="brand-mark auth-mark" aria-hidden="true">
+              <span />
+            </span>
+            <div>
+              <strong>VioScope</strong>
+              <small>The VIOS lab assistant</small>
+            </div>
           </div>
+          <section className="auth-card">{children}</section>
+          <footer className="auth-footer">
+            <span>VIOS Lab</span>
+            <small>Internal tool. Access restricted to lab members.</small>
+          </footer>
         </div>
-        <section className="auth-card">{children}</section>
-        <footer className="auth-footer">
-          <span>VIOS Lab</span>
-          <small>Internal tool. Access restricted to lab members.</small>
-        </footer>
       </div>
     </main>
   );
@@ -1345,7 +1350,7 @@ function applyConsoleTheme(theme: ConsoleTheme) {
 function normalizeConsoleThemeSettings(input: Partial<ConsoleThemeSettings> | null | undefined): ConsoleThemeSettings {
   return {
     mode: input?.mode === 'dark' || input?.mode === 'light' || input?.mode === 'system' ? input.mode : 'system',
-    accent: consoleAccentOptions.some((option) => option.id === input?.accent) ? input!.accent! : 'cyan',
+    accent: consoleAccentOptions.some((option) => option.id === input?.accent) ? input!.accent! : 'aegean',
     font: consoleFontOptions.some((option) => option.id === input?.font) ? input!.font! : 'public',
   };
 }
@@ -2323,7 +2328,7 @@ function ProjectDetailModal({
           </button>
         </header>
 
-        <div className="prototype-segmented project-modal-tabs" role="group" aria-label="Project modal section">
+        <div className="ops-segmented project-modal-tabs" role="group" aria-label="Project modal section">
           <button className={mode === 'details' ? 'selected' : ''} type="button" onClick={() => setMode('details')}>
             <FileText aria-hidden="true" />
             Details
@@ -3115,7 +3120,237 @@ function ThemeMeetingPanel({
   );
 }
 
-function DashboardView({
+function BriefingView({
+  projectsPayload,
+  projectsLoading,
+  themePayload,
+  themeMeetingsLoading,
+  chatNotifications,
+  viewer,
+  onOpenProjects,
+  onOpenMeeting,
+  onOpenAlerts,
+}: {
+  projectsPayload: ProjectsPayload | null;
+  projectsLoading: boolean;
+  themePayload: ThemeMeetingPayload | null;
+  themeMeetingsLoading: boolean;
+  chatNotifications: ChatNotification[];
+  viewer: CurrentUser;
+  onOpenProjects: () => void;
+  onOpenMeeting: () => void;
+  onOpenAlerts: () => void;
+}) {
+  const projects = projectsPayload?.projects || [];
+  const activeProjects = projects.filter((project) => project.lifecycle !== 'archived');
+  const attentionProjects = activeProjects.filter(projectNeedsAttention);
+  const recentProjects = activeProjects.filter((project) => {
+    const age = daysSinceDate(project.lastUpdate);
+    return age !== null && age <= 14;
+  });
+  const currentArtifacts = activeProjects.reduce((count, project) => count + currentProjectArtifacts(project).length, 0);
+  const unreadChatNotifications = chatNotifications.filter((notification) => !notification.readAt);
+  const themeNotifications = themePayload?.notifications || [];
+  const meetings = themePayload?.overviewPlan?.meetings || (themePayload?.plan.meetings || []).map((meeting) => ({
+    theme_id: meeting.theme_id,
+    title: meeting.title,
+    time: meeting.time,
+    member_count: meeting.members.length,
+    submitted_count: meeting.submitted_members.length,
+    planned_minutes: meeting.planned_minutes,
+    agenda_count: meeting.agenda_items.length,
+    overbooked: meeting.overbooked,
+  }));
+  const ledgerProjects = (attentionProjects.length ? attentionProjects : activeProjects).slice(0, 4);
+  const focusLine = projectsPayload
+    ? attentionProjects.length
+      ? `${attentionProjects.length} project${attentionProjects.length === 1 ? '' : 's'} need attention before the next meeting.`
+      : 'No project attention items are open right now.'
+    : projectsLoading
+      ? 'Loading project state for the current briefing.'
+      : 'Project state is not available yet.';
+
+  return (
+    <ConsolePageFrame
+      title="Briefing"
+      subtitle="Projects / meetings / shared evidence"
+      className="briefing-page"
+      wide
+      badge={
+        <span className="ops-pill">
+          <ShieldCheck aria-hidden="true" />
+          {canSeeAllRole(viewer.role) ? 'Lab-wide view' : 'Personal view'}
+        </span>
+      }
+    >
+      <div className="briefing-content">
+        <section className="briefing-hero">
+          <img src="/art/vioscope-briefing-illustration.webp" alt="" />
+          <div className="briefing-hero-copy">
+            <span>Morning table</span>
+            <h1>Projects, meetings, and evidence in one calm place.</h1>
+            <p>
+              {focusLine}
+              {' '}
+              {themeNotifications.length ? `${themeNotifications.length} meeting alert${themeNotifications.length === 1 ? '' : 's'} are active.` : 'Meeting alerts are quiet.'}
+            </p>
+            <div className="button-row">
+              <button className="ops-primary" type="button" onClick={onOpenProjects}>
+                <FileText aria-hidden="true" />
+                Review projects
+              </button>
+              <button className="ops-secondary" type="button" onClick={onOpenMeeting}>
+                <CalendarDays aria-hidden="true" />
+                Open agenda
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="briefing-metrics" aria-label="Briefing summary">
+          <div>
+            <strong>{activeProjects.length}</strong>
+            <span>Active projects</span>
+          </div>
+          <div>
+            <strong>{attentionProjects.length}</strong>
+            <span>Need attention</span>
+          </div>
+          <div>
+            <strong>{recentProjects.length}</strong>
+            <span>Updated in cycle</span>
+          </div>
+          <div>
+            <strong>{unreadChatNotifications.length + themeNotifications.length}</strong>
+            <span>Unread alerts</span>
+          </div>
+        </section>
+
+        <div className="briefing-grid">
+          <section className="ops-panel briefing-ledger">
+            <div className="ops-panel-head">
+              <div>
+                <h2>Project ledger</h2>
+                <p>Items most likely to need a coordinator or PI decision.</p>
+              </div>
+              <button className="ops-secondary" type="button" onClick={onOpenProjects}>
+                Open projects
+              </button>
+            </div>
+            {!projectsPayload ? (
+              <div className="ops-empty briefing-empty">
+                {projectsLoading ? (
+                  <>
+                    <DotMatrixIcon variant="loading" size={24} />
+                    Loading projects
+                  </>
+                ) : (
+                  'Project state is unavailable.'
+                )}
+              </div>
+            ) : ledgerProjects.length ? (
+              <div className="briefing-table">
+                <div className="briefing-table-head">
+                  <span>Project</span>
+                  <span>Owner</span>
+                  <span>Stage</span>
+                  <span>Status</span>
+                  <span>Slot</span>
+                </div>
+                {ledgerProjects.map((project) => (
+                  <div className="briefing-row" key={project.id}>
+                    <strong>{project.title}</strong>
+                    <span>@{project.ownerUsername}</span>
+                    <span>{project.stage}/5</span>
+                    <StatusChip status={project.status} />
+                    <span>{projectSlotLabels[project.recommendation]}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="ops-muted-line">No visible projects yet.</div>
+            )}
+          </section>
+
+          <section className="ops-panel">
+            <div className="ops-panel-head">
+              <div>
+                <h2>Theme meeting</h2>
+                <p>{themePayload?.overviewPlan?.meeting_date || themePayload?.plan.meeting_date || 'Current cycle'}</p>
+              </div>
+              <CalendarDays aria-hidden="true" />
+            </div>
+            {themeMeetingsLoading && !themePayload ? (
+              <div className="ops-empty briefing-empty">
+                <DotMatrixIcon variant="loading" size={24} />
+                Loading meeting plan
+              </div>
+            ) : meetings.length ? (
+              <ol className="briefing-agenda">
+                {meetings.slice(0, 4).map((meeting) => (
+                  <li key={meeting.theme_id}>
+                    <time>{meeting.time}</time>
+                    <div>
+                      <strong>{meeting.title}</strong>
+                      <span>
+                        {meeting.submitted_count}/{meeting.member_count} submitted · {meeting.agenda_count} agenda items
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="ops-muted-line">No meeting plan loaded.</div>
+            )}
+          </section>
+
+          <section className="ops-panel">
+            <div className="ops-panel-head">
+              <div>
+                <h2>Evidence</h2>
+                <p>Current project materials available to cite or review.</p>
+              </div>
+              <FileText aria-hidden="true" />
+            </div>
+            <div className="briefing-evidence">
+              <strong>{currentArtifacts} current artifacts</strong>
+              <p>{recentProjects.length} project updates landed in the current two-week cycle.</p>
+              <button className="ops-secondary" type="button" onClick={onOpenProjects}>
+                Open project materials
+              </button>
+            </div>
+          </section>
+
+          <section className="ops-panel">
+            <div className="ops-panel-head">
+              <div>
+                <h2>Alerts</h2>
+                <p>Mentions, reminders, and operational attention items.</p>
+              </div>
+              <Bell aria-hidden="true" />
+            </div>
+            <ul className="briefing-alerts">
+              {unreadChatNotifications.slice(0, 2).map((notification) => (
+                <li key={notification.id}>{notification.title}</li>
+              ))}
+              {themeNotifications.slice(0, 2).map((notification) => (
+                <li key={notification.id}>{notification.title}</li>
+              ))}
+              {!unreadChatNotifications.length && !themeNotifications.length && <li>No unread alerts right now.</li>}
+            </ul>
+            <div className="briefing-panel-action">
+              <button className="ops-secondary" type="button" onClick={onOpenAlerts}>
+                View alerts
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </ConsolePageFrame>
+  );
+}
+
+function ProjectsView({
   projectsPayload,
   projectsLoading,
   viewer,
@@ -3129,7 +3364,7 @@ function DashboardView({
   onProjectsChanged: () => Promise<void>;
 }) {
   const canSeeAll = canSeeAllRole(viewer.role);
-  const mode: DashboardMode = canSeeAll ? 'pi' : 'member';
+  const mode: ProjectsMode = canSeeAll ? 'pi' : 'member';
   const [confirmed, setConfirmed] = useState(false);
   const [agendaState, setAgendaState] = useState<Record<string, 'added' | 'dismissed'>>({});
   const [editorOpen, setEditorOpen] = useState(false);
@@ -3222,7 +3457,7 @@ function DashboardView({
 
   return (
     <ConsolePageFrame
-      title="Dashboard"
+      title="Projects"
       actions={
         <button className="ops-primary" type="button" onClick={openCreateProject}>
           <Plus aria-hidden="true" />
@@ -3231,12 +3466,12 @@ function DashboardView({
       }
       badge={
         canSeeAll && mode === 'pi' ? (
-          <span className="prototype-pill admin-access">
+          <span className="ops-pill admin-access">
             <ShieldCheck aria-hidden="true" />
             Lab-wide view
           </span>
         ) : (
-          <span className="prototype-pill">
+          <span className="ops-pill">
             <ShieldCheck aria-hidden="true" />
             My projects
           </span>
@@ -3621,11 +3856,11 @@ function MeetingView({
   return (
     <ConsolePageFrame
       title="Theme meeting"
-      subtitle="Dashboard / Theme meeting"
+      subtitle="Briefing / Theme meeting"
       className="meeting-page"
       wide
       badge={
-        <span className="prototype-pill">
+        <span className="ops-pill">
           <CalendarDays aria-hidden="true" />
           {canSeeAllRole(viewer.role) ? 'Organizer view' : 'Member view'}
         </span>
@@ -3939,7 +4174,7 @@ function ChatView({
       title={vioscopeChatUiConfig.title}
       className="chat-page"
       badge={
-        <span className="prototype-pill">
+        <span className="ops-pill">
           <span className="live-dot" aria-hidden="true" />
           {vioscopeChatUiConfig.badge}
         </span>
@@ -4195,7 +4430,7 @@ function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
       wide
       tabs={checklistTabs}
       badge={
-        <span className="prototype-pill">
+        <span className="ops-pill">
           <ShieldCheck aria-hidden="true" />
           Evidence required
         </span>
@@ -4234,7 +4469,7 @@ function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
             <p>
               {activeChecklist.status === 'available'
                 ? `Run ${activeChecklist.shortLabel} with the live B2 review workbench below. Results include verdicts, evidence, and optional sign-off.`
-                : 'Idea Pitch is present in the latest prototype, but it is not wired to the B2 runner yet.'}
+                : 'Idea Pitch is available as an advisory checklist view; the automated B2 runner remains backlog.'}
             </p>
             <div className="checklist-upload-note">
               <FileText aria-hidden="true" />
@@ -4332,7 +4567,7 @@ function AlertsView({
       title="Alerts"
       subtitle="Calm nudges for status confirmation and agenda preparation"
       badge={
-        <span className="prototype-pill alert-pill">
+        <span className="ops-pill alert-pill">
           <Bell aria-hidden="true" />
           {activeCount} active
         </span>
@@ -5458,7 +5693,7 @@ function UsersView({
       className="users-page settings-page"
       wide
       badge={
-        <span className={settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'prototype-pill admin-access' : 'prototype-pill'}>
+        <span className={settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'ops-pill admin-access' : 'ops-pill'}>
           <Settings aria-hidden="true" />
           {settingsBadge}
         </span>
@@ -5532,7 +5767,7 @@ function UsersView({
                       <strong>Mode</strong>
                       <p>Choose how VioScope appears on this device.</p>
                     </div>
-                    <div className="prototype-segmented" role="group" aria-label="Theme mode">
+                    <div className="ops-segmented" role="group" aria-label="Theme mode">
                       <button className={theme === 'light' ? 'selected' : ''} type="button" onClick={() => { setTheme('light'); setThemeMessage(null); }}>
                         Light
                       </button>
@@ -5571,7 +5806,7 @@ function UsersView({
                   <div className="theme-setting-row">
                     <div>
                       <strong>Font</strong>
-                      <p>Pick the dashboard typeface family.</p>
+                      <p>Pick the console typeface family.</p>
                     </div>
                     <div className="theme-font-grid" role="radiogroup" aria-label="Font family">
                       {consoleFontOptions.map((option) => (
@@ -5581,6 +5816,7 @@ function UsersView({
                           type="button"
                           role="radio"
                           aria-checked={fontTheme === option.id}
+                          style={{ fontFamily: option.fontFamily }}
                           onClick={() => {
                             setFontTheme(option.id);
                             setThemeMessage(null);
@@ -5731,7 +5967,7 @@ function UsersView({
           ) : (
             <div className="settings-section settings-section-members">
               <div className="settings-members-head">
-                <span className="prototype-pill admin-access">
+                <span className="ops-pill admin-access">
                   <KeyRound aria-hidden="true" />
                   Visible to PIs & admins only
                 </span>
@@ -5746,7 +5982,7 @@ function UsersView({
             <h2>Lab members</h2>
             <p>{activeUserCount} active · {users.length} total · {filteredUsers.length} shown</p>
           </div>
-          <span className="prototype-pill">
+          <span className="ops-pill">
             <KeyRound aria-hidden="true" />
             Credentials issued here
           </span>
@@ -5776,7 +6012,7 @@ function UsersView({
           </div>
         ) : (
           <div className="ops-table-wrap">
-            <table className="ops-table prototype-user-table">
+            <table className="ops-table ops-user-table">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -6091,9 +6327,9 @@ function UsersView({
 }
 
 export function OperationsConsole() {
-  const [activeView, setActiveView] = useState<ActiveView>('dashboard');
+  const [activeView, setActiveView] = useState<ActiveView>('briefing');
   const [theme, setTheme] = useState<ConsoleTheme>('light');
-  const [accentTheme, setAccentTheme] = useState<ConsoleAccentTheme>('cyan');
+  const [accentTheme, setAccentTheme] = useState<ConsoleAccentTheme>('aegean');
   const [fontTheme, setFontTheme] = useState<ConsoleFontTheme>('public');
   const [themeReady, setThemeReady] = useState(false);
   const [user, setUser] = useState<CurrentUser | null>(null);
@@ -6328,8 +6564,9 @@ export function OperationsConsole() {
 
   const topNavItems = useMemo(
     () => [
+      { id: 'briefing' as const, label: 'Briefing', icon: LayoutDashboard },
+      { id: 'projects' as const, label: 'Projects', icon: FileText },
       { id: 'chat' as const, label: 'Chat', icon: MessageCircle },
-      { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
       { id: 'meeting' as const, label: 'Meeting', icon: CalendarDays },
       { id: 'checklists' as const, label: 'Checklists', icon: ClipboardList },
     ],
@@ -6355,7 +6592,7 @@ export function OperationsConsole() {
     setThemePayload(null);
     setChatNotifications([]);
     setError(null);
-    selectView('dashboard', true);
+    selectView('briefing', true);
   }
 
   if (!authChecked) {
@@ -6495,8 +6732,21 @@ export function OperationsConsole() {
               <span>{error}</span>
             </div>
           )}
-          {activeView === 'dashboard' && (
-            <DashboardView
+          {activeView === 'briefing' && (
+            <BriefingView
+              projectsPayload={projectsPayload}
+              projectsLoading={projectsLoading}
+              themePayload={themePayload}
+              themeMeetingsLoading={themeMeetingsLoading}
+              chatNotifications={chatNotifications}
+              viewer={user}
+              onOpenProjects={() => selectView('projects')}
+              onOpenMeeting={() => selectView('meeting')}
+              onOpenAlerts={() => selectView('alerts')}
+            />
+          )}
+          {activeView === 'projects' && (
+            <ProjectsView
               projectsPayload={projectsPayload}
               projectsLoading={projectsLoading}
               viewer={user}
