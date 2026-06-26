@@ -1210,23 +1210,27 @@ button.notification-row:hover {
   box-shadow: var(--shadow);
 }
 
-.briefing-hero img {
+.briefing-hero-media {
   position: absolute;
   inset: 0;
+}
+
+.briefing-hero-media img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  filter: saturate(1.04) contrast(1.02);
 }
 
 .briefing-hero::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, rgba(251, 250, 246, 0.95), rgba(251, 250, 246, 0.74) 36%, rgba(251, 250, 246, 0.18) 66%);
+  background: linear-gradient(90deg, rgba(251, 250, 246, 0.9), rgba(251, 250, 246, 0.58) 36%, rgba(251, 250, 246, 0.08) 66%);
 }
 
 html[data-theme="dark"] .briefing-hero::after {
-  background: linear-gradient(90deg, rgba(23, 24, 23, 0.94), rgba(23, 24, 23, 0.72) 38%, rgba(23, 24, 23, 0.2) 68%);
+  background: linear-gradient(90deg, rgba(23, 24, 23, 0.88), rgba(23, 24, 23, 0.6) 38%, rgba(23, 24, 23, 0.1) 68%);
 }
 
 .briefing-hero-copy {

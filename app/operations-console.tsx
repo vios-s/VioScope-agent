@@ -3185,7 +3185,10 @@ function BriefingView({
     >
       <div className="briefing-content">
         <section className="briefing-hero">
-          <img src="/art/vioscope-briefing-illustration.webp" alt="" />
+          <picture className="briefing-hero-media" aria-hidden="true">
+            <source srcSet="/art/vioscope-briefing-illustration.webp" type="image/webp" />
+            <img src="/art/vioscope-briefing-illustration.png" alt="" />
+          </picture>
           <div className="briefing-hero-copy">
             <span>Morning table</span>
             <h1>Projects, meetings, and evidence in one calm place.</h1>
