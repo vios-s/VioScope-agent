@@ -20,7 +20,6 @@ const users = {
 };
 const settingKeys = [
   'WIKI_MIN_SCORE',
-  'LAB_STATE_PATH',
   'AUDIT_LOG_RETENTION_DAYS',
 ];
 const themeMeetingConfigOnlyKeys = [
@@ -210,19 +209,6 @@ async function main() {
     const revertedRuntimeSettings = await readRuntimeSettings();
     assert.equal(revertedRuntimeSettings.WIKI_MIN_SCORE, originalWikiStored ?? undefined);
 
-    const smokePath = `/tmp/vioscope-config-smoke-${Date.now()}`;
-    const pathResponse = await configRoute.PATCH(
-      request('/api/admin/config', admin, {
-        method: 'PATCH',
-        body: JSON.stringify({ settings: { LAB_STATE_PATH: smokePath } }),
-      }),
-    );
-    assert.equal(pathResponse.status, 200, 'Admin should update LAB_STATE_PATH.');
-    const pathPayload = await pathResponse.json();
-    assert.equal(findSetting(pathPayload, 'LAB_STATE_PATH').value, smokePath);
-    assert.equal(findSetting(pathPayload, 'LAB_STATE_PATH').status.state, 'missing');
-    assert.equal((await readRuntimeSettings()).LAB_STATE_PATH, smokePath, 'Runtime cache should contain changed LAB_STATE_PATH.');
-
     const retentionResponse = await configRoute.PATCH(
       request('/api/admin/config', admin, {
         method: 'PATCH',
@@ -251,15 +237,6 @@ async function main() {
     );
     assert.equal(resetRetentionResponse.status, 200, 'Admin should restore AUDIT_LOG_RETENTION_DAYS.');
 
-    const resetPathResponse = await configRoute.PATCH(
-      request('/api/admin/config', admin, {
-        method: 'PATCH',
-        body: JSON.stringify({ settings: { LAB_STATE_PATH: null } }),
-      }),
-    );
-    assert.equal(resetPathResponse.status, 200, 'Admin should reset LAB_STATE_PATH.');
-    assert.equal((await readRuntimeSettings()).LAB_STATE_PATH, undefined, 'Runtime cache should remove reset LAB_STATE_PATH.');
-
     const restartResponse = await restartRoute.POST(request('/api/admin/config/restart', admin, { method: 'POST' }));
     const expectedRestartStatus = process.env.VIOSCOPE_RESTART_COMMAND?.trim() ? 200 : 409;
     assert.equal(restartResponse.status, expectedRestartStatus, 'Restart status should match VIOSCOPE_RESTART_COMMAND availability.');
@@ -280,7 +257,7 @@ async function main() {
     );
 
     console.log('Admin config check passed.');
-    console.log(JSON.stringify({ changed: 'WIKI_MIN_SCORE', reset: 'LAB_STATE_PATH', auditActions: [...actions] }, null, 2));
+    console.log(JSON.stringify({ changed: 'WIKI_MIN_SCORE', reset: 'AUDIT_LOG_RETENTION_DAYS', auditActions: [...actions] }, null, 2));
   } finally {
     await restoreSettings(snapshots);
     await restoreRuntimeConfigCache(runtimeCacheSnapshot);

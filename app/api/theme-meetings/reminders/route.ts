@@ -6,6 +6,7 @@ import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import {
   buildThemeMeetingPlan,
   buildThemeMeetingReminderRun,
+  renderThemeMeetingPlan,
   sendThemeMeetingAgendaEmails,
   sendThemeMeetingReminderEmails,
 } from '../../../../src/mastra/theme-meetings/planner';
@@ -19,6 +20,13 @@ function text(value: unknown): string | undefined {
 
 function errorResponse(error: unknown, status = 500) {
   return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
+}
+
+function planForTheme<T extends { meetings: Array<{ theme_id: string }> }>(plan: T, themeId: string): T {
+  return {
+    ...plan,
+    meetings: plan.meetings.filter((meeting) => meeting.theme_id === themeId),
+  };
 }
 
 export async function POST(request: Request) {
@@ -52,6 +60,7 @@ export async function POST(request: Request) {
       run.action === 'agenda_cutoff'
         ? await sendThemeMeetingAgendaEmails(run.plan, payload.config, { themeId })
         : { sent: 0, skipped: 0, failed: 0 };
+    const scopedPlan = planForTheme(run.plan, themeId);
 
     await recordAuditLog({
       actor: user,
@@ -73,9 +82,16 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({
       action: run.action,
-      plan: run.plan,
+      plan: scopedPlan,
       notifications: run.notifications,
-      markdown: run.markdown,
+      markdown: `# Theme Meeting Cron
+
+- Action: ${run.action}
+- Meeting date: ${scopedPlan.meeting_date}
+- Cycle group: ${scopedPlan.cycle_group}
+- Notifications: ${run.notifications.length}
+
+${renderThemeMeetingPlan(scopedPlan)}`,
       emails,
       agendaEmails,
     });

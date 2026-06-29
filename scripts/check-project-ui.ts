@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
-import { chromium, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
+import { chromium, dismissWelcomeIfVisible, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { createProject } from '../src/mastra/db/projects';
 import { getUserByUsername, upsertLocalUser, type AuthUser, type UserRole } from '../src/mastra/db/users';
@@ -10,8 +10,10 @@ const port = 3128;
 const baseUrl = `http://127.0.0.1:${port}`;
 const stamp = Date.now().toString(36);
 const slug = `educational-agent-memory-ui-${stamp}`;
+const renamedSlug = `${slug}-renamed`;
 const title = 'Educational Agent with Memory UI Smoke';
-const createdSlug = `fresh-playwright-project-${stamp}`;
+const autoCreatedSlug = `fresh-playwright-project-${stamp}`;
+const createdSlug = `custom-playwright-project-${stamp}`;
 const createdTitle = `Fresh Playwright Project ${stamp}`;
 const users = {
   member: `project.ui.member.${stamp}`,
@@ -69,6 +71,7 @@ async function login(browser: any, username: string, heading?: string) {
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByText('Briefing').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await dismissWelcomeIfVisible(page);
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   if (heading) {
     await page.getByRole('heading', { name: heading }).first().waitFor({ state: 'visible', timeout: 15_000 });
@@ -84,8 +87,9 @@ async function checkEmptyMemberCreateProject(browser: any) {
     const modal = page.locator('.project-modal');
     await modal.waitFor({ state: 'visible' });
     await modal.getByLabel('Full project name').fill(createdTitle);
-    assert.equal(await modal.getByLabel('Slug').inputValue(), createdSlug);
-    assert.equal(await modal.getByLabel('Watch path').inputValue(), `project://${users.emptyMember}/${createdSlug}`);
+    assert.equal(await modal.getByLabel('Slug').inputValue(), autoCreatedSlug);
+    await modal.getByLabel('Slug').fill(createdSlug);
+    assert.equal((await modal.getByLabel('Watch path').textContent())?.trim(), `project://${users.emptyMember}/${createdSlug}`);
     await modal.getByLabel('Collaborators').fill(`${users.member}, External Education Partner`);
     await modal.getByLabel('Venue').fill('ICLR');
     await modal.getByLabel('Submission deadline').fill('2026-10-15');
@@ -104,6 +108,9 @@ async function checkMember(browser: any) {
     await page.getByRole('button', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
     const detailsForm = page.locator('.project-manage-form');
     assert.equal(await detailsForm.getByLabel('Full project name').inputValue(), title);
+    assert.equal(await detailsForm.getByLabel('Slug').inputValue(), slug);
+    await detailsForm.getByLabel('Slug').fill(renamedSlug);
+    assert.equal(await detailsForm.getByLabel('Watch path').inputValue(), `project://${users.member}/${renamedSlug}`);
     await detailsForm.getByLabel('Venue').fill('AIED UX');
     await detailsForm.getByLabel('Deadline').fill('2026-10-01');
     await detailsForm.getByLabel('Notes').fill('Updated through Playwright project UI smoke.');
@@ -111,9 +118,37 @@ async function checkMember(browser: any) {
     await page.getByRole('button', { name: 'Save project' }).click();
     assert.equal((await saveResponse).ok(), true);
     assert.equal(await detailsForm.getByLabel('Venue').inputValue(), 'AIED UX');
+
+    await page.getByRole('button', { name: 'TODO', exact: true }).click();
+    const todoPanel = page.locator('.project-todo-panel');
+    await todoPanel.getByLabel('New TODO item').fill('Draft evaluation checklist');
+    await todoPanel.getByLabel('New TODO deadline').fill('2026-10-20');
+    const addTodoResponse = page.waitForResponse((response: any) => response.url().includes('/api/projects/') && response.request().method() === 'PATCH');
+    await todoPanel.getByRole('button', { name: 'Add TODO' }).click();
+    assert.equal((await addTodoResponse).ok(), true);
+    const todoRow = todoPanel.locator('.project-todo-row').first();
+    await todoRow.waitFor({ state: 'visible', timeout: 15_000 });
+    assert.equal(await todoRow.getByLabel(/TODO item/).inputValue(), 'Draft evaluation checklist');
+    const completeTodoResponse = page.waitForResponse((response: any) => response.url().includes('/api/projects/') && response.request().method() === 'PATCH');
+    await todoRow.getByLabel(/Complete TODO/).check();
+    assert.equal((await completeTodoResponse).ok(), true);
+    await page.waitForFunction(() => document.querySelector('.project-todo-row.done'));
+    await todoRow.getByLabel(/TODO item/).fill('Draft evaluation checklist v2');
+    const editTodoResponse = page.waitForResponse((response: any) => response.url().includes('/api/projects/') && response.request().method() === 'PATCH');
+    await todoRow.getByLabel(/TODO item/).blur();
+    assert.equal((await editTodoResponse).ok(), true);
+    assert.equal(await todoRow.getByLabel(/TODO item/).inputValue(), 'Draft evaluation checklist v2');
+    await todoRow.getByLabel(/TODO deadline/).fill('2026-10-21');
+    const editTodoDateResponse = page.waitForResponse((response: any) => response.url().includes('/api/projects/') && response.request().method() === 'PATCH');
+    await todoRow.getByLabel(/TODO deadline/).blur();
+    assert.equal((await editTodoDateResponse).ok(), true);
     await page.getByLabel('Close project details').click();
 
-    await page.getByLabel(`Progress update for ${title}`).click();
+    await page.getByLabel(`TODO list for ${title}`).click();
+    await page.getByRole('heading', { name: 'TODO list' }).waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByLabel('Close project details').click();
+
+    await page.getByLabel(`Update ${title}`).click();
     const form = page.locator('.project-update-form');
     await form.waitFor({ state: 'visible' });
     await form.locator('select').nth(1).selectOption('3');
@@ -144,7 +179,7 @@ async function checkMember(browser: any) {
     await page.getByLabel('Close project details').click();
 
     await page.getByRole('button', { name: 'Settings' }).click();
-    await page.getByRole('button', { name: 'Notifications' }).click();
+    await page.getByLabel('Settings sections').getByRole('button', { name: 'Notifications' }).click();
     await page.getByRole('heading', { name: 'Notifications' }).waitFor({ state: 'visible' });
     await page.getByText('Web only').waitFor({ state: 'visible' });
     await page.getByLabel('Project progress reminders email notifications').click();
@@ -177,7 +212,7 @@ async function checkPi(browser: any) {
     await page.getByRole('heading', { name: 'Project planning brief' }).waitFor({ state: 'visible' });
     await page.getByText('Finished baseline memory wiring and reached milestone for tutor evaluation.').first().waitFor({ state: 'visible' });
     await page.getByText(`${title} / ${users.member} / Milestone check / stage 3 (85%)`).first().click();
-    await page.getByRole('button', { name: 'Progress update', exact: true }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Update', exact: true }).waitFor({ state: 'visible' });
     await page.getByLabel('Close project details').click();
     await page.getByRole('button', { name: 'Add to agenda' }).first().click();
     await page.getByRole('button', { name: 'Added' }).first().waitFor({ state: 'visible' });
@@ -208,7 +243,7 @@ async function checkAdmin(browser: any) {
 async function cleanup() {
   const postgres = createPostgresClient('project-ui-check-cleanup');
   try {
-    await postgres.pool.query('DELETE FROM project_records WHERE slug = ANY($1::text[])', [[slug, createdSlug]]).catch(() => undefined);
+    await postgres.pool.query('DELETE FROM project_records WHERE slug = ANY($1::text[])', [[slug, renamedSlug, createdSlug]]).catch(() => undefined);
     await postgres.pool
       .query('DELETE FROM audit_log WHERE actor_username = ANY($1::text[]) OR metadata::text LIKE $2', [
         Object.values(users),

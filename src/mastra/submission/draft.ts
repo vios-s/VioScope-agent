@@ -9,8 +9,8 @@ export type DraftSource = {
 };
 
 const supportedDraftExtensions = new Set(['.txt', '.md', '.markdown', '.tex', '.latex', '.rst']);
-const maxDraftBytes = 2 * 1024 * 1024;
-const maxDeckBytes = runtimeEnvNumber('SUBMISSION_REVIEW_MAX_DECK_BYTES', 25 * 1024 * 1024);
+export const maxDraftBytes = 2 * 1024 * 1024;
+export const maxDeckBytes = runtimeEnvNumber('SUBMISSION_REVIEW_MAX_DECK_BYTES', 25 * 1024 * 1024);
 
 export function supportedDraftExtensionList() {
   return [...supportedDraftExtensions, '.pptx'].sort().join(', ');

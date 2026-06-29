@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { runtimeEnv } from '../../../src/mastra/runtime-config';
+import { maxDeckBytes, maxDraftBytes } from '../../../src/mastra/submission/draft';
 import { defaultSubmissionReviewSkills, reviewSubmission } from '../../../src/mastra/submission/review';
 
 export const runtime = 'nodejs';
@@ -62,6 +63,10 @@ async function saveUploadedDraft(file: File): Promise<string> {
   const extension = extname(file.name).toLowerCase();
   if (!allowedUploadExtensions.has(extension)) {
     throw new Error(`Unsupported file extension "${extension || '(none)'}".`);
+  }
+  const maxBytes = extension === '.pptx' ? maxDeckBytes : maxDraftBytes;
+  if (file.size > maxBytes) {
+    throw new Error(`Uploaded draft is too large (${file.size} bytes > ${maxBytes} bytes).`);
   }
 
   await mkdir(uploadRoot, { recursive: true });

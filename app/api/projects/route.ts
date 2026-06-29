@@ -42,6 +42,23 @@ function integer(value: unknown): number | undefined {
   return parsed;
 }
 
+function todoArray(value: unknown): ProjectCreateInput['todos'] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error('Expected a list of TODO items.');
+  return value.map((item) => {
+    if (!item || typeof item !== 'object') throw new Error('Expected a TODO item.');
+    const todo = item as Record<string, unknown>;
+    return {
+      id: text(todo.id),
+      text: text(todo.text),
+      dueDate: optionalText(todo.dueDate),
+      done: Boolean(todo.done),
+      createdAt: text(todo.createdAt),
+      updatedAt: text(todo.updatedAt),
+    };
+  });
+}
+
 function projectInput(body: Record<string, unknown>): ProjectCreateInput {
   return {
     project: text(body.project),
@@ -61,6 +78,7 @@ function projectInput(body: Record<string, unknown>): ProjectCreateInput {
     submissionDeadline: optionalText(body.submissionDeadline),
     watchPath: optionalText(body.watchPath),
     notes: optionalText(body.notes),
+    todos: todoArray(body.todos),
   };
 }
 

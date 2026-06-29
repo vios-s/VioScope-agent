@@ -2,7 +2,7 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { chromium, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
+import { chromium, dismissWelcomeIfVisible, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { upsertLocalUser, type UserRole } from '../src/mastra/db/users';
 
@@ -161,8 +161,10 @@ async function login(page: any, username: string) {
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByText('Briefing').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await dismissWelcomeIfVisible(page);
   await page.getByRole('button', { name: 'Meeting' }).click();
-  await page.getByText('Theme meeting planner').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByRole('heading', { name: 'Next Theme Meeting' }).waitFor({ state: 'visible', timeout: 15_000 });
 }
 
 async function expectVisible(page: any, text: string) {
@@ -173,8 +175,8 @@ async function checkMember(browser: any) {
   const page = await browser.newPage();
   await login(page, users.member);
   await expectVisible(page, 'Past meetings');
-  await expectVisible(page, 'Suggest theme slot');
-  await page.getByText(/^For \d{4}-\d{2}-\d{2}$/).waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
   const slotSelect = page.locator('.theme-update-form select').nth(2);
   assert.equal(await slotSelect.locator('option[value="deep_dive"]').textContent(), 'Deep dive (20-30 min)');
@@ -184,7 +186,7 @@ async function checkMember(browser: any) {
   await slotSelect.selectOption('nothing_to_report');
   await page.locator('.theme-update-form textarea').nth(0).fill('Finished a mock UI smoke test update for the next meeting.');
   await page.locator('.theme-update-form textarea').nth(1).fill('Can the UI save this member update?');
-  await page.getByRole('button', { name: 'Save slot' }).click();
+  await page.getByRole('button', { name: 'Update' }).click();
   await expectVisible(page, 'Update saved.');
   await page.getByRole('button', { name: 'Settings' }).click();
   assert.equal(await page.getByRole('button', { name: 'Theme meeting' }).count(), 0, 'Member should not see theme meeting settings.');
@@ -195,8 +197,8 @@ async function checkCoordinator(browser: any) {
   const page = await browser.newPage();
   await login(page, users.coordinator);
   await expectVisible(page, 'Past meetings');
-  await expectVisible(page, 'Suggest theme slot');
-  await page.getByText(/^For \d{4}-\d{2}-\d{2}$/).waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'B');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting' }).click();
@@ -211,7 +213,7 @@ async function checkPlanningOnly(browser: any, username: string) {
   await expectVisible(page, 'Theme A');
   await expectVisible(page, 'Theme B');
   await expectVisible(page, 'Past meetings');
-  assert.equal(await page.getByText('Suggest theme slot').count(), 0);
+  assert.equal(await page.locator('.theme-update-form').count(), 0);
   assert.ok(await page.getByText('Remind missing').count() > 0, 'PI/admin planning view should expose theme management actions.');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting' }).click();
@@ -225,8 +227,8 @@ async function checkAdminMember(browser: any) {
   await login(page, users.admin);
   await expectVisible(page, 'Theme A');
   await expectVisible(page, 'Theme B');
-  await expectVisible(page, 'Suggest theme slot');
-  await page.getByText(/^For \d{4}-\d{2}-\d{2}$/).waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting' }).click();

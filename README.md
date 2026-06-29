@@ -1,6 +1,7 @@
 # VioScope Agent
 
-Mastra + TypeScript scaffold for the VioScope agent system. The active slice is A2/B1: database-backed project state and theme-meeting support. B3 cited Wiki Q&A and B2 pre-submission review are also scaffolded.
+Mastra + TypeScript scaffold for the VioScope agent system. The current direction is tracked in
+[docs/VioScope-roadmap.md](docs/VioScope-roadmap.md).
 
 ## Setup
 
@@ -47,6 +48,8 @@ Keep site-specific files under `DATASTORE_DIR` or another internal repo, not thi
 /Public/skills/vios-research-skills/
 /Public/skills/vios-private-skills/
 /Public/runtime/mastra.db
+/Public/users/<user>/memory.md
+/Public/users/<user>/projects/<project>/
 /Public/uploads/submission-review/
 ```
 
@@ -147,6 +150,7 @@ Dry-run public team profile import:
 
 ```bash
 npm run users:import-team
+npm run users:seed-memory
 ```
 
 Create a first-login local account. With no password argument, the username is used once and the user must add email and reset password before normal app access:

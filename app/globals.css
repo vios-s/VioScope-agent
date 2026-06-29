@@ -564,7 +564,7 @@ textarea:focus-visible {
 .notification-row {
   width: 100%;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 36px minmax(0, 1fr);
   align-items: start;
   gap: 12px;
   padding: 11px 0;
@@ -623,11 +623,13 @@ button.notification-row:hover {
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.35;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .notification-row em {
+  grid-column: 2;
   color: var(--faint);
   font-size: 0.68rem;
   font-style: normal;
@@ -642,19 +644,6 @@ button.notification-row:hover {
   text-align: center;
   font-size: 0.85rem;
   font-weight: 800;
-}
-
-.notification-view-all {
-  min-height: 31px;
-  border: 0;
-  background: var(--primary);
-  color: #fff;
-  font-size: 0.84rem;
-  font-weight: 850;
-}
-
-.notification-view-all:hover {
-  background: var(--primary-d);
 }
 
 .account-menu {
@@ -885,6 +874,16 @@ button.notification-row:hover {
 .auth-loading {
   display: grid;
   gap: 14px;
+}
+
+.session-loading-shell {
+  display: grid;
+  place-content: center;
+  place-items: center;
+  gap: 10px;
+  background: var(--bg);
+  color: var(--muted);
+  font-weight: 850;
 }
 
 .auth-form h1 {
@@ -1284,24 +1283,46 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .briefing-agenda {
   margin: 0;
-  padding: 4px 18px 18px;
+  padding: 6px 18px 18px;
   list-style: none;
 }
 
 .briefing-agenda li {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 12px;
-  padding: 13px 0;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 12px 0;
   border-top: 1px solid var(--border-row);
 }
 
 .briefing-agenda time {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--teal-surface-bd);
+  border-radius: 8px;
+  background: var(--teal-surface);
   color: var(--teal-ink);
+  font-size: 0.82rem;
   font-weight: 900;
+  font-variant-numeric: tabular-nums;
 }
 
-.briefing-agenda div,
+.briefing-agenda div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.briefing-agenda strong {
+  color: var(--ink);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
 .briefing-evidence {
   gap: 4px;
 }
@@ -1518,27 +1539,26 @@ html[data-theme="dark"] .briefing-hero::after {
   color: var(--accent);
 }
 
+.status-text {
+  display: inline;
+  font-size: 0.76rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 .status-on_track {
-  border: 1px solid var(--ok-bd);
-  background: var(--ok-bg);
   color: var(--ok-fg);
 }
 
 .status-blocked {
-  border: 1px solid var(--danger-bd);
-  background: var(--danger-bg);
   color: var(--danger-fg);
 }
 
 .status-stale {
-  border: 1px solid var(--neutral-bd);
-  background: var(--neutral-bg);
   color: var(--neutral-fg);
 }
 
 .status-needs_input {
-  border: 1px solid var(--warn-bd);
-  background: var(--warn-bg);
   color: var(--warn-fg);
 }
 
@@ -1768,6 +1788,155 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .confirm-dialog-card footer {
   justify-content: flex-end;
+}
+
+.welcome-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+}
+
+.welcome-dialog::backdrop {
+  background: rgba(20, 24, 26, 0.5);
+}
+
+.welcome-dialog-card {
+  max-height: calc(100dvh - 32px);
+  display: grid;
+  gap: 16px;
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.5);
+}
+
+.welcome-dialog-card header,
+.welcome-dialog-card footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.welcome-dialog-card h2,
+.welcome-dialog-card p,
+.welcome-task-list {
+  margin: 0;
+}
+
+.welcome-dialog-card h2 {
+  max-width: 560px;
+  color: var(--ink);
+  font-size: 1.22rem;
+  line-height: 1.25;
+}
+
+.welcome-dialog-card p {
+  color: var(--ink-3);
+  line-height: 1.55;
+}
+
+.welcome-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--teal-ink);
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.welcome-dialog-card header button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.welcome-dialog-card header button:hover {
+  background: var(--surface-3);
+  color: var(--ink-3);
+}
+
+.welcome-dialog-card header svg {
+  width: 15px;
+  height: 15px;
+}
+
+.welcome-task-list {
+  display: grid;
+  gap: 9px;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-task-list li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.welcome-task-list > li > svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  color: var(--teal-ink);
+}
+
+.welcome-task-list strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.welcome-task-list a {
+  color: var(--teal-ink);
+  font-weight: 850;
+}
+
+.welcome-dialog-card footer {
+  align-items: center;
+  padding-top: 2px;
+}
+
+.welcome-dialog-card .button-row {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.welcome-dialog-card .button-row button {
+  white-space: nowrap;
+}
+
+.welcome-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-3);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.welcome-checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .library-list,
@@ -2622,6 +2791,33 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .settings-section-config {
   width: 100%;
+}
+
+.settings-section-markdown {
+  min-height: calc(100dvh - 112px);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.markdown-editor-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(320px, 1fr) auto auto;
+  gap: 14px;
+  padding: 16px;
+}
+
+.markdown-editor-textarea {
+  width: 100%;
+  min-height: 320px;
+  resize: vertical;
+  padding: 14px;
+  border: 1px solid var(--field-border);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  line-height: 1.55;
 }
 
 .config-panel {
@@ -3627,8 +3823,9 @@ html[data-theme="dark"] .briefing-hero::after {
   inset: 0;
   z-index: 80;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
   padding: 24px;
   background: rgba(20, 24, 26, 0.45);
 }
@@ -3725,6 +3922,12 @@ html[data-theme="dark"] .briefing-hero::after {
   min-height: 38px;
 }
 
+.users-modal input:disabled,
+.users-modal input[readonly] {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
 .users-modal textarea {
   min-height: 82px;
   padding: 10px 11px;
@@ -3760,6 +3963,55 @@ html[data-theme="dark"] .briefing-hero::after {
 .project-update-form .full,
 .project-update-form .form-message {
   grid-column: 1 / -1;
+}
+
+.readonly-field {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink-3);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.readonly-field > span {
+  color: var(--muted);
+}
+
+.readonly-value {
+  min-width: 0;
+  color: var(--ink-2);
+}
+
+.readonly-owner-value {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 900;
+}
+
+.readonly-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 0.68rem;
+}
+
+.readonly-path-value {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .project-detail-modal {
@@ -3893,7 +4145,8 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .project-artifact-panel,
-.project-timeline-panel {
+.project-timeline-panel,
+.project-todo-panel {
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -3921,6 +4174,50 @@ html[data-theme="dark"] .briefing-hero::after {
 .artifact-row p {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.artifact-summary {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.artifact-summary summary {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 10px;
+  color: var(--teal-ink);
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.artifact-summary summary::after {
+  content: "Expand";
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.artifact-summary[open] summary {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.artifact-summary[open] summary::after {
+  content: "Collapse";
+}
+
+.artifact-summary p {
+  padding: 10px;
+  color: var(--ink-3);
+  line-height: 1.55;
+}
+
+.artifact-summary-empty {
+  color: var(--muted);
 }
 
 .artifact-actions {
@@ -3993,9 +4290,27 @@ html[data-theme="dark"] .briefing-hero::after {
   align-items: center;
 }
 
+.timeline-meta {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
 .timeline-body p {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.timeline-update-text {
+  padding: 12px;
+  border: 1px solid var(--teal-surface-bd);
+  border-left: 4px solid var(--teal-ink);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.92rem;
+  font-weight: 750;
+  line-height: 1.55;
 }
 
 .timeline-comment {
@@ -4011,6 +4326,65 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .timeline-comment-form {
   grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.project-todo-panel {
+  display: grid;
+  gap: 0;
+}
+
+.project-todo-list {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.project-todo-row {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 160px 38px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.project-todo-row.done {
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.project-todo-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+.todo-text-input,
+.todo-date-input {
+  min-height: 36px;
+  border-color: transparent;
+  background: var(--surface);
+}
+
+.todo-text-input {
+  font-weight: 750;
+}
+
+.project-todo-row.done .todo-text-input {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.project-todo-row.done .todo-date-input {
+  color: var(--muted);
+}
+
+.project-todo-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px auto;
+  gap: 10px;
+  padding: 0 12px 12px;
 }
 
 .project-update-form {
@@ -4466,6 +4840,12 @@ html[data-theme="dark"] .briefing-hero::after {
   font-weight: 750;
 }
 
+.chat-history-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .chat-empty {
   width: 100%;
   height: 100%;
@@ -4588,13 +4968,14 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .assistant-turn {
-  max-width: 78%;
+  width: 100%;
+  max-width: 100%;
   display: grid;
   gap: 8px;
 }
 
 .assistant-answer {
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   padding: 12px 16px;
   border: 1px solid var(--border-soft);
@@ -5436,13 +5817,94 @@ html[data-theme="dark"] .briefing-hero::after {
     padding-right: 10px;
   }
 
-  .theme-toggle,
-  .rail-toggle {
-    width: 32px;
-    height: 32px;
+  .brand-block {
+    width: auto;
+    gap: 8px;
+    padding-left: 10px;
   }
 
-  .account-block div,
+  .brand-block strong {
+    font-size: 1rem;
+  }
+
+  .theme-toggle,
+  .rail-toggle {
+    width: 44px;
+    height: 44px;
+  }
+
+  .topbar-notification-button {
+    position: relative;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .topbar-notification-button span {
+    display: none;
+  }
+
+  .topbar-notification-button strong {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 17px;
+    min-height: 17px;
+    padding: 0 4px;
+    border-radius: 999px;
+    font-size: 0.62rem;
+  }
+
+  .notification-popover {
+    position: fixed;
+    top: 64px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+    max-height: calc(100dvh - 76px);
+  }
+
+  .notification-tabs,
+  .notification-list {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .welcome-dialog {
+    width: min(100%, calc(100vw - 24px));
+  }
+
+  .welcome-dialog-card {
+    padding: 18px;
+  }
+
+  .welcome-dialog-card header,
+  .welcome-dialog-card footer {
+    gap: 12px;
+  }
+
+  .welcome-dialog-card footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .welcome-dialog-card .button-row {
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .welcome-dialog-card .button-row button {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .users-modal-backdrop {
+    padding: 12px;
+  }
+
+  .account-summary > div,
   .brand-block small {
     display: none;
   }
@@ -5455,7 +5917,7 @@ html[data-theme="dark"] .briefing-hero::after {
     width: 100%;
     flex-direction: row;
     overflow-x: auto;
-    padding: 0;
+    padding: 0 10px 0 0;
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
@@ -5463,6 +5925,17 @@ html[data-theme="dark"] .briefing-hero::after {
   .console-rail button {
     min-width: 78px;
     min-height: 58px;
+  }
+
+  .ops-primary,
+  .ops-secondary,
+  .icon-only-button {
+    min-height: 44px;
+  }
+
+  .icon-only-button {
+    width: 44px;
+    min-width: 44px;
   }
 
   .rail-spacer {

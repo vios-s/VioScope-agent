@@ -121,16 +121,6 @@ export const appSettingDefinitions = [
     restartRequired: true,
   },
   {
-    key: 'LAB_STATE_PATH',
-    label: 'Lab state path',
-    section: 'paths',
-    valueType: 'path',
-    envName: 'LAB_STATE_PATH',
-    description: 'Optional explicit lab state YAML path.',
-    restartRequired: true,
-    optional: true,
-  },
-  {
     key: 'PROJECT_ARTIFACT_UPLOAD_DIR',
     label: 'Project artifact directory',
     section: 'paths',

@@ -1,0 +1,162 @@
+name: Feature request
+description: Propose a VioScope page, workflow, role, or permission change.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: Please do not include secrets, tokens, or private lab content in public issues. Use placeholders for names, projects, and internal data.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      description: Which part of VioScope is this for?
+      options:
+        - Operations console
+        - Theme meetings
+        - Project manager
+        - Progress updates
+        - Chat
+        - History / Shared sessions
+        - Alerts / notifications
+        - Admin / users
+        - Pre-submission review
+        - Wiki Q&A
+        - API / automation
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: page
+    attributes:
+      label: Page or view
+      description: Name the exact page, panel, modal, tab, or route if known.
+      placeholder: e.g. Operations console > Theme meetings tab
+    validations:
+      required: true
+
+  - type: input
+    id: function
+    attributes:
+      label: Function or workflow
+      description: What should the user be able to do?
+      placeholder: e.g. coordinator manually sends missing-update reminders
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_need
+    attributes:
+      label: User need
+      description: What problem does this solve, and when does it happen?
+      placeholder: As a ..., I need ..., so that ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected_roles
+    attributes:
+      label: Affected roles
+      description: Select every role whose experience or permissions change.
+      multiple: true
+      options:
+        - member
+        - coordinator
+        - PI
+        - admin
+        - signed-in user
+        - external collaborator
+        - not signed in
+    validations:
+      required: true
+
+  - type: textarea
+    id: role_behavior
+    attributes:
+      label: Role-specific behavior
+      description: What should each selected role be able to see or do?
+      placeholder: |
+        member:
+        coordinator:
+        PI:
+        admin:
+    validations:
+      required: true
+
+  - type: dropdown
+    id: data_scope
+    attributes:
+      label: Data and write scope
+      description: Does this feature read or write account, project, meeting, memory, or datastore content?
+      options:
+        - UI only / no data changes
+        - Reads existing app state only
+        - Writes user-owned state
+        - Writes shared project or meeting state after confirmation
+        - Changes admin/configuration state
+        - Unsure
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful version of the feature.
+      placeholder: What should happen on screen, in notifications, and in saved state?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance_criteria
+    attributes:
+      label: Acceptance criteria
+      description: What must be true before this issue can close?
+      value: |
+        - [ ] Given ..., when ..., then ...
+        - [ ] The feature respects role permissions.
+        - [ ] Private/internal content is not exposed in public code or issues.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+      description: What should this issue intentionally not cover?
+      placeholder: e.g. email delivery, persistent memory, Confluence sync
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent is this for the current build?
+      options:
+        - nice to have
+        - needed soon
+        - blocks testing
+        - blocks release
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Add screenshots, sketches, related issues, docs, or notes.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: private_content
+    attributes:
+      label: Contains private content?
+      description: Select yes if screenshots, text, names, tokens, internal data, or lab content appear in this request.
+      options:
+        - "no"
+        - "yes"
+    validations:
+      required: true

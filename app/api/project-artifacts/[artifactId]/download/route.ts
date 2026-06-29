@@ -28,9 +28,9 @@ export async function GET(request: Request, context: { params: Promise<{ artifac
     const actor = await requireSessionUser(request);
     const { artifactId } = await context.params;
     const { project, artifact } = await getProjectArtifactForUser(artifactId, actor);
-    const storedPath = assertStoredProjectArtifactPath(artifact.path);
+    const storedPath = await assertStoredProjectArtifactPath(artifact.path, project);
 
-    const buffer = await readFile(storedPath);
+    const buffer = await readFile(/* turbopackIgnore: true */ storedPath);
     const fileName = artifact.title || basename(storedPath);
     await recordAuditLog({
       actor,

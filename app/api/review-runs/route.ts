@@ -3,7 +3,13 @@ import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import type { AuthUser } from '../../../src/mastra/db/users';
-import { listReviewRuns, saveReviewRun, type ReviewSignoffStatus, type ReviewVerdict } from '../../../src/mastra/db/review-runs';
+import {
+  getReviewRun,
+  listReviewRuns,
+  saveReviewRun,
+  type ReviewSignoffStatus,
+  type ReviewVerdict,
+} from '../../../src/mastra/db/review-runs';
 import type { ReviewRunSummary } from '../../../src/mastra/db/review-runs';
 
 export const runtime = 'nodejs';
@@ -53,6 +59,15 @@ export async function POST(request: Request) {
     const user = await requireSessionUser(request);
     const body = (await request.json()) as Record<string, unknown>;
     const checks = Array.isArray(body.checks) ? body.checks : [];
+    const requestedRunId = text(body.id);
+    const canManageSignoff = canSeeAll(user);
+
+    if (requestedRunId) {
+      const existingRun = await getReviewRun(requestedRunId);
+      if (!canAccessRun(existingRun, user)) {
+        throw new AuthError('You can only update review runs you can access.', 403, 'forbidden');
+      }
+    }
 
     const parsedChecks = checks.map((rawCheck) => {
       const check = rawCheck as Record<string, unknown>;
@@ -61,7 +76,7 @@ export async function POST(request: Request) {
       const verdict = text(check.verdict) as ReviewVerdict | undefined;
       const reportMarkdown = text(check.reportMarkdown);
       const resultJson = check.resultJson;
-      const signoffStatus = (text(check.signoffStatus) || 'pending') as ReviewSignoffStatus;
+      const signoffStatus = (canManageSignoff ? text(check.signoffStatus) || 'pending' : 'pending') as ReviewSignoffStatus;
 
       if (!skillName || !skillLabel || !verdict || !reportMarkdown || !resultJson) {
         throw new Error('Each check must include skillName, skillLabel, verdict, reportMarkdown, and resultJson.');
@@ -82,8 +97,8 @@ export async function POST(request: Request) {
         reportMarkdown,
         resultJson,
         signoffStatus,
-        reviewerNote: text(check.reviewerNote),
-        signedOffBy: text(check.signedOffBy),
+        reviewerNote: canManageSignoff ? text(check.reviewerNote) : undefined,
+        signedOffBy: canManageSignoff ? text(check.signedOffBy) : undefined,
       };
     });
 
@@ -93,7 +108,7 @@ export async function POST(request: Request) {
     }
 
     const run = await saveReviewRun({
-      id: text(body.id),
+      id: requestedRunId,
       projectName: text(body.projectName),
       draftName,
       targetVenue: text(body.targetVenue),

@@ -1,5 +1,8 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { canSeeAll, isUserName } from '../auth/session';
+import type { AuthUser } from '../db/users';
+import { visiblePlanForUser } from '../theme-meetings/access';
 import {
   buildThemeMeetingPlan,
   renderThemeMeetingPlan,
@@ -11,6 +14,14 @@ import {
   themeUpdateTypeSchema,
   type ThemeMeetingPlan,
 } from '../theme-meetings/schema';
+
+function requestUser(context: { requestContext?: { get: (key: string) => unknown } } | undefined): AuthUser {
+  const user = context?.requestContext?.get('vioscope-user') as AuthUser | undefined;
+  if (!user?.id || !user.username) {
+    throw new Error('Theme meeting tools require a signed-in VioScope user context.');
+  }
+  return user;
+}
 
 export const readThemeMeetingPlanTool = createTool({
   id: 'read-theme-meeting-plan',
@@ -32,11 +43,13 @@ export const readThemeMeetingPlanTool = createTool({
       openWorldHint: false,
     },
   },
-  execute: async (input) => {
-    const { plan } = await buildThemeMeetingPlan({ meetingDate: input.meetingDate });
+  execute: async (input, context) => {
+    const user = requestUser(context);
+    const { config, plan } = await buildThemeMeetingPlan({ meetingDate: input.meetingDate, validateUsers: true });
+    const visiblePlan = visiblePlanForUser(plan, config, user);
     return {
-      plan,
-      markdown: renderThemeMeetingPlan(plan),
+      plan: visiblePlan,
+      markdown: renderThemeMeetingPlan(visiblePlan),
     };
   },
   toModelOutput: (output) => ({
@@ -71,15 +84,22 @@ export const submitThemeMeetingUpdateTool = createTool({
       openWorldHint: false,
     },
   },
-  execute: async (input) => {
+  execute: async (input, context) => {
+    const user = requestUser(context);
+    if (!canSeeAll(user) && !isUserName(input.member, user)) {
+      throw new Error('Members can only submit their own theme meeting update.');
+    }
+    const { config } = await buildThemeMeetingPlan({ meetingDate: input.meetingDate, validateUsers: true });
     const { update, plan } = await submitThemeMeetingUpdate({
       ...input,
       submittedVia: 'chat',
+      validateUsers: true,
     });
+    const visiblePlan = visiblePlanForUser(plan, config, user);
     return {
       update,
-      plan,
-      markdown: renderThemeMeetingPlan(plan),
+      plan: visiblePlan,
+      markdown: renderThemeMeetingPlan(visiblePlan),
     };
   },
   toModelOutput: (output) => ({

@@ -47,8 +47,26 @@ function integer(value: unknown): number | undefined {
   return parsed;
 }
 
+function todoArray(value: unknown): ProjectUpdateInput['todos'] {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) throw new Error('Expected a list of TODO items.');
+  return value.map((item) => {
+    if (!item || typeof item !== 'object') throw new Error('Expected a TODO item.');
+    const todo = item as Record<string, unknown>;
+    return {
+      id: text(todo.id),
+      text: text(todo.text),
+      dueDate: optionalText(todo.dueDate),
+      done: Boolean(todo.done),
+      createdAt: text(todo.createdAt),
+      updatedAt: text(todo.updatedAt),
+    };
+  });
+}
+
 function projectInput(body: Record<string, unknown>): ProjectUpdateInput {
   return {
+    project: text(body.project),
     title: text(body.title),
     ownerUsername: text(body.ownerUsername),
     collaborators: textArray(body.collaborators),
@@ -65,11 +83,13 @@ function projectInput(body: Record<string, unknown>): ProjectUpdateInput {
     submissionDeadline: optionalText(body.submissionDeadline),
     watchPath: optionalText(body.watchPath),
     notes: optionalText(body.notes),
+    todos: todoArray(body.todos),
   };
 }
 
 function changedFields(body: Record<string, unknown>): string[] {
   return [
+    'project',
     'title',
     'ownerUsername',
     'collaborators',
@@ -86,6 +106,7 @@ function changedFields(body: Record<string, unknown>): string[] {
     'submissionDeadline',
     'watchPath',
     'notes',
+    'todos',
   ].filter((field) => body[field] !== undefined);
 }
 

@@ -1,6 +1,14 @@
 import 'dotenv/config';
+import { createSessionToken, sessionCookieName } from '../src/mastra/auth/session';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { getReviewRun, saveReviewRun, updateReviewCheckSignoff } from '../src/mastra/db/review-runs';
+import { getUserByUsername, upsertLocalUser, type AuthUser } from '../src/mastra/db/users';
+
+const stamp = Date.now().toString(36);
+const routeUsers = {
+  owner: `review.run.owner.${stamp}`,
+  intruder: `review.run.intruder.${stamp}`,
+};
 
 async function deleteRun(id: string): Promise<number> {
   const postgres = createPostgresClient('vioscope-review-runs-check-cleanup');
@@ -13,7 +21,59 @@ async function deleteRun(id: string): Promise<number> {
   }
 }
 
+async function cleanupUsers() {
+  const postgres = createPostgresClient('vioscope-review-runs-user-cleanup');
+  try {
+    await postgres.pool.query('DELETE FROM users WHERE username = ANY($1::text[])', [Object.values(routeUsers)]).catch(() => undefined);
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
+async function seedUser(username: string): Promise<AuthUser> {
+  await upsertLocalUser({
+    username,
+    displayName: username,
+    email: `${username}@example.test`,
+    password: 'ReviewRun1!',
+    role: 'member',
+    passwordResetRequired: false,
+    source: 'review_run_check',
+  });
+  const user = await getUserByUsername(username);
+  if (!user) throw new Error(`Expected ${username} to exist.`);
+  return user;
+}
+
+function routeRequest(user: AuthUser, body: Record<string, unknown>): Request {
+  return new Request('http://localhost/api/review-runs', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      cookie: `${sessionCookieName}=${createSessionToken(user)}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+function routeCheckBody(patch: Record<string, unknown> = {}) {
+  return {
+    draftName: 'route-smoke-draft.md',
+    checks: [
+      {
+        skillName: 'vios-skeleton-lock',
+        skillLabel: 'Skeleton Lock',
+        verdict: 'CONDITIONAL',
+        reportMarkdown: '# Route smoke review',
+        resultJson: { ok: true },
+        ...patch,
+      },
+    ],
+  };
+}
+
 async function main() {
+  await cleanupUsers();
   const smokeResult = {
     report: '# Smoke Review\n\nThis is a deterministic fake review.',
     structured: {
@@ -81,14 +141,39 @@ async function main() {
     throw new Error('Sign-off update did not persist.');
   }
 
+  const reviewRunsRoute = await import('../app/api/review-runs/route');
+  const owner = await seedUser(routeUsers.owner);
+  const intruder = await seedUser(routeUsers.intruder);
+  const ownerResponse = await reviewRunsRoute.POST(
+    routeRequest(owner, routeCheckBody({ signoffStatus: 'accepted', signedOffBy: 'Forged Reviewer' })),
+  );
+  if (ownerResponse.status !== 200) {
+    throw new Error(`Expected owner review run save to succeed, got ${ownerResponse.status}.`);
+  }
+  const ownerBody = await ownerResponse.json();
+  const routeRun = ownerBody.run;
+  if (routeRun.checks?.[0]?.signoffStatus !== 'pending' || routeRun.checks?.[0]?.signedOffBy) {
+    throw new Error('Member route save should not accept forged sign-off fields.');
+  }
+  const intruderResponse = await reviewRunsRoute.POST(
+    routeRequest(intruder, { ...routeCheckBody(), id: routeRun.id }),
+  );
+  if (intruderResponse.status !== 403) {
+    throw new Error(`Expected cross-user review run overwrite to be forbidden, got ${intruderResponse.status}.`);
+  }
+
   const deleted = await deleteRun(saved.id);
+  const deletedRouteRun = await deleteRun(routeRun.id);
+  await cleanupUsers();
   console.log(
     JSON.stringify(
       {
         savedRunId: saved.id,
         loadedChecks: loaded.checks.length,
         signoffStatus: check.signoffStatus,
-        deleted,
+        routeSignoffStatus: routeRun.checks[0].signoffStatus,
+        crossUserOverwrite: 'forbidden',
+        deleted: deleted + deletedRouteRun,
       },
       null,
       2,
@@ -96,7 +181,8 @@ async function main() {
   );
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(error instanceof Error ? error.message : error);
+  await cleanupUsers().catch(() => undefined);
   process.exitCode = 1;
 });

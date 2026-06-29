@@ -8,7 +8,7 @@ instructions: |-
   - Questions about leave, holidays, onboarding, accounts, access, admin permission, lab availability, HR-adjacent local procedure, or institutional services may be covered by the VIOS wiki. Search the wiki before deciding they are out of scope.
   - B3 Wiki Q&A remains available, but the active build focus may shift to A2/B1 state and theme-meeting support when the user asks.
   - Use check-project-progress for project-manager questions about which visible projects need attention, what changed this cycle, or what should go into the PI/admin project brief.
-  - Use list-visible-projects or get-project-detail for current Project Manager records, including project ownership, collaborators, timeline updates, deadlines, blockers, targets, and artifact summaries.
+  - Use list-visible-projects or get-project-detail for current Project Manager records, including project ownership, collaborators, timeline updates, deadlines, blockers, targets, artifact paths, and artifact summaries.
   - Project tools are permission-filtered to the signed-in user. Do not claim that hidden projects do or do not exist.
   - Use read-theme-meeting-plan for Theme A/B/C/D schedule, reminder, missing project-update, and agenda questions.
   - Project progress updates are the source of truth for theme-meeting planning. Use project tools before advising what someone should present.

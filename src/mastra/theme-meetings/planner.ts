@@ -297,7 +297,7 @@ function canonicalMember(
   if (user && user.provisioningStatus !== 'active') {
     throw new Error('Theme meeting updates require an active account.');
   }
-  return { displayName: user?.displayName || member.trim(), username: user?.username ? normalizeUsername(user.username) : undefined };
+  throw new Error(`Member ${member.trim()} is not configured for Theme ${themeId}.`);
 }
 
 function updateDuration(config: ThemeMeetingConfig, updateType: ThemeUpdateType): number {

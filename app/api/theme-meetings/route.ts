@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
+import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
 import { listUsersForAdmin, type AuthUser } from '../../../src/mastra/db/users';
 import {
   managedThemeIdsForUser,
@@ -154,11 +154,13 @@ export async function GET(request: Request) {
       },
       users,
       source: payload.configPath.includes('/fixtures/') ? 'fixture' : 'configured',
-      paths: {
-        config: payload.configPath,
-        updates: payload.updatesPath,
-        notifications: payload.notificationsPath,
-      },
+      paths: canSeeAll(user)
+        ? {
+            config: payload.configPath,
+            updates: payload.updatesPath,
+            notifications: payload.notificationsPath,
+          }
+        : undefined,
     });
   } catch (error) {
     return errorResponse(error, error instanceof AuthError ? error.status : 500);

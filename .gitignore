@@ -1,8 +1,6 @@
 # Local agent/context docs
 AGENTS.md
 CLAUDE.md
-docs/VioScope-plan.md
-docs/VioScope-ClaudeDesign-Brief.md
 docs/*.docx
 .agents/
 skills-lock.json

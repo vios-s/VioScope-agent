@@ -46,6 +46,7 @@
     "sync:gitbook": "tsx scripts/sync-gitbook.ts",
     "users:create": "tsx scripts/create-local-user.ts",
     "users:import-team": "tsx scripts/import-team-users.ts",
+    "users:seed-memory": "tsx scripts/seed-user-memory.ts",
     "review:submission": "tsx scripts/review-submission.ts",
     "theme-meeting:cron": "tsx scripts/theme-meeting-cron.ts",
     "audit:prune": "tsx scripts/audit-prune.ts",

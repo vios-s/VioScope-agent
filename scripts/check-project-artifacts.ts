@@ -2,7 +2,7 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { rm, writeFile, mkdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import JSZip from 'jszip';
 import { createSessionToken, sessionCookieName } from '../src/mastra/auth/session';
 import { createPostgresClient } from '../src/mastra/db/postgres';
@@ -97,6 +97,7 @@ async function cleanup(paths: string[] = []) {
   for (const path of paths) {
     await rm(path, { recursive: true, force: true }).catch(() => undefined);
     await rm(`${path}.extracted`, { recursive: true, force: true }).catch(() => undefined);
+    await rm(dirname(dirname(path)), { recursive: true, force: true }).catch(() => undefined);
   }
   await rm(checkDir, { recursive: true, force: true }).catch(() => undefined);
 }
@@ -178,6 +179,12 @@ async function uploadArtifact(
   assert.ok(artifact, `${fileName} should be recorded as current artifact.`);
   assert.ok(artifact.summary?.length > 20, `${fileName} artifact summary should be stored.`);
   assert.ok(artifact.path && existsSync(artifact.path), `${fileName} should be stored on disk.`);
+  if (process.env.DATASTORE_DIR) {
+    assert.ok(
+      artifact.path.includes(`/users/${username}/projects/${slug}/`),
+      `${fileName} should be stored under the project watch-path folder.`,
+    );
+  }
   return { artifact, digest: body.artifactDigest };
 }
 

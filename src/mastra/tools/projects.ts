@@ -171,7 +171,13 @@ function renderProjectList(projects: ReturnType<typeof toProjectContext>[]): str
       const target = project.target ? ` Target: ${project.target}` : '';
       const deadline = project.submissionDeadline ? ` Deadline: ${project.submissionDeadline}.` : '';
       const artifacts = project.currentArtifacts.length
-        ? ` Current artifacts: ${project.currentArtifacts.map((artifact) => `${artifact.title}${artifact.summary ? ` (${artifact.summary})` : ''}`).join('; ')}.`
+        ? ` Current artifacts: ${project.currentArtifacts
+            .map((artifact) => {
+              const path = artifact.path ? ` path: ${artifact.path}` : '';
+              const summary = artifact.summary ? ` summary: ${artifact.summary}` : '';
+              return `${artifact.title}${path}${summary}`;
+            })
+            .join('; ')}.`
         : '';
       const progress = `stage ${project.stage} (${project.stageProgress}%)`;
       const blocker = field('Blocker', project.blocker);
@@ -225,7 +231,7 @@ export const listVisibleProjectsTool = createTool({
 export const getProjectDetailTool = createTool({
   id: 'get-project-detail',
   description:
-    'Read one visible project in detail. Returns timeline updates and current artifact summaries, not full file bodies.',
+    'Read one visible project in detail. Returns timeline updates, current artifact paths, and artifact summaries, not full file bodies.',
   inputSchema: z.object({
     projectId: z.string().trim().min(1).describe('Project id, slug, or full project name.'),
     maxUpdates: z.number().int().min(1).max(50).optional(),

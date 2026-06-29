@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { chromium, getFreePort, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
+import { chromium, dismissWelcomeIfVisible, getFreePort, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
 import { createProject } from '../src/mastra/db/projects';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { getUserByUsername, upsertLocalUser, type AuthUser, type UserRole } from '../src/mastra/db/users';
@@ -115,6 +115,7 @@ async function login(page: any, baseUrl: string) {
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByText('Briefing').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await dismissWelcomeIfVisible(page);
 }
 
 async function checkBriefing(page: any) {
@@ -125,10 +126,10 @@ async function checkBriefing(page: any) {
 }
 
 async function checkAlertClickThrough(page: any) {
-  await page.getByRole('button', { name: 'View alerts' }).click();
-  await page.getByText('Alerts').first().waitFor({ state: 'visible', timeout: 15_000 });
-  await page.getByRole('button', { name: 'Open chat' }).first().click();
-  await page.getByText('Wiki assistant').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByRole('button', { name: /Notifications/ }).click();
+  await page.locator('[aria-label="Notifications Center"]').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.locator('.notification-row').first().click();
+  await page.locator('.console-page-title').filter({ hasText: 'Chat' }).waitFor({ state: 'visible', timeout: 15_000 });
   await page.locator('.user-bubble').filter({ hasText: sharedPrompt }).waitFor({ state: 'visible', timeout: 15_000 });
   await page.getByRole('tab', { name: 'Shared' }).waitFor({ state: 'visible' });
   await page.getByLabel('Remove shared chat session').click();

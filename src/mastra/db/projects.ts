@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { canSeeAll, isUserName } from '../auth/session';
 import { canManageTheme } from '../theme-meetings/access';
 import { readThemeMeetingConfig } from '../theme-meetings/store';
@@ -24,6 +25,24 @@ export type ProjectArtifactInput = {
   artifactKey?: string;
 };
 
+export type ProjectTodoInput = {
+  id?: string;
+  text?: string;
+  dueDate?: string | null;
+  done?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ProjectTodoRecord = {
+  id: string;
+  text: string;
+  dueDate: string | null;
+  done: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ProjectCreateInput = {
   project?: string;
   title?: string;
@@ -42,6 +61,7 @@ export type ProjectCreateInput = {
   submissionDeadline?: string | null;
   watchPath?: string | null;
   notes?: string | null;
+  todos?: ProjectTodoInput[];
 };
 
 export type ProjectUpdateInput = Partial<ProjectCreateInput>;
@@ -121,6 +141,7 @@ export type ProjectRecord = {
   updatedAt: string;
   artifacts: ProjectArtifactRecord[];
   updates: ProjectUpdateRecord[];
+  todos: ProjectTodoRecord[];
   needsUpdate: boolean;
   overdue: boolean;
   attentionReason: string | null;
@@ -153,6 +174,7 @@ type ProjectRow = {
   submission_deadline: string | Date | null;
   watch_path: string | null;
   notes: string | null;
+  todos: ProjectTodoRecord[] | string | null;
   archived_at: string | Date | null;
   created_at: string | Date;
   updated_at: string | Date;
@@ -253,6 +275,47 @@ function cleanDate(value?: string | null): string | null {
     throw new Error('Dates must use YYYY-MM-DD.');
   }
   return trimmed;
+}
+
+function cleanTodoId(value?: string): string {
+  return value?.trim().slice(0, 80) || randomUUID();
+}
+
+function parseProjectTodos(value: ProjectRow['todos']): ProjectTodoInput[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function cleanProjectTodos(values: ProjectTodoInput[] | undefined, current: ProjectTodoRecord[] = []): ProjectTodoRecord[] {
+  if (values === undefined) return current;
+  if (!Array.isArray(values)) throw new Error('Project TODOs must be a list.');
+  if (values.length > 100) throw new Error('Project TODOs are limited to 100 items.');
+  const now = new Date().toISOString();
+  const currentById = new Map(current.map((item) => [item.id, item]));
+  const seenIds = new Set<string>();
+
+  return values.map((item) => {
+    const id = cleanTodoId(item.id);
+    if (seenIds.has(id)) throw new Error('Project TODO ids must be unique.');
+    seenIds.add(id);
+    const existing = currentById.get(id);
+    const text = cleanText(item.text)?.slice(0, 240);
+    if (!text) throw new Error('TODO item text is required.');
+    return {
+      id,
+      text,
+      dueDate: cleanDate(item.dueDate),
+      done: Boolean(item.done),
+      createdAt: existing?.createdAt || item.createdAt || now,
+      updatedAt: existing ? now : item.updatedAt || now,
+    };
+  });
 }
 
 function dateOnly(value: string | Date | null): string | null {
@@ -450,6 +513,7 @@ function toProject(
     updatedAt: new Date(row.updated_at).toISOString(),
     artifacts,
     updates,
+    todos: cleanProjectTodos(parseProjectTodos(row.todos)),
     ...derived,
     access: {
       canEdit,
@@ -495,6 +559,7 @@ async function ensureProjectTablesOnce(): Promise<void> {
         submission_deadline DATE,
         watch_path TEXT,
         notes TEXT,
+        todos JSONB NOT NULL DEFAULT '[]'::jsonb,
         archived_at TIMESTAMPTZ,
         created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -502,6 +567,7 @@ async function ensureProjectTablesOnce(): Promise<void> {
       )
     `);
     await postgres.pool.query('ALTER TABLE project_records DROP CONSTRAINT IF EXISTS project_records_slug_key');
+    await postgres.pool.query("ALTER TABLE project_records ADD COLUMN IF NOT EXISTS todos JSONB NOT NULL DEFAULT '[]'::jsonb");
     await postgres.pool.query("UPDATE project_records SET track = 'A' WHERE track NOT IN ('A', 'B')");
     await postgres.pool.query("ALTER TABLE project_records ALTER COLUMN track SET DEFAULT 'A'");
     await postgres.pool.query(`
@@ -666,7 +732,7 @@ export async function listProjectsForUser(user: AuthUser, input: { includeArchiv
       `
         SELECT id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
-          watch_path, notes, archived_at, created_at, updated_at
+          watch_path, notes, todos, archived_at, created_at, updated_at
         FROM project_records
         WHERE ($1::boolean OR lifecycle <> 'archived')
         ORDER BY (lifecycle = 'archived') ASC, updated_at DESC
@@ -688,7 +754,7 @@ async function projectRowsByIdOrSlug(projectId: string): Promise<ProjectRow[]> {
       `
         SELECT id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
-          watch_path, notes, archived_at, created_at, updated_at
+          watch_path, notes, todos, archived_at, created_at, updated_at
         FROM project_records
         WHERE id::text = $1 OR slug = $1 OR lower(title) = lower($1)
         ORDER BY updated_at DESC
@@ -773,6 +839,7 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
   const status = input.status || 'on_track';
   if (!isProjectLifecycle(lifecycle)) throw new Error('Unsupported project lifecycle.');
   if (!isProjectStatus(status)) throw new Error('Unsupported project status.');
+  const todos = cleanProjectTodos(input.todos);
 
   const postgres = createPostgresClient('vioscope-projects');
   try {
@@ -780,13 +847,13 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
       `
         INSERT INTO project_records (
           slug, title, owner_username, collaborator_usernames, track, stage, stage_progress, lifecycle, status,
-          stage_since, last_update, blocker, target, venue, submission_deadline, watch_path, notes,
+          stage_since, last_update, blocker, target, venue, submission_deadline, watch_path, notes, todos,
           created_by_user_id
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::date, $12, $13, $14, $15::date, $16, $17, $18)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::date, $12, $13, $14, $15::date, $16, $17, $18::jsonb, $19)
         RETURNING id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
-          watch_path, notes, archived_at, created_at, updated_at
+          watch_path, notes, todos, archived_at, created_at, updated_at
       `,
       [
         slug,
@@ -806,6 +873,7 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
         cleanDate(input.submissionDeadline),
         cleanText(input.watchPath) || defaultWatchPath(ownerUsername, slug),
         cleanText(input.notes),
+        JSON.stringify(todos),
         actor.id,
       ],
     );
@@ -826,11 +894,13 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
   }
   await assertActiveOwner(nextOwnerUsername);
   const nextCollaborators = input.collaborators === undefined ? current.collaborators : cleanUsernames(input.collaborators);
+  const nextSlug = cleanSlug(input.project || current.project);
+  if (!nextSlug) throw new Error('Project slug is required.');
   const nextTitle = cleanText(input.title) || current.title;
   await assertProjectNameAvailable({
     ownerUsername: nextOwnerUsername,
     title: nextTitle,
-    slug: current.project,
+    slug: nextSlug,
     excludeProjectId: current.id,
   });
 
@@ -840,6 +910,15 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
   const nextStatus = input.status || current.status;
   if (!isProjectLifecycle(nextLifecycle)) throw new Error('Unsupported project lifecycle.');
   if (!isProjectStatus(nextStatus)) throw new Error('Unsupported project status.');
+  const nextTodos = cleanProjectTodos(input.todos, current.todos);
+  const currentDefaultWatchPath = defaultWatchPath(current.ownerUsername, current.project);
+  const nextDefaultWatchPath = defaultWatchPath(nextOwnerUsername, nextSlug);
+  const nextWatchPath =
+    input.watchPath === undefined
+      ? current.watchPath && current.watchPath !== currentDefaultWatchPath
+        ? current.watchPath
+        : nextDefaultWatchPath
+      : cleanText(input.watchPath);
 
   const postgres = createPostgresClient('vioscope-projects');
   try {
@@ -847,31 +926,34 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
       `
         UPDATE project_records
         SET
-          title = $2,
-          owner_username = $3,
-          collaborator_usernames = $4,
-          track = $5,
-          stage = $6,
-          stage_progress = $7,
-          lifecycle = $8,
-          status = $9,
-          stage_since = $10::date,
-          last_update = $11::date,
-          blocker = $12,
-          target = $13,
-          venue = $14,
-          submission_deadline = $15::date,
-          watch_path = $16,
-          notes = $17,
-          archived_at = CASE WHEN $8 = 'archived' THEN COALESCE(archived_at, now()) ELSE NULL END,
+          slug = $2,
+          title = $3,
+          owner_username = $4,
+          collaborator_usernames = $5,
+          track = $6,
+          stage = $7,
+          stage_progress = $8,
+          lifecycle = $9,
+          status = $10,
+          stage_since = $11::date,
+          last_update = $12::date,
+          blocker = $13,
+          target = $14,
+          venue = $15,
+          submission_deadline = $16::date,
+          watch_path = $17,
+          notes = $18,
+          todos = $19::jsonb,
+          archived_at = CASE WHEN $9 = 'archived' THEN COALESCE(archived_at, now()) ELSE NULL END,
           updated_at = now()
         WHERE id = $1
         RETURNING id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
-          watch_path, notes, archived_at, created_at, updated_at
+          watch_path, notes, todos, archived_at, created_at, updated_at
       `,
       [
         current.id,
+        nextSlug,
         nextTitle,
         nextOwnerUsername,
         nextCollaborators,
@@ -886,8 +968,9 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
         input.target === undefined ? current.target : cleanText(input.target),
         input.venue === undefined ? current.venue : cleanText(input.venue),
         input.submissionDeadline === undefined ? current.submissionDeadline : cleanDate(input.submissionDeadline),
-        input.watchPath === undefined ? current.watchPath || defaultWatchPath(nextOwnerUsername, current.project) : cleanText(input.watchPath),
+        nextWatchPath,
         input.notes === undefined ? current.notes : cleanText(input.notes),
+        JSON.stringify(nextTodos),
       ],
     );
     return (await hydrateProjects(result.rows, actor))[0]!;

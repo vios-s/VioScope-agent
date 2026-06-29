@@ -8,6 +8,7 @@ import { getUserByUsername, upsertLocalUser, type AuthUser, type UserRole } from
 
 const stamp = Date.now();
 const slug = `pm-${stamp}`;
+const renamedSlug = `${slug}-renamed`;
 const usernames = {
   owner: `pm.owner.${stamp}`,
   collaborator: `pm.collab.${stamp}`,
@@ -87,7 +88,7 @@ async function cleanup() {
   const userList = Object.values(usernames);
 
   try {
-    await postgres.pool.query('DELETE FROM project_records WHERE slug = $1', [slug]).catch(() => undefined);
+    await postgres.pool.query('DELETE FROM project_records WHERE slug = ANY($1::text[])', [[slug, renamedSlug]]).catch(() => undefined);
     await postgres.pool
       .query(
         `
@@ -268,6 +269,7 @@ async function main() {
     assert.equal(project.watchPath, `project://${owner.username}/${slug}`, 'Watch path should be assigned from owner and slug.');
     assert.equal(project.stageProgress, 20, 'Initial stage progress should be saved.');
     assert.ok(project.collaborators.includes('external advisor'), 'External collaborators should be saved.');
+    assert.deepEqual(project.todos, [], 'New projects should start with an empty TODO list.');
 
     const duplicateResponse = await projectsRoute.POST(jsonRequest('/api/projects', {
       project: `${slug}-dupe`,
@@ -334,6 +336,26 @@ async function main() {
     const titleLookupBody = await bodyOf<{ project?: any }>(titleLookupResponse);
     assert.equal(titleLookupResponse.status, 200, titleLookupBody.error || 'Full-name project lookup failed.');
     assert.equal(titleLookupBody.project?.id, project.id, 'Full project name should resolve to the project.');
+
+    const slugTodoResponse = await projectRoute.PATCH(
+      jsonRequest(`/api/projects/${project.id}`, {
+        project: renamedSlug,
+        watchPath: `project://${owner.username}/${renamedSlug}`,
+        todos: [{ text: 'Draft reviewer response plan', dueDate: '2026-07-01', done: false }],
+      }, owner, 'PATCH'),
+      projectContext(project.id),
+    );
+    const slugTodoBody = await bodyOf<{ project?: any }>(slugTodoResponse);
+    assert.equal(slugTodoResponse.status, 200, slugTodoBody.error || 'Project slug/TODO edit failed.');
+    assert.equal(slugTodoBody.project?.project, renamedSlug, 'Project slug should be editable.');
+    assert.equal(slugTodoBody.project?.watchPath, `project://${owner.username}/${renamedSlug}`, 'Watch path should follow edited slug.');
+    assert.equal(slugTodoBody.project?.todos?.[0]?.text, 'Draft reviewer response plan', 'TODO text should be saved.');
+    assert.equal(slugTodoBody.project?.todos?.[0]?.dueDate, '2026-07-01', 'TODO deadline should be saved.');
+
+    const renamedLookupResponse = await projectRoute.GET(getRequest(`/api/projects/${renamedSlug}`, owner), projectContext(renamedSlug));
+    const renamedLookupBody = await bodyOf<{ project?: any }>(renamedLookupResponse);
+    assert.equal(renamedLookupResponse.status, 200, renamedLookupBody.error || 'Edited slug lookup failed.');
+    assert.equal(renamedLookupBody.project?.id, project.id, 'Edited slug should resolve to the same project.');
 
     const forbiddenOwnerChange = await projectRoute.PATCH(
       jsonRequest(`/api/projects/${project.id}`, { ownerUsername: outsider.username }, owner, 'PATCH'),

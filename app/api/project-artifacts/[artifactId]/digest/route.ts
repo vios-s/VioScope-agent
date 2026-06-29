@@ -21,7 +21,7 @@ export async function POST(request: Request, context: { params: Promise<{ artifa
       throw new Error('You do not have permission to update this artifact.');
     }
 
-    const digest = await digestStoredProjectArtifact(artifact);
+    const digest = await digestStoredProjectArtifact(artifact, project);
     const nextProject = await updateProjectArtifactDigest(
       artifact.id,
       digest.artifact.summary || '',

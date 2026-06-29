@@ -5,6 +5,13 @@ import { chromium } from 'playwright';
 
 export { chromium };
 
+export async function dismissWelcomeIfVisible(page: any) {
+  const dialog = page.locator('.welcome-dialog');
+  if (!(await dialog.isVisible().catch(() => false))) return;
+  await dialog.getByLabel('Close welcome message').click();
+  await dialog.waitFor({ state: 'hidden', timeout: 5_000 });
+}
+
 export async function getFreePort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
     const server = createServer();

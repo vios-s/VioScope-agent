@@ -49,8 +49,9 @@ import type {
 } from '../src/mastra/theme-meetings/schema';
 import { vioscopeChatUiConfig } from '../src/mastra/agents/vioscope.chat-ui.config';
 
-type ActiveView = 'briefing' | 'projects' | 'chat' | 'meeting' | 'checklists' | 'alerts' | 'users';
+type ActiveView = 'briefing' | 'projects' | 'chat' | 'meeting' | 'checklists' | 'users';
 type ProjectsMode = 'member' | 'pi';
+type ProjectDetailMode = 'details' | 'progress' | 'todos';
 type ChatMessageStatus = 'thinking' | 'answer' | 'refusal';
 
 type ChatMessage = {
@@ -168,6 +169,15 @@ type ManagedProjectUpdate = {
   createdAt: string;
 };
 
+type ManagedProjectTodo = {
+  id: string;
+  text: string;
+  dueDate: string | null;
+  done: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ManagedProject = {
   id: string;
   project: string;
@@ -192,6 +202,7 @@ type ManagedProject = {
   updatedAt: string;
   artifacts: ManagedProjectArtifact[];
   updates: ManagedProjectUpdate[];
+  todos: ManagedProjectTodo[];
   needsUpdate: boolean;
   overdue: boolean;
   attentionReason: string | null;
@@ -379,6 +390,16 @@ type UsersPayload = {
   error?: string;
 };
 
+type MarkdownFilePayload = {
+  markdown?: string;
+  path?: string;
+  slug?: string;
+  imported?: boolean;
+  importedCount?: number;
+  importNote?: string;
+  error?: string;
+};
+
 type AuditLogRecord = {
   id: string;
   eventTime: string;
@@ -459,7 +480,17 @@ type ConsoleThemeSettings = {
   accent: ConsoleAccentTheme;
   font: ConsoleFontTheme;
 };
-type SettingsTab = 'general' | 'notifications' | 'integrations' | 'themeMeeting' | 'users' | 'config' | 'audit' | 'about';
+type SettingsTab =
+  | 'general'
+  | 'memory'
+  | 'notifications'
+  | 'integrations'
+  | 'teamProfiles'
+  | 'themeMeeting'
+  | 'users'
+  | 'config'
+  | 'audit'
+  | 'about';
 type PasswordStrength = 'weak' | 'medium' | 'strong';
 type ChecklistTemplateId = 'idea' | 'skeleton' | 'pdra' | 'red';
 type ChecklistTag = 'Core' | 'Required' | 'Advisory';
@@ -687,7 +718,7 @@ const rowMenuWidth = 190;
 const rowMenuHeight = 88;
 const rowMenuGutter = 10;
 const refusalPattern = /could not find|cannot find|not enough|insufficient|knowledge gap|limited to VIOS lab|non-lab topics/i;
-const activeViews: ActiveView[] = ['briefing', 'projects', 'chat', 'meeting', 'checklists', 'alerts', 'users'];
+const activeViews: ActiveView[] = ['briefing', 'projects', 'chat', 'meeting', 'checklists', 'users'];
 const viewQueryParam = 'view';
 
 function activeViewFromSearch(search: string): ActiveView {
@@ -728,9 +759,15 @@ function generatedWatchPath(ownerUsername: string, slug: string) {
   return slug ? `project://${ownerUsername}/${slug}` : '';
 }
 
+function dateValue(value: string) {
+  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value);
+}
+
 function formatDate(value: string | null) {
   if (!value) return 'No date';
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(`${value}T00:00:00Z`));
+  const date = dateValue(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
 }
 
 function formatAge(days: number | null) {
@@ -886,6 +923,20 @@ function chatHistoryImportKey(userId: string) {
   return `${chatHistoryKey(userId)}.serverImported`;
 }
 
+function welcomeDismissedKey(userId: string) {
+  return `vioscope.welcome.dismissed.${userId}.v1`;
+}
+
+function welcomeDismissed(userId: string) {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(welcomeDismissedKey(userId)) === 'true';
+}
+
+function dismissWelcomeForever(userId: string) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(welcomeDismissedKey(userId), 'true');
+}
+
 function loadChatSessions(userId: string): ChatSession[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -931,7 +982,22 @@ function chatSessionTitle(messages: ChatMessage[]) {
 }
 
 function chatSessionTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
+function compactNotificationTime(value: string) {
+  return new Intl.DateTimeFormat('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
 }
 
 const auditLogTimeZone = 'Europe/London';
@@ -954,7 +1020,7 @@ function auditLogTime(value: string) {
   return new Intl.DateTimeFormat('en-GB', {
     timeZone: auditLogTimeZone,
     day: '2-digit',
-    month: 'short',
+    month: '2-digit',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
@@ -1373,6 +1439,10 @@ function ConfirmDialog({
       className="confirm-dialog"
       aria-labelledby={titleId}
       aria-describedby={messageId}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (!busy && event.target === event.currentTarget) onCancel();
+      }}
       onCancel={(event) => {
         event.preventDefault();
         if (!busy) onCancel();
@@ -1395,6 +1465,141 @@ function ConfirmDialog({
           </button>
         </footer>
       </form>
+    </dialog>
+  );
+}
+
+function WelcomeDialog({
+  open,
+  user,
+  dontShowAgain,
+  onDontShowAgainChange,
+  onClose,
+  onOpenSettings,
+}: {
+  open: boolean;
+  user: CurrentUser;
+  dontShowAgain: boolean;
+  onDontShowAgainChange: (checked: boolean) => void;
+  onClose: () => void;
+  onOpenSettings: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = 'welcome-dialog-title';
+  const descriptionId = 'welcome-dialog-description';
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (open) {
+      if (!dialog.open) dialog.showModal();
+      window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    } else if (dialog.open) {
+      dialog.close();
+    }
+  }, [open]);
+
+  useEffect(() => () => {
+    if (dialogRef.current?.open) dialogRef.current.close();
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="welcome-dialog"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <section className="welcome-dialog-card">
+        <header>
+          <div>
+            <span className="welcome-kicker">Welcome to VioScope</span>
+            <h2 id={titleId}>Thanks for helping us test VioScope, {user.displayName || user.username}.</h2>
+          </div>
+          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close welcome message">
+            <X aria-hidden="true" />
+          </button>
+        </header>
+
+        <p id={descriptionId}>
+          VioScope is an advisory workspace for VIOS project work: it keeps project state, personal memory,
+          theme meeting updates, chat collaboration, notifications, and checklist support in one place. Your real
+          updates help us understand where the agent is useful and where it needs better evidence or behaviour.
+        </p>
+
+        <ol className="welcome-task-list">
+          <li>
+            <Settings aria-hidden="true" />
+            <div>
+              <strong>Update your profile and memory.</strong>
+              <p>Add your current details in Settings, then use My memory to tell VioScope how you work.</p>
+            </div>
+          </li>
+          <li>
+            <FileText aria-hidden="true" />
+            <div>
+              <strong>Update your project.</strong>
+              <p>Please use real project progress and artefacts so we can test how the agent reads and responds.</p>
+            </div>
+          </li>
+          <li>
+            <CalendarDays aria-hidden="true" />
+            <div>
+              <strong>Add theme meeting progress.</strong>
+              <p>Submit a realistic update, even if the right status is nothing to report.</p>
+            </div>
+          </li>
+          <li>
+            <Bell aria-hidden="true" />
+            <div>
+              <strong>Check general configuration.</strong>
+              <p>Review notifications, display settings, and any admin configuration you have access to.</p>
+            </div>
+          </li>
+          <li>
+            <AlertCircle aria-hidden="true" />
+            <div>
+              <strong>Tell us what breaks.</strong>
+              <p>
+                Submit a bug at{' '}
+                <a href="https://github.com/vios-s/VioScope-agent/issues" target="_blank" rel="noreferrer">
+                  GitHub issues
+                </a>
+                , or contact Yuyang or Danilo directly.
+              </p>
+            </div>
+          </li>
+        </ol>
+
+        <footer>
+          <label className="welcome-checkbox">
+            <input
+              type="checkbox"
+              checked={dontShowAgain}
+              onChange={(event) => onDontShowAgainChange(event.target.checked)}
+            />
+            <span>Don&apos;t show this again on this browser</span>
+          </label>
+          <div className="button-row">
+            <button className="ops-secondary" type="button" onClick={onClose}>
+              Review later
+            </button>
+            <button className="ops-primary" type="button" onClick={onOpenSettings}>
+              <Settings aria-hidden="true" />
+              Open Settings
+            </button>
+          </div>
+        </footer>
+      </section>
     </dialog>
   );
 }
@@ -1435,7 +1640,7 @@ function StageBar({ stage }: { stage: number }) {
 }
 
 function StatusChip({ status }: { status: ProjectStatus }) {
-  return <span className={`ops-chip status-${status}`}>{statusLabels[status]}</span>;
+  return <span className={`status-text status-${status}`}>{statusLabels[status]}</span>;
 }
 
 function ChecklistTagPill({ tag }: { tag: ChecklistTag }) {
@@ -1557,12 +1762,10 @@ function saveStoredThemeSettings(userId: string, settings: ConsoleThemeSettings)
 
 function AuthLoading() {
   return (
-    <AuthFrame>
-      <div className="auth-loading">
-        <DotMatrixIcon variant="loading" size={24} />
-        <span>Checking session</span>
-      </div>
-    </AuthFrame>
+    <main className="console-app session-loading-shell">
+      <DotMatrixIcon variant="loading" size={24} />
+      <span>Checking session</span>
+    </main>
   );
 }
 
@@ -1964,10 +2167,12 @@ function ProjectCard({
   project,
   onOpenDetails,
   onOpenProgress,
+  onOpenTodos,
 }: {
   project: ManagedProject;
   onOpenDetails: (project: ManagedProject) => void;
   onOpenProgress: (project: ManagedProject) => void;
+  onOpenTodos: (project: ManagedProject) => void;
 }) {
   const currentArtifacts = currentProjectArtifacts(project);
   const age = formatAge(daysSinceDate(project.lastUpdate));
@@ -2014,11 +2219,20 @@ function ProjectCard({
           <FileText aria-hidden="true" />
         </button>
         <button
+          className="ops-secondary icon-only-button"
+          type="button"
+          onClick={() => onOpenTodos(project)}
+          aria-label={`TODO list for ${project.title}`}
+          title="TODO list"
+        >
+          <ClipboardList aria-hidden="true" />
+        </button>
+        <button
           className="ops-primary icon-only-button"
           type="button"
           onClick={() => onOpenProgress(project)}
-          aria-label={`Progress update for ${project.title}`}
-          title="Progress update"
+          aria-label={`Update ${project.title}`}
+          title="Update"
         >
           <Plus aria-hidden="true" />
         </button>
@@ -2089,16 +2303,18 @@ function ProjectEditorModal({
   onSaved: (project: ManagedProject) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(() => projectDraftFromProject(project, viewer));
+  const [slugTouched, setSlugTouched] = useState(Boolean(project));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const isNew = !project;
-  const canEditOwner = canSeeAllRole(viewer.role);
+  const canEditOwner = !isNew && canSeeAllRole(viewer.role);
   const titleId = 'project-editor-title';
   useCustomDialogFocus(true, closeButtonRef);
 
   useEffect(() => {
     setDraft(projectDraftFromProject(project, viewer));
+    setSlugTouched(Boolean(project));
     setError(null);
   }, [project, viewer]);
 
@@ -2112,7 +2328,7 @@ function ProjectEditorModal({
         (existing) =>
           existing.id !== project?.id &&
           existing.ownerUsername.toLowerCase() === draft.ownerUsername.toLowerCase() &&
-          existing.title.trim().toLowerCase() === draft.title.trim().toLowerCase(),
+          (existing.title.trim().toLowerCase() === draft.title.trim().toLowerCase() || existing.project === nextSlug),
       );
       if (!draft.title.trim()) {
         throw new Error('Full project name is required.');
@@ -2121,7 +2337,11 @@ function ProjectEditorModal({
         throw new Error('Project slug could not be generated from this name.');
       }
       if (duplicate) {
-        throw new Error('This owner already has a project with the same full project name.');
+        throw new Error(
+          duplicate.project === nextSlug
+            ? 'This owner already has a project with the same slug.'
+            : 'This owner already has a project with the same full project name.',
+        );
       }
       const response = await fetch(isNew ? '/api/projects' : `/api/projects/${project.id}`, {
         method: isNew ? 'POST' : 'PATCH',
@@ -2141,13 +2361,14 @@ function ProjectEditorModal({
   }
 
   return (
-    <div className="users-modal-backdrop" role="presentation">
+    <div className="users-modal-backdrop" role="presentation" onClick={onClose}>
       <form
         className="users-modal user-edit-modal project-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         onSubmit={submit}
+        onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => trapCustomDialogFocus(event, onClose)}
       >
         <header>
@@ -2170,9 +2391,12 @@ function ProjectEditorModal({
                 setDraft((current) => ({
                   ...current,
                   title: event.target.value,
-                  project: isNew ? slugifyProjectName(event.target.value) : current.project,
+                  project: isNew && !slugTouched ? slugifyProjectName(event.target.value) : current.project,
                   watchPath: isNew
-                    ? generatedWatchPath(current.ownerUsername, slugifyProjectName(event.target.value))
+                    ? generatedWatchPath(
+                        current.ownerUsername,
+                        isNew && !slugTouched ? slugifyProjectName(event.target.value) : current.project,
+                      )
                     : current.watchPath,
                 }))
               }
@@ -2182,25 +2406,42 @@ function ProjectEditorModal({
           <label>
             <span>Slug</span>
             <input
-              value={slugifyProjectName(draft.project || draft.title)}
-              placeholder="toy-segmentation"
-              disabled
-            />
-          </label>
-          <label>
-            <span>Owner</span>
-            <input
-              value={draft.ownerUsername}
-              onChange={(event) =>
+              value={draft.project}
+              onChange={(event) => {
+                const nextSlug = slugifyProjectName(event.target.value);
+                setSlugTouched(true);
                 setDraft((current) => ({
                   ...current,
-                  ownerUsername: event.target.value,
-                  watchPath: generatedWatchPath(event.target.value, slugifyProjectName(current.project || current.title)),
-                }))
-              }
-              disabled={!canEditOwner}
+                  project: nextSlug,
+                  watchPath: generatedWatchPath(current.ownerUsername, nextSlug),
+                }));
+              }}
+              placeholder="toy-segmentation"
             />
           </label>
+          {canEditOwner ? (
+            <label>
+              <span>Owner</span>
+              <input
+                value={draft.ownerUsername}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    ownerUsername: event.target.value,
+                    watchPath: generatedWatchPath(event.target.value, slugifyProjectName(current.project || current.title)),
+                  }))
+                }
+              />
+            </label>
+          ) : (
+            <div className="readonly-field readonly-owner-field">
+              <span>Owner</span>
+              <output aria-label="Owner" className="readonly-value readonly-owner-value">
+                <AvatarCircle user={viewer} className="readonly-avatar" />
+                <span>@{draft.ownerUsername}</span>
+              </output>
+            </div>
+          )}
           <CollaboratorInput
             value={draft.collaboratorsText}
             users={collaboratorUsers}
@@ -2259,13 +2500,12 @@ function ProjectEditorModal({
 
         <div className="modal-fieldset full">
           <h3>Notes and links</h3>
-          <label>
+          <div className="readonly-field readonly-path-field full">
             <span>Watch path</span>
-            <input
-              value={generatedWatchPath(draft.ownerUsername, slugifyProjectName(draft.project || draft.title))}
-              disabled
-            />
-          </label>
+            <output aria-label="Watch path" className="readonly-value readonly-path-value">
+              {generatedWatchPath(draft.ownerUsername, slugifyProjectName(draft.project || draft.title)) || 'Generated after naming'}
+            </output>
+          </div>
           <label>
             <span>Notes</span>
             <textarea
@@ -2307,21 +2547,24 @@ function ProjectDetailModal({
   viewer: CurrentUser;
   collaboratorUsers: MentionableUser[];
   existingProjects: ManagedProject[];
-  initialMode: 'details' | 'progress';
+  initialMode: ProjectDetailMode;
   onClose: () => void;
   onSaved: (project: ManagedProject) => Promise<void>;
   onChanged: (project: ManagedProject) => Promise<void>;
   onArchive: (project: ManagedProject) => Promise<void>;
   onUnarchive: (project: ManagedProject) => Promise<void>;
 }) {
-  const [mode, setMode] = useState<'details' | 'progress'>(initialMode);
+  const [mode, setMode] = useState<ProjectDetailMode>(initialMode);
   const [draft, setDraft] = useState(() => defaultTimelineDraft(project));
   const [editDraft, setEditDraft] = useState(() => projectDraftFromProject(project, viewer));
+  const [todoDrafts, setTodoDrafts] = useState<ManagedProjectTodo[]>(() => project.todos || []);
+  const [newTodo, setNewTodo] = useState({ text: '', dueDate: '' });
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [artifactToRemove, setArtifactToRemove] = useState<ManagedProjectArtifact | null>(null);
+  const [todoToRemove, setTodoToRemove] = useState<ManagedProjectTodo | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const titleId = 'project-detail-title';
   const currentArtifacts = currentProjectArtifacts(project);
@@ -2331,13 +2574,19 @@ function ProjectDetailModal({
 
   useEffect(() => {
     setEditDraft(projectDraftFromProject(project, viewer));
+    setTodoDrafts(project.todos || []);
+    setNewTodo({ text: '', dueDate: '' });
     setDraft(defaultTimelineDraft(project));
-    setMode(initialMode);
     setError(null);
-  }, [initialMode, project, viewer]);
+  }, [project, viewer]);
+
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode, project.id]);
 
   useEffect(() => {
     setArtifactToRemove(null);
+    setTodoToRemove(null);
   }, [project.id]);
 
   function postUpdateWithProgress(formData: FormData): Promise<ProjectsPayload> {
@@ -2371,13 +2620,18 @@ function ProjectDetailModal({
         (existing) =>
           existing.id !== project.id &&
           existing.ownerUsername.toLowerCase() === editDraft.ownerUsername.toLowerCase() &&
-          existing.title.trim().toLowerCase() === editDraft.title.trim().toLowerCase(),
+          (existing.title.trim().toLowerCase() === editDraft.title.trim().toLowerCase() ||
+            existing.project === slugifyProjectName(editDraft.project || editDraft.title)),
       );
       if (!editDraft.title.trim()) {
         throw new Error('Full project name is required.');
       }
       if (duplicate) {
-        throw new Error('This owner already has a project with the same full project name.');
+        throw new Error(
+          duplicate.project === slugifyProjectName(editDraft.project || editDraft.title)
+            ? 'This owner already has a project with the same slug.'
+            : 'This owner already has a project with the same full project name.',
+        );
       }
       const response = await fetch(`/api/projects/${project.id}`, {
         method: 'PATCH',
@@ -2487,6 +2741,65 @@ function ProjectDetailModal({
     }
   }
 
+  async function saveTodos(nextTodos: ManagedProjectTodo[]) {
+    setBusy('todos');
+    setError(null);
+    try {
+      const todos = nextTodos.map((todo) => ({
+        ...todo,
+        text: todo.text.trim(),
+        dueDate: todo.dueDate || null,
+      }));
+      if (todos.some((todo) => !todo.text)) {
+        throw new Error('TODO item text is required.');
+      }
+      setTodoDrafts(todos);
+      const response = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ todos }),
+      });
+      const body = (await response.json()) as ProjectsPayload;
+      if (!response.ok || !body.project) {
+        throw new Error(body.error || 'Could not save TODO list.');
+      }
+      setTodoDrafts(body.project.todos || []);
+      await onChanged(body.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save TODO list.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function updateTodoDraft(todoId: string, patch: Partial<ManagedProjectTodo>) {
+    setTodoDrafts((current) => current.map((todo) => (todo.id === todoId ? { ...todo, ...patch } : todo)));
+  }
+
+  async function addTodo() {
+    const text = newTodo.text.trim();
+    if (!text) {
+      setError('TODO item text is required.');
+      return;
+    }
+    const now = new Date().toISOString();
+    const nextTodo: ManagedProjectTodo = {
+      id: crypto.randomUUID(),
+      text,
+      dueDate: newTodo.dueDate || null,
+      done: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setNewTodo({ text: '', dueDate: '' });
+    await saveTodos([...todoDrafts, nextTodo]);
+  }
+
+  async function removeTodo(todo: ManagedProjectTodo) {
+    await saveTodos(todoDrafts.filter((item) => item.id !== todo.id));
+    setTodoToRemove(null);
+  }
+
   async function submitComment(updateId: string) {
     const text = commentDrafts[updateId]?.trim();
     if (!text) return;
@@ -2512,12 +2825,13 @@ function ProjectDetailModal({
   }
 
   return (
-    <div className="users-modal-backdrop" role="presentation">
+    <div className="users-modal-backdrop" role="presentation" onClick={onClose}>
       <div
         className="users-modal user-edit-modal project-modal project-detail-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => trapCustomDialogFocus(event, onClose)}
       >
         <header>
@@ -2537,7 +2851,11 @@ function ProjectDetailModal({
           </button>
           <button className={mode === 'progress' ? 'selected' : ''} type="button" onClick={() => setMode('progress')}>
             <Plus aria-hidden="true" />
-            Progress update
+            Update
+          </button>
+          <button className={mode === 'todos' ? 'selected' : ''} type="button" onClick={() => setMode('todos')}>
+            <ClipboardList aria-hidden="true" />
+            TODO
           </button>
         </div>
 
@@ -2554,7 +2872,16 @@ function ProjectDetailModal({
             </label>
             <label>
               <span>Slug</span>
-              <input value={project.project} disabled />
+              <input
+                value={editDraft.project}
+                onChange={(event) =>
+                  setEditDraft((current) => ({
+                    ...current,
+                    project: slugifyProjectName(event.target.value),
+                    watchPath: generatedWatchPath(current.ownerUsername, slugifyProjectName(event.target.value)),
+                  }))
+                }
+              />
             </label>
             <label>
               <span>Owner</span>
@@ -2565,7 +2892,7 @@ function ProjectDetailModal({
                   setEditDraft((current) => ({
                     ...current,
                     ownerUsername: event.target.value,
-                    watchPath: generatedWatchPath(event.target.value, project.project),
+                    watchPath: generatedWatchPath(event.target.value, slugifyProjectName(current.project || current.title)),
                   }))
                 }
               />
@@ -2610,7 +2937,7 @@ function ProjectDetailModal({
             </label>
             <label className="full">
               <span>Watch path</span>
-              <input value={generatedWatchPath(editDraft.ownerUsername, project.project)} disabled />
+              <input value={generatedWatchPath(editDraft.ownerUsername, slugifyProjectName(editDraft.project || editDraft.title))} readOnly />
             </label>
             <label className="full">
               <span>Notes</span>
@@ -2685,7 +3012,14 @@ function ProjectDetailModal({
                     <strong>{artifact.title}</strong>
                     <small>{artifact.kind} / current</small>
                   </div>
-                  <p>{artifact.summary || 'No summary yet'}</p>
+                  {artifact.summary ? (
+                    <details className="artifact-summary">
+                      <summary>Agent summary</summary>
+                      <p>{artifact.summary}</p>
+                    </details>
+                  ) : (
+                    <p className="artifact-summary-empty">No summary yet</p>
+                  )}
                   <div className="artifact-actions">
                     {artifact.path && (
                       <a
@@ -2756,12 +3090,12 @@ function ProjectDetailModal({
                       <strong>{projectUpdateTypeLabels[update.type]}</strong>
                       <span>{formatDate(update.date)} / {update.byUsername}</span>
                     </div>
-                    <div className="ops-muted-line">
+                    <div className="timeline-meta">
                       {update.stage ? `Stage ${update.stage}${update.stageProgress !== null ? ` / ${update.stageProgress}%` : ''}` : 'Stage not recorded'}
                       {update.status ? ` / ${statusLabels[update.status]}` : ''}
                       {update.milestone ? ' / milestone' : ''}
                     </div>
-                    <p>{update.text}</p>
+                    <p className="timeline-update-text">{update.text}</p>
                     {(update.target || update.blocker) && (
                       <p className="project-blocker">
                         {[update.target ? `Target: ${update.target}` : null, update.blocker ? `Blocker: ${update.blocker}` : null]
@@ -2910,6 +3244,109 @@ function ProjectDetailModal({
         )}
           </div>
         )}
+
+        {mode === 'todos' && (
+          <section className="project-todo-panel" aria-label="Project TODO list">
+            <div className="ops-panel-head">
+              <div>
+                <h2>TODO list</h2>
+                <p>{todoDrafts.filter((todo) => !todo.done).length} open / {todoDrafts.length} total</p>
+              </div>
+              <ClipboardList aria-hidden="true" />
+            </div>
+            <div className="project-todo-list">
+              {todoDrafts.length ? (
+                todoDrafts.map((todo) => (
+                  <div className={['project-todo-row', todo.done ? 'done' : ''].filter(Boolean).join(' ')} key={todo.id}>
+                    <input
+                      type="checkbox"
+                      checked={todo.done}
+                      disabled={!project.access.canEdit || busy === 'todos'}
+                      aria-label={`Complete TODO: ${todo.text}`}
+                      onChange={(event) => {
+                        const nextTodos = todoDrafts.map((item) =>
+                          item.id === todo.id ? { ...item, done: event.target.checked } : item,
+                        );
+                        setTodoDrafts(nextTodos);
+                        void saveTodos(nextTodos);
+                      }}
+                    />
+                    <input
+                      className="todo-text-input"
+                      value={todo.text}
+                      readOnly={!project.access.canEdit}
+                      aria-label={`TODO item: ${todo.text}`}
+                      onChange={(event) => updateTodoDraft(todo.id, { text: event.target.value })}
+                      onBlur={(event) => {
+                        if (!project.access.canEdit) return;
+                        const nextTodos = todoDrafts.map((item) =>
+                          item.id === todo.id ? { ...item, text: event.target.value } : item,
+                        );
+                        void saveTodos(nextTodos);
+                      }}
+                    />
+                    <input
+                      className="todo-date-input"
+                      type="date"
+                      value={todo.dueDate || ''}
+                      disabled={!project.access.canEdit}
+                      aria-label={`TODO deadline: ${todo.text}`}
+                      onChange={(event) => updateTodoDraft(todo.id, { dueDate: event.target.value || null })}
+                      onBlur={(event) => {
+                        if (!project.access.canEdit) return;
+                        const nextTodos = todoDrafts.map((item) =>
+                          item.id === todo.id ? { ...item, dueDate: event.target.value || null } : item,
+                        );
+                        void saveTodos(nextTodos);
+                      }}
+                    />
+                    {project.access.canEdit && (
+                      <button
+                        className="ops-secondary icon-only-button danger-action"
+                        type="button"
+                        disabled={busy === 'todos'}
+                        aria-label={`Remove TODO: ${todo.text}`}
+                        title="Remove TODO"
+                        onClick={() => setTodoToRemove(todo)}
+                      >
+                        <Trash2 aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="ops-muted-line">No TODOs yet.</div>
+              )}
+            </div>
+            {project.access.canEdit && (
+              <form
+                className="project-todo-create"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void addTodo();
+                }}
+              >
+                <input
+                  aria-label="New TODO item"
+                  value={newTodo.text}
+                  onChange={(event) => setNewTodo((current) => ({ ...current, text: event.target.value }))}
+                  placeholder="Next project task"
+                />
+                <input
+                  aria-label="New TODO deadline"
+                  type="date"
+                  value={newTodo.dueDate}
+                  onChange={(event) => setNewTodo((current) => ({ ...current, dueDate: event.target.value }))}
+                />
+                <button className="ops-primary" type="submit" disabled={busy === 'todos'}>
+                  <Plus aria-hidden="true" />
+                  Add TODO
+                </button>
+              </form>
+            )}
+            {error && <div className="form-message error">{error}</div>}
+          </section>
+        )}
       </div>
       <ConfirmDialog
         id="remove-artifact-confirm"
@@ -2921,6 +3358,18 @@ function ProjectDetailModal({
         onCancel={() => setArtifactToRemove(null)}
         onConfirm={() => {
           if (artifactToRemove) void removeArtifact(artifactToRemove);
+        }}
+      />
+      <ConfirmDialog
+        id="remove-todo-confirm"
+        open={Boolean(todoToRemove)}
+        title="Remove TODO?"
+        message={todoToRemove ? `Remove ${todoToRemove.text}?` : ''}
+        confirmLabel="Remove"
+        busy={busy === 'todos'}
+        onCancel={() => setTodoToRemove(null)}
+        onConfirm={() => {
+          if (todoToRemove) void removeTodo(todoToRemove);
         }}
       />
     </div>
@@ -3110,10 +3559,10 @@ function ThemeMeetingPanel({
     <section className="ops-panel theme-meeting-panel">
       <div className="ops-panel-head">
         <div>
-          <h2>Theme meeting planner</h2>
+          <h2>Next Theme Meeting</h2>
           <p>
             {planLabel
-              ? `${planLabel.meeting_date} / ${planLabel.cycle_group} / ${planLabel.timezone}`
+              ? `${formatDate(planLabel.meeting_date)} / ${planLabel.cycle_group} / ${planLabel.timezone}`
               : loading
                 ? 'Loading current theme meeting cycle.'
                 : 'Theme meeting data is unavailable.'}
@@ -3242,8 +3691,8 @@ function ThemeMeetingPanel({
 
             {showPersonalUpdateForm && (
               <form className="theme-update-form" onSubmit={submitUpdate}>
-                <h3>Suggest theme slot</h3>
-                {updatePlan && <p>For {updatePlan.meeting_date}</p>}
+                <h3>Update</h3>
+                {updatePlan && <p>For {formatDate(updatePlan.meeting_date)}</p>}
                 <label>
                   <span>Theme</span>
                   <select value={themeId} onChange={(event) => setThemeId(event.target.value)}>
@@ -3294,7 +3743,7 @@ function ThemeMeetingPanel({
                 </label>
                 <button className="ops-primary" type="submit">
                   <Check aria-hidden="true" />
-                  Save slot
+                  Update
                 </button>
               </form>
             )}
@@ -3313,7 +3762,7 @@ function ThemeMeetingPanel({
                   return (
                     <article className="past-meeting-item" key={past.meeting_date}>
                       <div>
-                        <strong>{past.meeting_date} / {past.cycle_group}</strong>
+                        <strong>{formatDate(past.meeting_date)} / {past.cycle_group}</strong>
                         <span>{submitted}/{members} submitted</span>
                       </div>
                       <p>
@@ -3342,7 +3791,7 @@ function BriefingView({
   viewer,
   onOpenProjects,
   onOpenMeeting,
-  onOpenAlerts,
+  onOpenNotifications,
 }: {
   projectsPayload: ProjectsPayload | null;
   projectsLoading: boolean;
@@ -3352,7 +3801,7 @@ function BriefingView({
   viewer: CurrentUser;
   onOpenProjects: () => void;
   onOpenMeeting: () => void;
-  onOpenAlerts: () => void;
+  onOpenNotifications: () => void;
 }) {
   const projects = projectsPayload?.projects || [];
   const activeProjects = projects.filter((project) => project.lifecycle !== 'archived');
@@ -3364,6 +3813,7 @@ function BriefingView({
   const currentArtifacts = activeProjects.reduce((count, project) => count + currentProjectArtifacts(project).length, 0);
   const unreadChatNotifications = chatNotifications.filter((notification) => !notification.readAt);
   const themeNotifications = themePayload?.notifications || [];
+  const nextMeetingDate = themePayload?.overviewPlan?.meeting_date || themePayload?.plan.meeting_date || null;
   const meetings = themePayload?.overviewPlan?.meetings || (themePayload?.plan.meetings || []).map((meeting) => ({
     theme_id: meeting.theme_id,
     title: meeting.title,
@@ -3432,7 +3882,7 @@ function BriefingView({
           </div>
           <div>
             <strong>{unreadChatNotifications.length + themeNotifications.length}</strong>
-            <span>Unread alerts</span>
+            <span>Unread notifications</span>
           </div>
         </section>
 
@@ -3485,8 +3935,8 @@ function BriefingView({
           <section className="ops-panel">
             <div className="ops-panel-head">
               <div>
-                <h2>Theme meeting</h2>
-                <p>{themePayload?.overviewPlan?.meeting_date || themePayload?.plan.meeting_date || 'Current cycle'}</p>
+                <h2>Next Theme Meeting</h2>
+                <p>{nextMeetingDate ? formatDate(nextMeetingDate) : 'Current cycle'}</p>
               </div>
               <CalendarDays aria-hidden="true" />
             </div>
@@ -3534,7 +3984,7 @@ function BriefingView({
           <section className="ops-panel">
             <div className="ops-panel-head">
               <div>
-                <h2>Alerts</h2>
+                <h2>Notifications</h2>
                 <p>Mentions, reminders, and operational attention items.</p>
               </div>
               <Bell aria-hidden="true" />
@@ -3549,8 +3999,8 @@ function BriefingView({
               {!unreadChatNotifications.length && !themeNotifications.length && <li>No unread alerts right now.</li>}
             </ul>
             <div className="briefing-panel-action">
-              <button className="ops-secondary" type="button" onClick={onOpenAlerts}>
-                View alerts
+              <button className="ops-secondary" type="button" onClick={onOpenNotifications}>
+                Open notifications
               </button>
             </div>
           </section>
@@ -3579,7 +4029,7 @@ function ProjectsView({
   const [agendaState, setAgendaState] = useState<Record<string, 'added' | 'dismissed'>>({});
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailProject, setDetailProject] = useState<ManagedProject | null>(null);
-  const [detailMode, setDetailMode] = useState<'details' | 'progress'>('details');
+  const [detailMode, setDetailMode] = useState<ProjectDetailMode>('details');
   const [actionError, setActionError] = useState<string | null>(null);
   const [planningReport, setPlanningReport] = useState<ProjectPlanningReport | null>(null);
   const [planningBusy, setPlanningBusy] = useState(false);
@@ -3599,7 +4049,7 @@ function ProjectsView({
     setEditorOpen(true);
   }
 
-  function openProject(project: ManagedProject, mode: 'details' | 'progress') {
+  function openProject(project: ManagedProject, mode: ProjectDetailMode) {
     setDetailMode(mode);
     setDetailProject(project);
   }
@@ -3719,6 +4169,7 @@ function ProjectsView({
                   project={project}
                   onOpenDetails={(nextProject) => openProject(nextProject, 'details')}
                   onOpenProgress={(nextProject) => openProject(nextProject, 'progress')}
+                  onOpenTodos={(nextProject) => openProject(nextProject, 'todos')}
                 />
               ))
             ) : (
@@ -3842,7 +4293,7 @@ function ProjectsView({
                 <div className="summary-strip compact">
                   <strong>{planningReport.attentionItems.length} attention</strong>
                   <strong>{planningReport.updatedProjects.length} updated</strong>
-                  <strong>Since {planningReport.cycleStart}</strong>
+                  <strong>Since {formatDate(planningReport.cycleStart)}</strong>
                 </div>
                 <div className="planning-brief-columns">
                   <div>
@@ -3996,13 +4447,22 @@ function ProjectsView({
                           >
                             <FileText aria-hidden="true" />
                           </button>
+                          <button
+                            className="ops-secondary icon-only-button"
+                            type="button"
+                            onClick={() => openProject(project, 'todos')}
+                            aria-label={`TODO list for ${project.title}`}
+                            title="TODO list"
+                          >
+                            <ClipboardList aria-hidden="true" />
+                          </button>
                           {project.access.canAddUpdate && project.lifecycle !== 'archived' && (
                             <button
                               className="ops-primary icon-only-button"
                               type="button"
                               onClick={() => openProject(project, 'progress')}
-                              aria-label={`Progress update for ${project.title}`}
-                              title="Progress update"
+                              aria-label={`Update ${project.title}`}
+                              title="Update"
                             >
                               <Plus aria-hidden="true" />
                             </button>
@@ -4073,8 +4533,7 @@ function MeetingView({
 }) {
   return (
     <ConsolePageFrame
-      title="Theme meeting"
-      subtitle="Briefing / Theme meeting"
+      title="Meeting"
       className="meeting-page"
       wide
     >
@@ -4095,10 +4554,12 @@ function ChatView({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const draftBeforeHistoryRef = useRef('');
+  const pendingAssistantIdRef = useRef<string | null>(null);
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [threadId, setThreadId] = useState(() => `web-${Date.now()}`);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [historyMode, setHistoryMode] = useState<ChatHistoryMode>('owned');
   const [mentionUsers, setMentionUsers] = useState<MentionableUser[]>([]);
   const [draftHistoryCursor, setDraftHistoryCursor] = useState<number | null>(null);
@@ -4119,20 +4580,26 @@ function ChatView({
     let cancelled = false;
 
     async function syncSessions() {
-      const imported = await importLocalChatSessionsOnce(viewer.id);
-      if (!cancelled) {
+      setSessionsLoaded(false);
+      try {
+        const imported = await importLocalChatSessionsOnce(viewer.id);
+        if (cancelled) return;
         await loadServerSessions();
         if (imported) {
           setSendStatus(`Imported ${imported} local chat session${imported === 1 ? '' : 's'}.`);
         }
+      } catch (caught) {
+        if (!cancelled) {
+          setSendStatus(caught instanceof Error ? caught.message : 'Could not load chat sessions.');
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionsLoaded(true);
+        }
       }
     }
 
-    void syncSessions().catch((caught) => {
-      if (!cancelled) {
-        setSendStatus(caught instanceof Error ? caught.message : 'Could not load chat sessions.');
-      }
-    });
+    void syncSessions();
     return () => {
       cancelled = true;
     };
@@ -4159,9 +4626,16 @@ function ChatView({
   }, [viewer.id]);
 
   useEffect(() => {
+    const assistantId = pendingAssistantIdRef.current;
     const scroll = scrollRef.current;
-    if (scroll) {
-      scroll.scrollTop = scroll.scrollHeight;
+    if (!assistantId || !scroll) return;
+    const target = scroll.querySelector<HTMLElement>(`[data-message-id="${assistantId}"]`);
+    if (target) {
+      target.scrollIntoView({ block: 'start' });
+      const assistantMessage = messages.find((message) => message.id === assistantId);
+      if (assistantMessage && assistantMessage.status !== 'thinking') {
+        pendingAssistantIdRef.current = null;
+      }
     }
   }, [messages]);
 
@@ -4303,6 +4777,7 @@ function ChatView({
     const trimmed = nextQuestion.trim();
     if (!trimmed || isSending) return;
     const assistantId = chatMessageId('assistant');
+    pendingAssistantIdRef.current = assistantId;
     setDraft('');
     setDraftHistoryCursor(null);
     setSendStatus(null);
@@ -4382,7 +4857,7 @@ function ChatView({
 
   return (
     <ConsolePageFrame
-      title={vioscopeChatUiConfig.title}
+      title="Chat"
       className="chat-page"
       actions={
         <div className="chat-actions">
@@ -4396,8 +4871,17 @@ function ChatView({
       <section className="chat-view">
         <aside className="chat-session-column" aria-label="Chat sessions">
           <div className="chat-session-search">
-            <Search aria-hidden="true" />
-            <span>{visibleSessions.length} {historyMode === 'owned' ? 'history sessions' : 'shared sessions'}</span>
+            {sessionsLoaded ? (
+              <>
+                <Search aria-hidden="true" />
+                <span>{visibleSessions.length} {historyMode === 'owned' ? 'history sessions' : 'shared sessions'}</span>
+              </>
+            ) : (
+              <>
+                <DotMatrixIcon variant="loading" size={18} />
+                <span>Loading sessions</span>
+              </>
+            )}
           </div>
           <div className="chat-history-tabs" role="tablist" aria-label="Chat session lists">
             <button
@@ -4419,7 +4903,12 @@ function ChatView({
               Shared
             </button>
           </div>
-          {visibleSessions.length ? (
+          {!sessionsLoaded ? (
+            <p className="chat-history-empty chat-history-loading">
+              <DotMatrixIcon variant="loading" size={20} />
+              Loading sessions
+            </p>
+          ) : visibleSessions.length ? (
             <div className="chat-history-list">
               {visibleSessions.map((session) => (
                 <div className={`chat-history-item${session.threadId === threadId ? ' active' : ''}`} key={session.threadId}>
@@ -4468,7 +4957,6 @@ function ChatView({
           <div className="chat-main-head">
             <div>
               <strong>{threadId.startsWith('web-') && messages.length === 0 ? 'New VioScope session' : 'VioScope session'}</strong>
-              <span>{messages.length} message{messages.length === 1 ? '' : 's'}</span>
             </div>
             <span className="chat-presence">
               <span aria-hidden="true" />
@@ -4506,7 +4994,7 @@ function ChatView({
                       </div>
                     </div>
                   ) : (
-                    <div className="assistant-turn" key={message.id}>
+                    <div className="assistant-turn" data-message-id={message.id} key={message.id}>
                       <div className="assistant-label">
                         <DotMatrixIcon iconIndex={message.status === 'thinking' ? 1 : 3} size={24} autoPlay={message.status === 'thinking'} />
                         VioScope
@@ -4644,8 +5132,7 @@ function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
 
   return (
     <ConsolePageFrame
-      title="Review checklists"
-      subtitle="Advisory pre-submission checks; the human always signs off"
+      title="Checklists"
       className="checklists-page"
       wide
       tabs={checklistTabs}
@@ -4725,161 +5212,6 @@ function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
   );
 }
 
-function AlertsView({
-  attentionProjects,
-  themePayload,
-  chatNotifications,
-  onMarkChatNotificationRead,
-  onMarkAllChatNotificationsRead,
-  onOpenChatSession,
-}: {
-  attentionProjects: ManagedProject[];
-  themePayload: ThemeMeetingPayload | null;
-  chatNotifications: ChatNotification[];
-  onMarkChatNotificationRead: (notificationId: string) => Promise<void>;
-  onMarkAllChatNotificationsRead: () => Promise<void>;
-  onOpenChatSession: (sessionId: string, notificationId?: string) => void;
-}) {
-  const [markError, setMarkError] = useState<string | null>(null);
-  const [isMarking, setIsMarking] = useState(false);
-  const themeNotifications = themePayload?.notifications || [];
-  const unreadChatNotifications = chatNotifications.filter((notification) => !notification.readAt);
-  const readChatNotifications = chatNotifications.filter((notification) => notification.readAt);
-  const activeCount = unreadChatNotifications.length + themeNotifications.length + attentionProjects.length;
-
-  async function markOne(notificationId: string) {
-    try {
-      setIsMarking(true);
-      setMarkError(null);
-      await onMarkChatNotificationRead(notificationId);
-    } catch (caught) {
-      setMarkError(caught instanceof Error ? caught.message : 'Could not mark notification as read.');
-    } finally {
-      setIsMarking(false);
-    }
-  }
-
-  async function markAll() {
-    try {
-      setIsMarking(true);
-      setMarkError(null);
-      await onMarkAllChatNotificationsRead();
-    } catch (caught) {
-      setMarkError(caught instanceof Error ? caught.message : 'Could not mark notifications as read.');
-    } finally {
-      setIsMarking(false);
-    }
-  }
-
-  function openChat(notification: ChatNotification) {
-    setMarkError(null);
-    onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id);
-  }
-
-  return (
-    <ConsolePageFrame
-      title="Alerts"
-      subtitle="Calm nudges for status confirmation and agenda preparation"
-      actions={
-        unreadChatNotifications.length ? (
-          <button className="ops-secondary" type="button" onClick={() => void markAll()} disabled={isMarking}>
-            <Check aria-hidden="true" />
-            Mark all read
-          </button>
-        ) : undefined
-      }
-    >
-      <div className="alerts-list">
-        {markError && <div className="form-message error">{markError}</div>}
-        {unreadChatNotifications.map((notification) => (
-          <article className="alert-item unread-alert" key={notification.id}>
-            <Bell aria-hidden="true" />
-            <div>
-              <strong>{notification.title}</strong>
-              <p>{notification.body}</p>
-              <small>
-                @{notification.actorUsername} · {chatSessionTime(notification.createdAt)}
-              </small>
-            </div>
-            <div className="alert-actions">
-              <button
-                className="tiny-button"
-                type="button"
-                onClick={() => openChat(notification)}
-                disabled={isMarking}
-              >
-                <MessageCircle aria-hidden="true" />
-                Open chat
-              </button>
-              <button
-                className="tiny-button"
-                type="button"
-                onClick={() => void markOne(notification.id)}
-                disabled={isMarking}
-              >
-                Mark read
-              </button>
-            </div>
-          </article>
-        ))}
-        {themeNotifications.map((notification) => (
-          <article className="alert-item" key={notification.id}>
-            <Bell aria-hidden="true" />
-            <div>
-              <strong>{notification.title}</strong>
-              <p>{notification.body}</p>
-            </div>
-          </article>
-        ))}
-        {attentionProjects.length ? (
-          attentionProjects.map((project) => (
-            <article className="alert-item" key={project.id}>
-              <Bell aria-hidden="true" />
-              <div>
-                <strong>{project.title}</strong>
-                <p>
-                  {projectSlotLabels[project.recommendation]} suggested for {project.ownerUsername}: {projectEvidence(project)}.
-                </p>
-              </div>
-            </article>
-          ))
-        ) : null}
-        {readChatNotifications.length ? (
-          <>
-            <div className="alerts-section-label">Earlier</div>
-            {readChatNotifications.map((notification) => (
-              <article className="alert-item read-alert" key={notification.id}>
-                <Bell aria-hidden="true" />
-                <div>
-                  <strong>{notification.title}</strong>
-                  <p>{notification.body}</p>
-                  <small>
-                    @{notification.actorUsername} · {chatSessionTime(notification.createdAt)}
-                  </small>
-                </div>
-                <div className="alert-actions">
-                  <button
-                    className="tiny-button"
-                    type="button"
-                    onClick={() => openChat(notification)}
-                    disabled={isMarking}
-                  >
-                    <MessageCircle aria-hidden="true" />
-                    Open chat
-                  </button>
-                </div>
-              </article>
-            ))}
-          </>
-        ) : null}
-        {!chatNotifications.length && !themeNotifications.length && !attentionProjects.length ? (
-          <div className="ops-empty">No alerts right now</div>
-        ) : null}
-      </div>
-    </ConsolePageFrame>
-  );
-}
-
 type TopbarNotificationTab = 'messages' | 'events' | 'logs';
 
 function TopbarNotificationCenter({
@@ -4889,7 +5221,6 @@ function TopbarNotificationCenter({
   themeNotifications,
   attentionProjects,
   onToggle,
-  onOpenAlerts,
   onOpenChatSession,
   onMarkAllMessagesRead,
 }: {
@@ -4899,33 +5230,57 @@ function TopbarNotificationCenter({
   themeNotifications: ThemeMeetingNotification[];
   attentionProjects: ManagedProject[];
   onToggle: () => void;
-  onOpenAlerts: () => void;
   onOpenChatSession: (sessionId: string, notificationId?: string) => void;
   onMarkAllMessagesRead: () => void;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [tab, setTab] = useState<TopbarNotificationTab>('messages');
   const unreadMessages = chatNotifications.filter((notification) => !notification.readAt);
-  const visibleMessages = (unreadMessages.length ? unreadMessages : chatNotifications).slice(0, 6);
-  const visibleEvents = themeNotifications.slice(0, 6);
-  const visibleLogs = attentionProjects.slice(0, 6);
+  const visibleMessages = unreadMessages.length ? unreadMessages : chatNotifications;
+  const visibleEvents = themeNotifications;
+  const visibleLogs = attentionProjects;
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (event.target instanceof Node && !containerRef.current?.contains(event.target)) {
+        onToggle();
+      }
+    }
+
+    function closeOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onToggle();
+      }
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [onToggle, open]);
 
   return (
-    <div className="topbar-notification">
+    <div className="topbar-notification" ref={containerRef}>
       <button
         className="topbar-notification-button"
         type="button"
         onClick={onToggle}
+        aria-label={`Open Notifications center${activeCount > 0 ? `, ${activeCount} active` : ''}`}
         aria-expanded={open}
         aria-haspopup="dialog"
       >
         <Bell aria-hidden="true" />
-        <span>Notification</span>
+        <span>Notifications</span>
         {activeCount > 0 && <strong>{activeCount}</strong>}
       </button>
       {open && (
         <section className="notification-popover" aria-label="Notifications Center">
           <header>
-            <strong>Notifications Center</strong>
+            <strong>Notifications</strong>
             <div>
               {unreadMessages.length > 0 && (
                 <button type="button" onClick={onMarkAllMessagesRead}>
@@ -4943,7 +5298,7 @@ function TopbarNotificationCenter({
               aria-selected={tab === 'messages'}
               onClick={() => setTab('messages')}
             >
-              Message
+              Messages
             </button>
             <button
               className={tab === 'events' ? 'active' : ''}
@@ -4995,7 +5350,7 @@ function TopbarNotificationCenter({
                       <strong>{notification.title}</strong>
                       <small>{notification.body}</small>
                     </span>
-                    <em>{chatSessionTime(notification.createdAt)}</em>
+                    <em>{compactNotificationTime(notification.createdAt)}</em>
                   </button>
                 ))
               ) : (
@@ -5035,9 +5390,6 @@ function TopbarNotificationCenter({
                 <p className="notification-empty">No project logs right now.</p>
               ))}
           </div>
-          <button className="notification-view-all" type="button" onClick={onOpenAlerts}>
-            View all notifications
-          </button>
         </section>
       )}
     </div>
@@ -5919,6 +6271,175 @@ function AuditLogSettingsPanel() {
   );
 }
 
+function MarkdownEditorPanel({
+  title,
+  description,
+  endpoint,
+  saveLabel,
+  importLabel,
+  importFlag,
+}: {
+  title: string;
+  description: string;
+  endpoint: string;
+  saveLabel: string;
+  importLabel?: string;
+  importFlag?: 'importProfiles' | 'importMemory';
+}) {
+  const [markdown, setMarkdown] = useState('');
+  const [path, setPath] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadMarkdown = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(endpoint);
+      const body = (await response.json()) as MarkdownFilePayload;
+      if (!response.ok || typeof body.markdown !== 'string') {
+        throw new Error(body.error || 'Could not load markdown.');
+      }
+      setMarkdown(body.markdown);
+      setPath(body.path || '');
+      setDirty(false);
+      setLoaded(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not load markdown.');
+      setLoaded(true);
+    } finally {
+      setBusy(false);
+    }
+  }, [endpoint]);
+
+  useEffect(() => {
+    void loadMarkdown();
+  }, [loadMarkdown]);
+
+  async function saveMarkdown(importAfterSave = false) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const payload: Record<string, unknown> = { markdown };
+      if (importAfterSave && importFlag) {
+        payload[importFlag] = true;
+      }
+      const response = await fetch(endpoint, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = (await response.json()) as MarkdownFilePayload;
+      if (!response.ok || typeof body.markdown !== 'string') {
+        throw new Error(body.error || 'Could not save markdown.');
+      }
+      setMarkdown(body.markdown);
+      setPath(body.path || path);
+      setDirty(false);
+      if (importAfterSave && typeof body.importedCount === 'number') {
+        setMessage(`Saved and imported ${body.importedCount} profiles.`);
+      } else if (importAfterSave) {
+        setMessage(body.importNote || 'Saved and imported for the next chat turn.');
+      } else {
+        setMessage('Saved.');
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save markdown.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-section settings-section-markdown">
+      <div className="settings-section-heading">
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
+      <section className="ops-panel markdown-editor-panel">
+        <div className="ops-panel-head">
+          <div>
+            <h2>Markdown</h2>
+            <p>{path || 'Default path'}</p>
+          </div>
+          <button className="ops-secondary" type="button" disabled={busy} onClick={() => void loadMarkdown()}>
+            <RefreshCw aria-hidden="true" />
+            Refresh
+          </button>
+        </div>
+        {!loaded ? (
+          <div className="members-loading">
+            <DotMatrixIcon variant="loading" size={24} />
+            <span>Loading markdown</span>
+          </div>
+        ) : (
+          <textarea
+            className="markdown-editor-textarea"
+            value={markdown}
+            onChange={(event) => {
+              setMarkdown(event.target.value);
+              setDirty(true);
+              setMessage(null);
+              setError(null);
+            }}
+            spellCheck={false}
+            aria-label={title}
+          />
+        )}
+        {error && <div className="form-message error">{error}</div>}
+        {message && <div className="form-message">{message}</div>}
+        <div className="button-row">
+          <button className="ops-primary" type="button" disabled={busy || !dirty} onClick={() => void saveMarkdown()}>
+            <Save aria-hidden="true" />
+            {busy ? 'Saving' : saveLabel}
+          </button>
+          {importLabel && importFlag && (
+            <button
+              className="ops-secondary"
+              type="button"
+              disabled={busy || !loaded}
+              onClick={() => void saveMarkdown(true)}
+            >
+              <Upload aria-hidden="true" />
+              {busy ? 'Saving' : importLabel}
+            </button>
+          )}
+        </div>
+      </section>
+    </section>
+  );
+}
+
+function UserMemorySettingsPanel() {
+  return (
+    <MarkdownEditorPanel
+      title="My memory"
+      description="Private markdown used only in your own chat context."
+      endpoint="/api/user-memory"
+      saveLabel="Save memory"
+      importLabel="Save and import"
+      importFlag="importMemory"
+    />
+  );
+}
+
+function TeamProfilesSettingsPanel() {
+  return (
+    <MarkdownEditorPanel
+      title="Public team"
+      description="Editable cache for public VIOS team profile markdown."
+      endpoint="/api/team-profile-markdown"
+      saveLabel="Save team markdown"
+      importLabel="Save and import"
+      importFlag="importProfiles"
+    />
+  );
+}
+
 function UsersView({
   user,
   onUserChanged,
@@ -6051,6 +6572,7 @@ function UsersView({
   useEffect(() => {
     if (
       (!canManageThemeSettings && settingsTab === 'themeMeeting') ||
+      (!canManageUsers && settingsTab === 'teamProfiles') ||
       (!canManageUsers && settingsTab === 'users') ||
       (!canViewAudit && settingsTab === 'audit') ||
       (!canViewConfig && settingsTab === 'config')
@@ -6070,10 +6592,16 @@ function UsersView({
       setActionUserId(null);
       setActionMenuPosition(null);
     };
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof HTMLElement && event.target.closest('.row-menu-floating, .row-action-button')) return;
+      closeMenu();
+    };
 
     window.addEventListener('resize', closeMenu);
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
     return () => {
       window.removeEventListener('resize', closeMenu);
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
     };
   }, [actionUserId]);
 
@@ -6297,6 +6825,10 @@ function UsersView({
             <Settings aria-hidden="true" />
             <span>General</span>
           </button>
+          <button className={settingsTab === 'memory' ? 'active' : ''} type="button" onClick={() => setSettingsTab('memory')}>
+            <FileText aria-hidden="true" />
+            <span>My memory</span>
+          </button>
           <button className={settingsTab === 'notifications' ? 'active' : ''} type="button" onClick={() => setSettingsTab('notifications')}>
             <Bell aria-hidden="true" />
             <span>Notifications</span>
@@ -6309,6 +6841,13 @@ function UsersView({
             <>
               <div className="settings-sidebar-rule" />
               <div className="settings-sidebar-label">Administration</div>
+              {canManageUsers && (
+                <button className={settingsTab === 'teamProfiles' ? 'active' : ''} type="button" onClick={() => setSettingsTab('teamProfiles')}>
+                  <FileText aria-hidden="true" />
+                  <span>Public team</span>
+                  <KeyRound className="settings-lock-icon" aria-hidden="true" />
+                </button>
+              )}
               {canManageThemeSettings && (
                 <button className={settingsTab === 'themeMeeting' ? 'active' : ''} type="button" onClick={() => setSettingsTab('themeMeeting')}>
                   <CalendarDays aria-hidden="true" />
@@ -6345,7 +6884,7 @@ function UsersView({
           </button>
         </aside>
 
-        <div className={`settings-main ${settingsTab === 'themeMeeting' || settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'settings-main-wide' : ''}`}>
+        <div className={`settings-main ${settingsTab === 'memory' || settingsTab === 'teamProfiles' || settingsTab === 'themeMeeting' || settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'settings-main-wide' : ''}`}>
           {settingsTab === 'general' ? (
             <div className="settings-section">
               <div className="settings-section-heading">
@@ -6446,6 +6985,8 @@ function UsersView({
                 </div>
               </section>
             </div>
+          ) : settingsTab === 'memory' ? (
+            <UserMemorySettingsPanel />
           ) : settingsTab === 'notifications' ? (
             <section className="settings-section">
               <div className="settings-section-heading">
@@ -6525,7 +7066,7 @@ function UsersView({
                   {busyNotifications ? 'Saving' : 'Save notification settings'}
                 </button>
               </div>
-              <p className="settings-footnote">In-app alerts always appear under Alerts. Chat mentions are web-only; email is reserved for reminders and operational summaries.</p>
+              <p className="settings-footnote">In-app notifications appear in the top bar notification center. Chat mentions are web-only; email is reserved for reminders and operational summaries.</p>
             </section>
           ) : settingsTab === 'integrations' ? (
             <section className="settings-section">
@@ -6548,6 +7089,8 @@ function UsersView({
             </section>
           ) : settingsTab === 'themeMeeting' ? (
             <ThemeMeetingSettingsPanel />
+          ) : settingsTab === 'teamProfiles' ? (
+            <TeamProfilesSettingsPanel />
           ) : settingsTab === 'config' ? (
             <AdminConfigurationPanel />
           ) : settingsTab === 'audit' ? (
@@ -6559,7 +7102,7 @@ function UsersView({
                 <p>VioScope, the VIOS lab assistant and operations console.</p>
               </div>
               <div className="ops-panel about-panel">
-                <div><span>Version</span><strong>0.6.0 · internal preview</strong></div>
+                <div><span>Version</span><strong>0.1.0 · internal preview</strong></div>
                 <div><span>Wiki index</span><strong>Configured from DATASTORE_DIR</strong></div>
                 <div><span>Maintained by</span><strong>VIOS Lab · School of Engineering</strong></div>
               </div>
@@ -6951,7 +7494,11 @@ export function OperationsConsole() {
   const [collaboratorUsers, setCollaboratorUsers] = useState<MentionableUser[]>([]);
   const [chatNotifications, setChatNotifications] = useState<ChatNotification[]>([]);
   const [openChatThreadId, setOpenChatThreadId] = useState<string | null>(null);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [welcomeDontShowAgain, setWelcomeDontShowAgain] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const accountBlockRef = useRef<HTMLDivElement | null>(null);
+  const welcomedUserIdRef = useRef<string | null>(null);
 
   const selectView = useCallback((view: ActiveView, replace = false) => {
     setAccountMenuOpen(false);
@@ -6966,6 +7513,12 @@ export function OperationsConsole() {
     window.addEventListener('popstate', syncViewFromUrl);
     return () => window.removeEventListener('popstate', syncViewFromUrl);
   }, []);
+
+  useEffect(() => {
+    document
+      .querySelector<HTMLButtonElement>(`.console-rail button[data-view="${activeView}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [activeView]);
 
   useEffect(() => {
     const storedTheme = readStoredThemeSettings();
@@ -7000,6 +7553,19 @@ export function OperationsConsole() {
   }, [accentTheme, fontTheme, theme, themeReady]);
 
   useEffect(() => {
+    if (!accountMenuOpen) return undefined;
+
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (event.target instanceof Node && !accountBlockRef.current?.contains(event.target)) {
+        setAccountMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }, [accountMenuOpen]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadSession() {
@@ -7032,6 +7598,19 @@ export function OperationsConsole() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || user.passwordResetRequired) {
+      welcomedUserIdRef.current = null;
+      setWelcomeOpen(false);
+      return;
+    }
+
+    if (welcomedUserIdRef.current === user.id) return;
+    welcomedUserIdRef.current = user.id;
+    setWelcomeDontShowAgain(false);
+    setWelcomeOpen(!welcomeDismissed(user.id));
+  }, [user?.id, user?.passwordResetRequired]);
 
   const loadThemeMeetings = useCallback(async () => {
     setThemeMeetingsLoading(true);
@@ -7119,14 +7698,6 @@ export function OperationsConsole() {
     };
   }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, user]);
 
-  useEffect(() => {
-    if (user && !user.passwordResetRequired && activeView === 'alerts') {
-      void loadChatNotifications().catch((caught) => {
-        setError(caught instanceof Error ? caught.message : 'Could not load notifications.');
-      });
-    }
-  }, [activeView, loadChatNotifications, user]);
-
   async function markChatNotificationRead(notificationId: string) {
     const response = await fetch('/api/notifications', {
       method: 'PATCH',
@@ -7191,11 +7762,26 @@ export function OperationsConsole() {
     [],
   );
 
+  function closeWelcome() {
+    if (user && welcomeDontShowAgain) {
+      dismissWelcomeForever(user.id);
+    }
+    setWelcomeOpen(false);
+  }
+
+  function openWelcomeSettings() {
+    closeWelcome();
+    setPersonalDetailsSignal((current) => current + 1);
+    selectView('users');
+  }
+
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     setUser(null);
     setAccountMenuOpen(false);
     setNotificationsOpen(false);
+    setWelcomeOpen(false);
+    setWelcomeDontShowAgain(false);
     setProjectsPayload(null);
     setCollaboratorUsers([]);
     setThemePayload(null);
@@ -7204,7 +7790,7 @@ export function OperationsConsole() {
     selectView('briefing', true);
   }
 
-  if (!authChecked) {
+  if (!authChecked || !themeReady) {
     return <AuthLoading />;
   }
 
@@ -7217,7 +7803,7 @@ export function OperationsConsole() {
   }
 
   return (
-    <main className="console-app">
+    <main className="console-app" lang="en-GB">
       <header className="console-topbar">
         <div className="brand-block">
           <img className="brand-mark" src="/art/VIOS_icon.jpg" alt="" aria-hidden="true" />
@@ -7237,7 +7823,7 @@ export function OperationsConsole() {
             {railHidden ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
           </button>
         </div>
-        <div className="account-block">
+        <div className="account-block" ref={accountBlockRef}>
           <TopbarNotificationCenter
             open={notificationsOpen}
             activeCount={unreadChatNotificationCount}
@@ -7247,10 +7833,6 @@ export function OperationsConsole() {
             onToggle={() => {
               setAccountMenuOpen(false);
               setNotificationsOpen((current) => !current);
-            }}
-            onOpenAlerts={() => {
-              setNotificationsOpen(false);
-              selectView('alerts');
             }}
             onOpenChatSession={openChatSessionFromNotification}
             onMarkAllMessagesRead={() => {
@@ -7308,6 +7890,15 @@ export function OperationsConsole() {
         </div>
       </header>
 
+      <WelcomeDialog
+        open={welcomeOpen}
+        user={user}
+        dontShowAgain={welcomeDontShowAgain}
+        onDontShowAgainChange={setWelcomeDontShowAgain}
+        onClose={closeWelcome}
+        onOpenSettings={openWelcomeSettings}
+      />
+
       <div className="console-body">
         <nav id="primary-navigation" className="console-rail" aria-label="Primary" hidden={railHidden}>
           {topNavItems.map((item) => {
@@ -7316,6 +7907,7 @@ export function OperationsConsole() {
               <button
                 key={item.id}
                 className={activeView === item.id ? 'active' : ''}
+                data-view={item.id}
                 type="button"
                 onClick={() => selectView(item.id)}
               >
@@ -7331,6 +7923,7 @@ export function OperationsConsole() {
               <button
                 key={item.id}
                 className={activeView === item.id ? 'active' : ''}
+                data-view={item.id}
                 type="button"
                 onClick={() => selectView(item.id)}
               >
@@ -7360,7 +7953,10 @@ export function OperationsConsole() {
               viewer={user}
               onOpenProjects={() => selectView('projects')}
               onOpenMeeting={() => selectView('meeting')}
-              onOpenAlerts={() => selectView('alerts')}
+              onOpenNotifications={() => {
+                setAccountMenuOpen(false);
+                setNotificationsOpen(true);
+              }}
             />
           )}
           {activeView === 'projects' && (
@@ -7379,16 +7975,6 @@ export function OperationsConsole() {
             <MeetingView payload={themePayload} loading={themeMeetingsLoading} onThemeMeetingChanged={loadThemeMeetings} viewer={user} />
           )}
           {activeView === 'checklists' && <ChecklistsView canSignOff={canSeeAllRole(user.role)} />}
-          {activeView === 'alerts' && (
-            <AlertsView
-              attentionProjects={attentionProjectNotifications}
-              themePayload={themePayload}
-              chatNotifications={chatNotifications}
-              onMarkChatNotificationRead={markChatNotificationRead}
-              onMarkAllChatNotificationsRead={markAllChatNotificationsRead}
-              onOpenChatSession={openChatSessionFromNotification}
-            />
-          )}
           {activeView === 'users' && (
             <UsersView
               user={user}

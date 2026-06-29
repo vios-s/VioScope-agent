@@ -4,13 +4,17 @@ import { basename, extname, isAbsolute, join, relative, resolve } from 'node:pat
 import { inflateSync } from 'node:zlib';
 import { generateText } from 'ai';
 import JSZip from 'jszip';
+import { getUserByUsername } from '../db/users';
 import { elmChatModel } from '../llm';
 import { runtimeEnv } from '../runtime-config';
+import { userDatastoreSlug } from '../users/datastore';
 import type { ProjectArtifactInput, ProjectArtifactRecord, ProjectRecord } from '../db/projects';
 
 export const maxProjectArtifactUploadBytes = 20 * 1024 * 1024;
 const maxDigestChars = 18_000;
 const maxZipEntries = 80;
+const maxZipEntryBytes = maxProjectArtifactUploadBytes;
+const maxZipExtractedBytes = 60 * 1024 * 1024;
 const textExtensions = new Set(['.md', '.markdown', '.txt', '.tex', '.latex', '.rst', '.csv', '.json', '.yaml', '.yml']);
 const uploadExtensions = new Set([...textExtensions, '.docx', '.pptx', '.pdf', '.zip']);
 
@@ -21,13 +25,39 @@ export type ProjectArtifactUploadDigest = {
   extractedFiles: string[];
 };
 
-function uploadRoot(): string {
-  return resolve(
-    /* turbopackIgnore: true */ runtimeEnv('PROJECT_ARTIFACT_UPLOAD_DIR') ||
-      (runtimeEnv('DATASTORE_DIR')
-        ? join(runtimeEnv('DATASTORE_DIR'), 'uploads', 'projects')
-        : join(tmpdir(), 'vioscope-agent', 'uploads', 'projects')),
-  );
+function legacyUploadRoot(): string {
+  const configuredUploadRoot = runtimeEnv('PROJECT_ARTIFACT_UPLOAD_DIR').trim();
+  if (configuredUploadRoot) return resolve(configuredUploadRoot);
+
+  const configuredDatastoreRoot = runtimeEnv('DATASTORE_DIR').trim();
+  return configuredDatastoreRoot
+    ? resolve(configuredDatastoreRoot, 'uploads', 'projects')
+    : join(tmpdir(), 'vioscope-agent', 'uploads', 'projects');
+}
+
+function datastoreRoot(): string | null {
+  const configured = runtimeEnv('DATASTORE_DIR').trim();
+  return configured ? resolve(configured) : null;
+}
+
+function dateTimeFolder(): string {
+  return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+async function projectStorageRoot(project: Pick<ProjectRecord, 'ownerUsername' | 'project'>): Promise<string> {
+  const configuredUploadRoot = runtimeEnv('PROJECT_ARTIFACT_UPLOAD_DIR').trim();
+  if (configuredUploadRoot) {
+    return resolve(configuredUploadRoot, sanitizePathPart(project.ownerUsername), sanitizePathPart(project.project));
+  }
+
+  const root = datastoreRoot();
+  if (!root) {
+    return resolve(tmpdir(), 'vioscope-agent', 'uploads', 'projects', sanitizePathPart(project.ownerUsername), sanitizePathPart(project.project));
+  }
+
+  const owner = await getUserByUsername(project.ownerUsername).catch(() => null);
+  const ownerSlug = owner ? userDatastoreSlug(owner) : sanitizePathPart(project.ownerUsername);
+  return resolve(root, 'users', ownerSlug, 'projects', sanitizePathPart(project.project));
 }
 
 function sanitizeFileName(name: string): string {
@@ -51,12 +81,23 @@ function assertInside(root: string, target: string) {
   }
 }
 
-export function assertStoredProjectArtifactPath(filePath: string | null | undefined): string {
+export async function assertStoredProjectArtifactPath(
+  filePath: string | null | undefined,
+  project?: Pick<ProjectRecord, 'ownerUsername' | 'project'>,
+): Promise<string> {
   if (!filePath) throw new Error('Artifact has no stored file path.');
-  const root = uploadRoot();
+  const roots = [legacyUploadRoot()];
+  if (project) roots.push(await projectStorageRoot(project));
   const target = resolve(filePath);
-  assertInside(root, target);
-  return target;
+  for (const root of roots) {
+    try {
+      assertInside(root, target);
+      return target;
+    } catch {
+      continue;
+    }
+  }
+  throw new Error('Unsafe artifact path.');
 }
 
 export function projectArtifactKind(fileName: string): string {
@@ -162,19 +203,31 @@ function safeArchivePath(name: string): string | null {
 
 async function zipText(buffer: Buffer, extractRoot: string): Promise<{ text: string; files: string[] }> {
   const zip = await JSZip.loadAsync(buffer);
-  await mkdir(extractRoot, { recursive: true });
+  await mkdir(/* turbopackIgnore: true */ extractRoot, { recursive: true });
   const parts: string[] = [];
   const files: string[] = [];
+  let extractedBytes = 0;
 
   for (const entry of Object.values(zip.files).slice(0, maxZipEntries)) {
     if (entry.dir) continue;
     const safePath = safeArchivePath(entry.name);
     if (!safePath) continue;
+    const entrySize = (entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize;
+    if (typeof entrySize === 'number' && entrySize > maxZipEntryBytes) {
+      throw new Error('Zip entry is too large.');
+    }
     const targetPath = resolve(extractRoot, safePath);
     assertInside(extractRoot, targetPath);
-    await mkdir(resolve(targetPath, '..'), { recursive: true });
+    await mkdir(/* turbopackIgnore: true */ resolve(targetPath, '..'), { recursive: true });
     const entryBuffer = await entry.async('nodebuffer');
-    await writeFile(targetPath, entryBuffer);
+    if (entryBuffer.byteLength > maxZipEntryBytes) {
+      throw new Error('Zip entry is too large.');
+    }
+    extractedBytes += entryBuffer.byteLength;
+    if (extractedBytes > maxZipExtractedBytes) {
+      throw new Error('Zip archive expands beyond the 60 MB limit.');
+    }
+    await writeFile(/* turbopackIgnore: true */ targetPath, entryBuffer);
     files.push(safePath);
 
     const ext = extname(safePath).toLowerCase();
@@ -244,15 +297,15 @@ export async function saveProjectArtifactUpload(project: ProjectRecord, file: Fi
     throw new Error(`Unsupported artifact extension "${ext || '(none)'}".`);
   }
 
-  const root = uploadRoot();
-  const projectDir = resolve(root, sanitizePathPart(project.ownerUsername), sanitizePathPart(project.project));
-  await mkdir(projectDir, { recursive: true });
+  const projectDir = await projectStorageRoot(project);
+  const uploadDir = resolve(projectDir, dateTimeFolder());
+  await mkdir(/* turbopackIgnore: true */ uploadDir, { recursive: true });
 
   const storedName = `${Date.now()}-${sanitizeFileName(file.name)}`;
-  const targetPath = resolve(projectDir, storedName);
+  const targetPath = resolve(uploadDir, storedName);
   assertInside(projectDir, targetPath);
   const buffer = Buffer.from(await file.arrayBuffer());
-  await writeFile(targetPath, buffer);
+  await writeFile(/* turbopackIgnore: true */ targetPath, buffer);
 
   const extracted = await extractText(buffer, file.name, targetPath);
   const kind = projectArtifactKind(file.name);
@@ -272,9 +325,12 @@ export async function saveProjectArtifactUpload(project: ProjectRecord, file: Fi
   };
 }
 
-export async function digestStoredProjectArtifact(artifact: ProjectArtifactRecord): Promise<ProjectArtifactUploadDigest> {
-  const storedPath = assertStoredProjectArtifactPath(artifact.path);
-  const buffer = await readFile(storedPath);
+export async function digestStoredProjectArtifact(
+  artifact: ProjectArtifactRecord,
+  project?: Pick<ProjectRecord, 'ownerUsername' | 'project'>,
+): Promise<ProjectArtifactUploadDigest> {
+  const storedPath = await assertStoredProjectArtifactPath(artifact.path, project);
+  const buffer = await readFile(/* turbopackIgnore: true */ storedPath);
   const extracted = await extractText(buffer, artifact.title, storedPath);
   const kind = projectArtifactKind(artifact.title);
   const digest = await summarizeArtifact(artifact.title, kind, extracted.text, extracted.files);

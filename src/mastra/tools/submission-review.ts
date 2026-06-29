@@ -9,12 +9,6 @@ export const submissionReviewTool = createTool({
     'Run the VIOS B2 pre-submission review harness over a draft using configured runtime skills. Use for Skeleton Lock, PDRA meta-review, internal red-team, revision-lock, or submission readiness tasks.',
   inputSchema: z
     .object({
-      draftPath: z
-        .string()
-        .trim()
-        .min(1)
-        .optional()
-        .describe('Path to a .md, .txt, .tex, .latex, .rst, or .pptx draft/deck.'),
       draftText: z.string().trim().min(1).optional().describe('Draft text pasted by the user.'),
       draftName: z.string().trim().min(1).optional().describe('Human-readable name for pasted draft text.'),
       skills: z.array(z.string().trim().min(1)).default([...defaultSubmissionReviewSkills]).optional(),
@@ -23,8 +17,8 @@ export const submissionReviewTool = createTool({
       maxDraftChars: z.number().int().positive().optional(),
       maxOutputTokens: z.number().int().positive().optional(),
     })
-    .refine((input) => Boolean(input.draftPath || input.draftText), {
-      message: 'Provide draftPath or draftText.',
+    .refine((input) => Boolean(input.draftText), {
+      message: 'Provide draftText.',
     }),
   outputSchema: z.object({
     report: z.string(),

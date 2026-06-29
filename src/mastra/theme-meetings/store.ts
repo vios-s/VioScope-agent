@@ -204,8 +204,37 @@ async function writeYaml(path: string, value: unknown) {
   await writeFile(/*turbopackIgnore: true*/ path, stringifyYaml(value), 'utf8');
 }
 
-function updateKey(update: Pick<ThemeMeetingUpdate, 'meeting_date' | 'theme_id' | 'member'>): string {
-  return [update.meeting_date, update.theme_id, update.member].map((part) => part.toLowerCase()).join('::');
+function normalizeUpdatePart(value: string | null | undefined): string {
+  return value ? value.trim().toLowerCase().replace(/\s+/g, ' ') : '';
+}
+
+function updateMemberKeys(update: Pick<ThemeMeetingUpdate, 'member' | 'member_username'>): string[] {
+  return [
+    update.member_username ? `u:${normalizeUpdatePart(update.member_username)}` : '',
+    update.member ? `n:${normalizeUpdatePart(update.member)}` : '',
+  ].filter(Boolean);
+}
+
+function updateKey(update: Pick<ThemeMeetingUpdate, 'meeting_date' | 'theme_id' | 'member' | 'member_username'>): string {
+  return [
+    update.meeting_date,
+    update.theme_id,
+    update.member_username ? `u:${update.member_username}` : `n:${update.member}`,
+  ]
+    .map(normalizeUpdatePart)
+    .join('::');
+}
+
+function sameUpdateSlot(
+  left: Pick<ThemeMeetingUpdate, 'meeting_date' | 'theme_id' | 'member' | 'member_username'>,
+  right: Pick<ThemeMeetingUpdate, 'meeting_date' | 'theme_id' | 'member' | 'member_username'>,
+): boolean {
+  if (left.meeting_date !== right.meeting_date || normalizeUpdatePart(left.theme_id) !== normalizeUpdatePart(right.theme_id)) {
+    return false;
+  }
+
+  const rightKeys = new Set(updateMemberKeys(right));
+  return updateMemberKeys(left).some((key) => rightKeys.has(key));
 }
 
 export async function saveThemeMeetingUpdate(
@@ -214,7 +243,7 @@ export async function saveThemeMeetingUpdate(
 ): Promise<ThemeMeetingUpdatesFile> {
   const path = resolveThemeMeetingUpdatesPath(options.updatesPath);
   const { updates } = await readThemeMeetingUpdates(options);
-  const nextUpdates = updates.filter((current) => updateKey(current) !== updateKey(update));
+  const nextUpdates = updates.filter((current) => !sameUpdateSlot(current, update));
   nextUpdates.push(update);
   nextUpdates.sort((a, b) => updateKey(a).localeCompare(updateKey(b)));
 
