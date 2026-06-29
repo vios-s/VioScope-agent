@@ -13,7 +13,7 @@ function printUsage() {
   console.log(`Usage: npm run users:import-team -- [profiles.md] [options]
 
 Options:
-  --apply              Upsert profile-only user rows into the local Postgres users table.
+  --apply              Upsert public profile rows and activate profile-only accounts.
   --source-url <url>   Source URL to store with imported profiles.
 
 Default profiles path:

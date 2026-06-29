@@ -970,6 +970,7 @@ export async function upsertPublicTeamProfiles(
             email,
             role,
             password_hash,
+            password_reset_required,
             auth_provider,
             provisioning_status,
             source,
@@ -977,10 +978,18 @@ export async function upsertPublicTeamProfiles(
             source_profile_id,
             metadata
           )
-          VALUES ($1, $2, '', 'viewer', NULL, 'local', 'profile_only', 'vios_public_team', $3, $4, $5::jsonb)
+          VALUES ($1, $2, '', 'viewer', NULL, true, 'local', 'active', 'vios_public_team', $3, $4, $5::jsonb)
           ON CONFLICT (username) DO UPDATE
           SET
             display_name = EXCLUDED.display_name,
+            provisioning_status = CASE
+              WHEN users.provisioning_status = 'profile_only' THEN 'active'
+              ELSE users.provisioning_status
+            END,
+            password_reset_required = CASE
+              WHEN users.email = '' AND users.password_hash IS NULL THEN true
+              ELSE users.password_reset_required
+            END,
             source = EXCLUDED.source,
             source_url = EXCLUDED.source_url,
             source_profile_id = EXCLUDED.source_profile_id,

@@ -5,7 +5,10 @@ if set -q VIOSCOPE_WEB_SERVICE
     set service $VIOSCOPE_WEB_SERVICE
 end
 
-set -l npm /home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin/npm
+set -l npm npm
+if set -q NPM
+    set npm $NPM
+end
 set -l action status
 if test (count $argv) -gt 0
     set action $argv[1]

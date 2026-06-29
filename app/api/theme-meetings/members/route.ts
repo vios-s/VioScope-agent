@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       throw new Error('themeId, action, and userId or username are required.');
     }
 
-    const payload = await buildThemeMeetingPlan({ meetingDate });
+    const payload = await buildThemeMeetingPlan({ meetingDate, validateUsers: true });
     if (!canManageTheme(payload.config, themeId, user)) {
       throw new AuthError('Only administrators, PIs, and the theme coordinator can manage theme members.', 403, 'forbidden');
     }

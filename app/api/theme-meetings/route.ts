@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
+import { AuthError, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
 import { listUsersForAdmin, type AuthUser } from '../../../src/mastra/db/users';
 import {
   managedThemeIdsForUser,
@@ -52,6 +52,46 @@ function hasOwnMemberRow(plan: ThemeMeetingPlan, user: AuthUser): boolean {
   );
 }
 
+function ownSubmissionPlanForUser(plan: ThemeMeetingPlan, user: AuthUser): ThemeMeetingPlan {
+  return {
+    ...plan,
+    meetings: plan.meetings
+      .map((meeting) => {
+        const members = meeting.members
+          .map((member, index) => ({ member, username: meeting.member_usernames[index] || '' }))
+          .filter(
+            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username) || isUserName(member, user),
+          );
+        const submittedMembers = meeting.submitted_members
+          .map((member, index) => ({ member, username: meeting.submitted_member_usernames[index] || '' }))
+          .filter(
+            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username) || isUserName(member, user),
+          );
+        const missingMembers = meeting.missing_members
+          .map((member, index) => ({ member, username: meeting.missing_member_usernames[index] || '' }))
+          .filter(
+            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username) || isUserName(member, user),
+          );
+        const agendaItems = meeting.agenda_items.filter(
+          (item) => normalizeUsername(item.member_username) === normalizeUsername(user.username) || isUserName(item.member, user),
+        );
+
+        return {
+          ...meeting,
+          members: members.map((member) => member.member),
+          member_usernames: members.map((member) => member.username),
+          submitted_members: submittedMembers.map((member) => member.member),
+          submitted_member_usernames: submittedMembers.map((member) => member.username),
+          missing_members: missingMembers.map((member) => member.member),
+          missing_member_usernames: missingMembers.map((member) => member.username),
+          agenda_items: agendaItems,
+          planned_minutes: agendaItems.reduce((total, item) => total + item.duration_minutes, 0),
+        };
+      })
+      .filter((meeting) => meeting.members.length || meeting.agenda_items.length),
+  };
+}
+
 function errorResponse(error: unknown, status = 500) {
   return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
@@ -68,7 +108,7 @@ export async function GET(request: Request) {
     const user = await requireSessionUser(request);
     const url = new URL(request.url);
     const meetingDate = url.searchParams.get('date') || undefined;
-    const payload = await buildThemeMeetingPlan({ meetingDate });
+    const payload = await buildThemeMeetingPlan({ meetingDate, validateUsers: true });
     const visiblePlan = visiblePlanForUser(payload.plan, payload.config, user);
     const managedThemeIds = managedThemeIdsForUser(payload.plan, payload.config, user);
     const users = managedThemeIds.length
@@ -85,19 +125,20 @@ export async function GET(request: Request) {
     );
     const pastPlans = await Promise.all(
       [7, 14, 21].map(async (daysBack) => {
-        const past = await buildThemeMeetingPlan({ meetingDate: dateOffset(payload.plan.meeting_date, -daysBack) });
+        const past = await buildThemeMeetingPlan({ meetingDate: dateOffset(payload.plan.meeting_date, -daysBack), validateUsers: true });
         return summarizePlan(past.plan);
       }),
     );
     let submissionPlan: ThemeMeetingPlan | null = null;
-    if (!canSeeAll(user)) {
-      for (let week = 0; week < 8; week += 1) {
-        const candidate = week === 0 ? payload : await buildThemeMeetingPlan({ meetingDate: dateOffset(payload.plan.meeting_date, week * 7) });
-        const visibleCandidate = visiblePlanForUser(candidate.plan, candidate.config, user);
-        if (hasOwnMemberRow(visibleCandidate, user)) {
-          submissionPlan = visibleCandidate;
-          break;
-        }
+    for (let week = 0; week < 8; week += 1) {
+      const candidate =
+        week === 0
+          ? payload
+          : await buildThemeMeetingPlan({ meetingDate: dateOffset(payload.plan.meeting_date, week * 7), validateUsers: true });
+      const personalCandidate = ownSubmissionPlanForUser(candidate.plan, user);
+      if (hasOwnMemberRow(personalCandidate, user)) {
+        submissionPlan = personalCandidate;
+        break;
       }
     }
     return NextResponse.json({

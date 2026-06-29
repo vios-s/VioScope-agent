@@ -43,6 +43,7 @@ export async function POST(request: Request) {
       progressText,
       questions: text(body.questions),
       submittedVia: 'dashboard',
+      validateUsers: true,
     });
 
     await recordAuditLog({

@@ -37,6 +37,8 @@
     "check:chat-zdr": "tsx scripts/check-chat-zdr.ts",
     "check:chat-collaboration": "tsx scripts/check-chat-collaboration.ts",
     "check:chat-live": "tsx scripts/check-chat-live.ts",
+    "check:release-hardening": "tsx scripts/check-release-hardening.ts",
+    "check:release-ui": "npm run web:build && tsx scripts/check-release-ui.ts",
     "check:vioscope": "tsx scripts/check-vioscope-agent.ts",
     "check:vios-skills": "tsx scripts/check-vios-skills.ts",
     "check:wiki-search": "tsx scripts/check-wiki-search.ts",
@@ -48,6 +50,9 @@
     "theme-meeting:cron": "tsx scripts/theme-meeting-cron.ts",
     "audit:prune": "tsx scripts/audit-prune.ts",
     "reset:wiki-index": "tsx scripts/reset-wiki-index.ts",
+    "db:backup": "tsx scripts/postgres-backup.ts backup",
+    "db:snapshot": "tsx scripts/postgres-backup.ts backup",
+    "db:restore": "tsx scripts/postgres-backup.ts restore",
     "db:up": "docker compose up -d postgres",
     "mail:up": "docker compose up -d mailpit",
     "mail:down": "docker compose stop mailpit",
@@ -79,6 +84,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "mastra": "^1.15.0",
+    "playwright": "^1.61.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }

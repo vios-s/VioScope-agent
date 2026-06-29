@@ -1,6 +1,5 @@
 export const vioscopeChatUiConfig = {
   title: 'Wiki assistant',
-  badge: 'Grounded in VIOS wiki',
   emptyTitle: 'Hey I am VioScope, what can I help you with?',
   thinkingText: 'Thinking',
   inputPlaceholder: 'Ask or @mention a teammate',

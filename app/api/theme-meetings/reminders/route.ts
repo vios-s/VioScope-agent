@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     }
 
     const meetingDate = text(body.meetingDate);
-    const payload = await buildThemeMeetingPlan({ meetingDate });
+    const payload = await buildThemeMeetingPlan({ meetingDate, validateUsers: true });
     if (!canManageTheme(payload.config, themeId, user)) {
       throw new AuthError('Only administrators, PIs, and the theme coordinator can send reminders.', 403, 'forbidden');
     }
@@ -45,6 +45,7 @@ export async function POST(request: Request) {
     const run = await buildThemeMeetingReminderRun(parsedAction.data, {
       meetingDate,
       themeId,
+      validateUsers: true,
     });
     const emails = await sendThemeMeetingReminderEmails(run.notifications);
     const agendaEmails =

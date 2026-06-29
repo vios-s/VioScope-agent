@@ -58,9 +58,15 @@ const coordinators = [
 const temporaryUsers: TestUser[] = [
   ...coordinators.map((coordinator) => ({ username: coordinator.username, role: 'organizer' as const })),
   { username: 'alice', role: 'member' },
+  { username: 'bob', role: 'member' },
   { username: 'carla', role: 'member' },
+  { username: 'dan', role: 'member' },
   { username: 'erin', role: 'member' },
+  { username: 'farah', role: 'member' },
   { username: 'gabe', role: 'member' },
+  { username: 'hana', role: 'member' },
+  { username: 'theme.pi', role: 'pi' },
+  { username: 'theme.admin', role: 'administrator' },
 ];
 
 function unique<T>(values: T[]): T[] {
@@ -246,6 +252,7 @@ async function main() {
     const themeMeetingsRoute = await import('../app/api/theme-meetings/route');
     const remindersRoute = await import('../app/api/theme-meetings/reminders/route');
     const membersRoute = await import('../app/api/theme-meetings/members/route');
+    const configRoute = await import('../app/api/theme-meetings/config/route');
     const updatesRoute = await import('../app/api/theme-meetings/updates/route');
 
     for (const coordinator of coordinators) {
@@ -258,6 +265,29 @@ async function main() {
       assert.deepEqual(
         dashboard.plan.meetings.map((meeting: { theme_id: string }) => meeting.theme_id),
         [coordinator.themeId],
+      );
+
+      const coordinatorSettings = await expectJson<any>(
+        `${coordinator.username} theme settings`,
+        await configRoute.GET(requestFor(user, '/api/theme-meetings/config')),
+      );
+      assert.equal(coordinatorSettings.access.canEditGlobal, false);
+      assert.deepEqual(coordinatorSettings.config.themes.map((theme: { theme_id: string }) => theme.theme_id), [coordinator.themeId]);
+
+      const coordinatorDraft = coordinatorSettings.config;
+      coordinatorDraft.themes[0].member_users = [...new Set([...coordinatorDraft.themes[0].member_users, coordinator.addCandidate])];
+      const coordinatorSavedSettings = await expectJson<any>(
+        `${coordinator.username} save own theme settings`,
+        await configRoute.PATCH(
+          requestFor(user, '/api/theme-meetings/config', {
+            method: 'PATCH',
+            body: jsonBody({ config: coordinatorDraft }),
+          }),
+        ),
+      );
+      assert.ok(
+        coordinatorSavedSettings.config.themes[0].member_users.includes(coordinator.addCandidate),
+        `Expected coordinator settings to add ${coordinator.addCandidate}.`,
       );
 
       const reminder = await expectJson<any>(
@@ -419,6 +449,54 @@ async function main() {
         }),
       ),
       403,
+    );
+
+    await expectJson(
+      'member theme settings blocked',
+      await configRoute.GET(requestFor(member, '/api/theme-meetings/config')),
+      403,
+    );
+
+    const pi = await activeUser('theme.pi');
+    const piSettings = await expectJson<any>('pi theme settings', await configRoute.GET(requestFor(pi, '/api/theme-meetings/config')));
+    assert.equal(piSettings.access.canEditGlobal, true);
+    assert.equal(piSettings.config.themes.length, 4);
+    piSettings.config.submission.progress_word_target = 45;
+    const piSavedSettings = await expectJson<any>(
+      'pi save global theme settings',
+      await configRoute.PATCH(
+        requestFor(pi, '/api/theme-meetings/config', {
+          method: 'PATCH',
+          body: jsonBody({ config: piSettings.config }),
+        }),
+      ),
+    );
+    assert.equal(piSavedSettings.config.submission.progress_word_target, 45);
+
+    const admin = await activeUser('theme.admin');
+    const adminSettings = await expectJson<any>('admin theme settings', await configRoute.GET(requestFor(admin, '/api/theme-meetings/config')));
+    assert.equal(adminSettings.access.canEditGlobal, true);
+    assert.equal(adminSettings.config.themes.length, 4);
+    const adminTheme = adminSettings.config.themes.find((theme: { theme_id: string }) => theme.theme_id === 'D');
+    assert.ok(adminTheme, 'Expected Theme D in admin settings.');
+    adminTheme.member_users = [...new Set([...adminTheme.member_users, 'theme.admin'])];
+    await expectJson<any>(
+      'admin save self as theme member',
+      await configRoute.PATCH(
+        requestFor(admin, '/api/theme-meetings/config', {
+          method: 'PATCH',
+          body: jsonBody({ config: adminSettings.config }),
+        }),
+      ),
+    );
+    const adminMemberDashboard = await expectJson<any>(
+      'admin member dashboard',
+      await themeMeetingsRoute.GET(requestFor(admin, '/api/theme-meetings?date=2026-07-01')),
+    );
+    assert.deepEqual(
+      adminMemberDashboard.submissionPlan.meetings.map((meeting: { theme_id: string }) => meeting.theme_id),
+      ['D'],
+      'Admin should receive a personal submission plan when listed as a theme member.',
     );
 
     console.log('Theme meeting auth check passed.');

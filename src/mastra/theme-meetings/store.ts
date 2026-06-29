@@ -62,7 +62,6 @@ function candidateConfigPaths(): string[] {
     );
   }
 
-  candidates.push('fixtures/theme-meeting-config.example.yaml');
   return candidates;
 }
 
@@ -74,7 +73,7 @@ async function resolveFirstExisting(paths: string[], label: string): Promise<str
     }
   }
 
-  throw new Error(`No ${label} found.`);
+  throw new Error(`No ${label} found. Set THEME_MEETING_CONFIG_PATH or DATASTORE_DIR.`);
 }
 
 export async function resolveThemeMeetingConfigPath(configPath?: string): Promise<string> {

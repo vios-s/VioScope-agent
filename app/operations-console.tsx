@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -40,6 +40,7 @@ import type {
   ProjectStatus,
 } from '../src/mastra/state/schema';
 import type {
+  ThemeMeetingConfig,
   ThemeMeetingNotification,
   ThemeMeetingPlan,
   ThemeUpdateType,
@@ -421,6 +422,27 @@ type AdminConfigSetting = {
   };
 };
 
+type ThemeMeetingSettingsUser = {
+  id: string;
+  username: string;
+  displayName: string;
+  role: CurrentUser['role'];
+  provisioningStatus: string;
+};
+
+type ThemeMeetingSettingsPayload = {
+  config?: ThemeMeetingConfig;
+  users?: ThemeMeetingSettingsUser[];
+  access?: {
+    canEditGlobal: boolean;
+    editableThemeIds: string[];
+  };
+  paths?: {
+    config: string;
+  };
+  error?: string;
+};
+
 type AdminConfigPayload = {
   settings?: AdminConfigSetting[];
   restart?: { configured: boolean };
@@ -435,7 +457,7 @@ type ConsoleThemeSettings = {
   accent: ConsoleAccentTheme;
   font: ConsoleFontTheme;
 };
-type SettingsTab = 'general' | 'notifications' | 'integrations' | 'users' | 'config' | 'audit' | 'about';
+type SettingsTab = 'general' | 'notifications' | 'integrations' | 'themeMeeting' | 'users' | 'config' | 'audit' | 'about';
 type PasswordStrength = 'weak' | 'medium' | 'strong';
 type ChecklistTemplateId = 'idea' | 'skeleton' | 'pdra' | 'red';
 type ChecklistTag = 'Core' | 'Required' | 'Advisory';
@@ -571,6 +593,13 @@ const updateTypeOptionLabels: Record<ThemeUpdateType, string> = {
   milestone_check: 'Milestone check (10 min)',
   strategic_slot: 'Strategic slot (paper or idea)',
 };
+
+const themeMeetingSlotTypes: ThemeUpdateType[] = ['nothing_to_report', 'deep_dive', 'milestone_check', 'strategic_slot'];
+const themeMeetingReminderRows = [
+  { name: 'first_reminder', label: 'First reminder' },
+  { name: 'gentle_missing_update_reminder', label: 'Missing-only reminder' },
+  { name: 'agenda_cutoff', label: 'Agenda cutoff' },
+];
 
 const checklistTemplates: ChecklistTemplate[] = [
   {
@@ -1226,6 +1255,140 @@ function PasswordStrengthMeter({ password }: { password: string }) {
   );
 }
 
+const dialogFocusableSelector = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+  '[contenteditable="true"]',
+].join(',');
+
+function focusableDialogElements(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(dialogFocusableSelector)).filter((element) => {
+    const style = window.getComputedStyle(element);
+    return style.display !== 'none' && style.visibility !== 'hidden' && element.tabIndex !== -1;
+  });
+}
+
+function trapCustomDialogFocus(event: KeyboardEvent<HTMLElement>, onClose: () => void) {
+  if (event.target instanceof HTMLElement && event.target.closest('dialog[open]')) return;
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    onClose();
+    return;
+  }
+
+  if (event.key !== 'Tab') return;
+  const focusable = focusableDialogElements(event.currentTarget);
+  if (!focusable.length) {
+    event.preventDefault();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function useCustomDialogFocus<T extends HTMLElement>(open: boolean, initialFocusRef: RefObject<T | null>) {
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => initialFocusRef.current?.focus());
+    return () => {
+      window.cancelAnimationFrame(frame);
+      previousFocusRef.current?.focus();
+    };
+  }, [open, initialFocusRef]);
+}
+
+function ConfirmDialog({
+  id,
+  open,
+  title,
+  message,
+  confirmLabel,
+  busy = false,
+  onCancel,
+  onConfirm,
+}: {
+  id: string;
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel: string;
+  busy?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = `${id}-title`;
+  const messageId = `${id}-message`;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    if (open) {
+      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (!dialog.open) dialog.showModal();
+      window.requestAnimationFrame(() => cancelRef.current?.focus());
+    } else if (dialog.open) {
+      dialog.close();
+      previousFocusRef.current?.focus();
+    }
+  }, [open]);
+
+  useEffect(() => () => {
+    if (dialogRef.current?.open) dialogRef.current.close();
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="confirm-dialog"
+      aria-labelledby={titleId}
+      aria-describedby={messageId}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onCancel();
+      }}
+    >
+      <form method="dialog" className="confirm-dialog-card">
+        <header>
+          <h2 id={titleId}>{title}</h2>
+          <button ref={cancelRef} type="button" onClick={onCancel} disabled={busy} aria-label="Cancel">
+            <X aria-hidden="true" />
+          </button>
+        </header>
+        <p id={messageId}>{message}</p>
+        <footer>
+          <button className="ops-secondary" type="button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button className="ops-primary danger-confirm" type="button" onClick={onConfirm} disabled={busy}>
+            {busy ? 'Working' : confirmLabel}
+          </button>
+        </footer>
+      </form>
+    </dialog>
+  );
+}
+
 function AvatarCircle({ user, className = '' }: { user: CurrentUser; className?: string }) {
   const avatarUrl = profileAvatarUrl(user);
   return (
@@ -1272,7 +1435,6 @@ function ChecklistTagPill({ tag }: { tag: ChecklistTag }) {
 function ConsolePageFrame({
   title,
   subtitle,
-  badge,
   actions,
   tabs,
   children,
@@ -1281,7 +1443,6 @@ function ConsolePageFrame({
 }: {
   title: string;
   subtitle?: string;
-  badge?: ReactNode;
   actions?: ReactNode;
   tabs?: ReactNode;
   children: ReactNode;
@@ -1294,7 +1455,6 @@ function ConsolePageFrame({
         <div className="console-subtitle-row">
           <span className="console-page-title">{title}</span>
           {subtitle && <span className="console-page-subtitle">{subtitle}</span>}
-          {badge}
         </div>
         {actions && <div className="console-subheader-actions">{actions}</div>}
       </header>
@@ -1312,9 +1472,7 @@ function AuthFrame({ children }: { children: ReactNode }) {
       <div className="auth-wrap">
         <div className="auth-panel">
           <div className="auth-brand">
-            <span className="brand-mark auth-mark" aria-hidden="true">
-              <span />
-            </span>
+            <img className="brand-mark auth-mark" src="/art/VIOS_icon.jpg" alt="" aria-hidden="true" />
             <div>
               <strong>VioScope</strong>
               <small>The VIOS lab assistant</small>
@@ -1913,8 +2071,11 @@ function ProjectEditorModal({
   const [draft, setDraft] = useState(() => projectDraftFromProject(project, viewer));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const isNew = !project;
   const canEditOwner = canSeeAllRole(viewer.role);
+  const titleId = 'project-editor-title';
+  useCustomDialogFocus(true, closeButtonRef);
 
   useEffect(() => {
     setDraft(projectDraftFromProject(project, viewer));
@@ -1961,13 +2122,20 @@ function ProjectEditorModal({
 
   return (
     <div className="users-modal-backdrop" role="presentation">
-      <form className="users-modal user-edit-modal project-modal" onSubmit={submit}>
+      <form
+        className="users-modal user-edit-modal project-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onSubmit={submit}
+        onKeyDown={(event) => trapCustomDialogFocus(event, onClose)}
+      >
         <header>
           <div>
-            <h2>{isNew ? 'Add project' : 'Edit project'}</h2>
+            <h2 id={titleId}>{isNew ? 'Add project' : 'Edit project'}</h2>
             <p>{isNew ? 'Create a visible project record.' : project.title}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close project editor">
+          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close project editor">
             <X aria-hidden="true" />
           </button>
         </header>
@@ -2133,9 +2301,13 @@ function ProjectDetailModal({
   const [busy, setBusy] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [artifactToRemove, setArtifactToRemove] = useState<ManagedProjectArtifact | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = 'project-detail-title';
   const currentArtifacts = currentProjectArtifacts(project);
   const oldArtifacts = project.artifacts.filter((artifact) => !artifact.isCurrent);
   const canComment = project.access.canComment && (canSeeAllRole(viewer.role) || project.access.reason !== 'coordinator');
+  useCustomDialogFocus(true, closeButtonRef);
 
   useEffect(() => {
     setEditDraft(projectDraftFromProject(project, viewer));
@@ -2143,6 +2315,10 @@ function ProjectDetailModal({
     setMode(initialMode);
     setError(null);
   }, [initialMode, project, viewer]);
+
+  useEffect(() => {
+    setArtifactToRemove(null);
+  }, [project.id]);
 
   function postUpdateWithProgress(formData: FormData): Promise<ProjectsPayload> {
     return new Promise((resolvePromise, rejectPromise) => {
@@ -2274,7 +2450,6 @@ function ProjectDetailModal({
   }
 
   async function removeArtifact(artifact: ManagedProjectArtifact) {
-    if (!window.confirm(`Remove ${artifact.title}?`)) return;
     setBusy(`remove:${artifact.id}`);
     setError(null);
     try {
@@ -2283,6 +2458,7 @@ function ProjectDetailModal({
       if (!response.ok || !body.project) {
         throw new Error(body.error || 'Could not remove artifact.');
       }
+      setArtifactToRemove(null);
       await onChanged(body.project);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not remove artifact.');
@@ -2317,13 +2493,19 @@ function ProjectDetailModal({
 
   return (
     <div className="users-modal-backdrop" role="presentation">
-      <div className="users-modal user-edit-modal project-modal project-detail-modal" role="dialog" aria-modal="true">
+      <div
+        className="users-modal user-edit-modal project-modal project-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onKeyDown={(event) => trapCustomDialogFocus(event, onClose)}
+      >
         <header>
           <div>
-            <h2>{project.title}</h2>
+            <h2 id={titleId}>{project.title}</h2>
             <p>{project.ownerUsername} / Track {project.track} / Stage {project.stage} ({project.stageProgress}%)</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close project details">
+          <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close project details">
             <X aria-hidden="true" />
           </button>
         </header>
@@ -2511,7 +2693,7 @@ function ProjectDetailModal({
                           className="ops-secondary icon-only-button danger-action"
                           type="button"
                           disabled={busy === `remove:${artifact.id}`}
-                          onClick={() => void removeArtifact(artifact)}
+                          onClick={() => setArtifactToRemove(artifact)}
                           aria-label={`Remove ${artifact.title}`}
                           title="Remove artifact"
                         >
@@ -2709,6 +2891,18 @@ function ProjectDetailModal({
           </div>
         )}
       </div>
+      <ConfirmDialog
+        id="remove-artifact-confirm"
+        open={Boolean(artifactToRemove)}
+        title="Remove artifact?"
+        message={artifactToRemove ? `Remove ${artifactToRemove.title} from the current project record?` : ''}
+        confirmLabel="Remove"
+        busy={Boolean(artifactToRemove && busy === `remove:${artifactToRemove.id}`)}
+        onCancel={() => setArtifactToRemove(null)}
+        onConfirm={() => {
+          if (artifactToRemove) void removeArtifact(artifactToRemove);
+        }}
+      />
     </div>
   );
 }
@@ -2737,8 +2931,7 @@ function ThemeMeetingPanel({
   const overviewPlan = payload?.overviewPlan;
   const pastPlans = payload?.pastPlans || [];
   const userDirectory = payload?.users || [];
-  const planningOnly = canSeeAllRole(viewer.role);
-  const updatePlan = planningOnly ? null : payload?.submissionPlan || plan || null;
+  const updatePlan = payload?.submissionPlan || null;
   const managedThemeIds = useMemo(() => new Set(payload?.access?.canManageThemeIds || []), [payload?.access?.canManageThemeIds]);
   const weekMeetings = useMemo(() => {
     if (overviewPlan) {
@@ -2759,7 +2952,7 @@ function ThemeMeetingPanel({
     }));
   }, [overviewPlan, plan]);
   const personalUpdateMeetings = useMemo(() => {
-    if (!updatePlan || planningOnly) {
+    if (!updatePlan) {
       return [];
     }
 
@@ -2769,7 +2962,7 @@ function ThemeMeetingPanel({
         return normalizedName(username) === normalizedName(viewer.username) || isViewerName(displayName, viewer);
       }),
     );
-  }, [planningOnly, updatePlan, viewer]);
+  }, [updatePlan, viewer]);
   const selectedMeeting = personalUpdateMeetings.find((meeting) => meeting.theme_id === themeId) || personalUpdateMeetings[0];
   const selectedThemeId = selectedMeeting?.theme_id || '';
   const submitMembers = useMemo(() => {
@@ -2966,7 +3159,7 @@ function ThemeMeetingPanel({
                       )}
                     </div>
                     {meeting && <p className="theme-missing">Missing: {meeting.missing_members.join(', ') || 'none'}</p>}
-                    {meeting && !planningOnly && managedThemeIds.has(meeting.theme_id) && (
+                    {meeting && managedThemeIds.has(meeting.theme_id) && (
                       <div className="theme-member-manager">
                         <button
                           className="ops-secondary"
@@ -3173,15 +3366,9 @@ function BriefingView({
   return (
     <ConsolePageFrame
       title="Briefing"
-      subtitle="Projects / meetings / shared evidence"
+      subtitle="Everything in one place."
       className="briefing-page"
       wide
-      badge={
-        <span className="ops-pill">
-          <ShieldCheck aria-hidden="true" />
-          {canSeeAllRole(viewer.role) ? 'Lab-wide view' : 'Personal view'}
-        </span>
-      }
     >
       <div className="briefing-content">
         <section className="briefing-hero">
@@ -3376,6 +3563,8 @@ function ProjectsView({
   const [actionError, setActionError] = useState<string | null>(null);
   const [planningReport, setPlanningReport] = useState<ProjectPlanningReport | null>(null);
   const [planningBusy, setPlanningBusy] = useState(false);
+  const [projectToArchive, setProjectToArchive] = useState<ManagedProject | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
 
   const projects = projectsPayload?.projects || [];
   const activeProjects = projects.filter((project) => project.lifecycle !== 'archived');
@@ -3407,7 +3596,11 @@ function ProjectsView({
   }
 
   async function archiveProject(project: ManagedProject) {
-    if (!window.confirm(`Archive ${project.title}?`)) return;
+    setProjectToArchive(project);
+  }
+
+  async function confirmArchiveProject(project: ManagedProject) {
+    setArchiveBusy(true);
     setActionError(null);
     try {
       const response = await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
@@ -3415,10 +3608,13 @@ function ProjectsView({
       if (!response.ok || !body.project) {
         throw new Error(body.error || 'Could not archive project.');
       }
+      setProjectToArchive(null);
       setDetailProject((current) => (current?.id === project.id ? null : current));
       await onProjectsChanged();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : 'Could not archive project.');
+    } finally {
+      setArchiveBusy(false);
     }
   }
 
@@ -3466,19 +3662,6 @@ function ProjectsView({
           <Plus aria-hidden="true" />
           Add project
         </button>
-      }
-      badge={
-        canSeeAll && mode === 'pi' ? (
-          <span className="ops-pill admin-access">
-            <ShieldCheck aria-hidden="true" />
-            Lab-wide view
-          </span>
-        ) : (
-          <span className="ops-pill">
-            <ShieldCheck aria-hidden="true" />
-            My projects
-          </span>
-        )
       }
     >
       <div className="dashboard-content">
@@ -3617,7 +3800,7 @@ function ProjectsView({
       ) : (
         <div className="dashboard-stack">
           <div className="summary-strip">
-            <span>Lab-wide view</span>
+            <span>Projects</span>
             <strong>{activeProjects.length} active projects</strong>
             <strong>{attentionProjects.length} need attention</strong>
             <strong>{archivedProjects.length} archived</strong>
@@ -3840,6 +4023,18 @@ function ProjectsView({
           onUnarchive={unarchiveProject}
         />
       )}
+      <ConfirmDialog
+        id="archive-project-confirm"
+        open={Boolean(projectToArchive)}
+        title="Archive project?"
+        message={projectToArchive ? `Archive ${projectToArchive.title}? It will be hidden from active planning but kept for lookup.` : ''}
+        confirmLabel="Archive"
+        busy={archiveBusy}
+        onCancel={() => setProjectToArchive(null)}
+        onConfirm={() => {
+          if (projectToArchive) void confirmArchiveProject(projectToArchive);
+        }}
+      />
       </div>
     </ConsolePageFrame>
   );
@@ -3862,12 +4057,6 @@ function MeetingView({
       subtitle="Briefing / Theme meeting"
       className="meeting-page"
       wide
-      badge={
-        <span className="ops-pill">
-          <CalendarDays aria-hidden="true" />
-          {canSeeAllRole(viewer.role) ? 'Organizer view' : 'Member view'}
-        </span>
-      }
     >
       <ThemeMeetingPanel payload={payload} loading={loading} onChanged={onThemeMeetingChanged} viewer={viewer} />
     </ConsolePageFrame>
@@ -3895,6 +4084,7 @@ function ChatView({
   const [draftHistoryCursor, setDraftHistoryCursor] = useState<number | null>(null);
   const [sendStatus, setSendStatus] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<ChatSession | null>(null);
 
   const loadServerSessions = useCallback(async () => {
     const response = await fetch('/api/chat/sessions');
@@ -4003,9 +4193,6 @@ function ChatView({
   }
 
   async function deleteSession(session: ChatSession) {
-    const action = session.membershipKind === 'shared' ? 'remove this shared session from your history' : 'delete this chat session';
-    if (!window.confirm(`Are you sure you want to ${action}?`)) return;
-
     try {
       const response = await fetch('/api/chat/sessions', {
         method: 'DELETE',
@@ -4017,6 +4204,7 @@ function ChatView({
         throw new Error(body.error || 'Could not delete chat session.');
       }
 
+      setSessionToDelete(null);
       setSessions((current) => current.filter((candidate) => candidate.threadId !== session.threadId));
       if (threadId === session.threadId) {
         setThreadId(`web-${Date.now()}`);
@@ -4176,12 +4364,6 @@ function ChatView({
     <ConsolePageFrame
       title={vioscopeChatUiConfig.title}
       className="chat-page"
-      badge={
-        <span className="ops-pill">
-          <span className="live-dot" aria-hidden="true" />
-          {vioscopeChatUiConfig.badge}
-        </span>
-      }
       actions={
         <div className="chat-actions">
           <button className="ops-primary" type="button" onClick={newChat}>
@@ -4245,7 +4427,7 @@ function ChatView({
                     <button
                       className="chat-history-delete"
                       type="button"
-                      onClick={() => deleteSession(session)}
+                      onClick={() => setSessionToDelete(session)}
                       aria-label={session.membershipKind === 'shared' ? 'Remove shared chat session' : 'Delete chat session'}
                       title={session.membershipKind === 'shared' ? 'Remove shared chat session' : 'Delete chat session'}
                     >
@@ -4396,6 +4578,21 @@ function ChatView({
           </div>
         </div>
       </section>
+      <ConfirmDialog
+        id="delete-chat-session-confirm"
+        open={Boolean(sessionToDelete)}
+        title={sessionToDelete?.membershipKind === 'shared' ? 'Remove shared session?' : 'Delete chat session?'}
+        message={
+          sessionToDelete?.membershipKind === 'shared'
+            ? 'Remove this shared chat session from your history? The owner keeps their copy.'
+            : 'Delete this chat session and its saved messages?'
+        }
+        confirmLabel={sessionToDelete?.membershipKind === 'shared' ? 'Remove' : 'Delete'}
+        onCancel={() => setSessionToDelete(null)}
+        onConfirm={() => {
+          if (sessionToDelete) void deleteSession(sessionToDelete);
+        }}
+      />
     </ConsolePageFrame>
   );
 }
@@ -4432,12 +4629,6 @@ function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
       className="checklists-page"
       wide
       tabs={checklistTabs}
-      badge={
-        <span className="ops-pill">
-          <ShieldCheck aria-hidden="true" />
-          Evidence required
-        </span>
-      }
     >
 
       <div className="checklist-layout">
@@ -4569,12 +4760,6 @@ function AlertsView({
     <ConsolePageFrame
       title="Alerts"
       subtitle="Calm nudges for status confirmation and agenda preparation"
-      badge={
-        <span className="ops-pill alert-pill">
-          <Bell aria-hidden="true" />
-          {activeCount} active
-        </span>
-      }
       actions={
         unreadChatNotifications.length ? (
           <button className="ops-secondary" type="button" onClick={() => void markAll()} disabled={isMarking}>
@@ -4884,6 +5069,7 @@ function AdminConfigurationPanel() {
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [restartBusy, setRestartBusy] = useState(false);
+  const [restartConfirmOpen, setRestartConfirmOpen] = useState(false);
   const [activeConfigSection, setActiveConfigSection] = useState<AdminConfigSetting['section']>('model');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -4989,6 +5175,7 @@ function AdminConfigurationPanel() {
       if (!response.ok || !body.ok) {
         throw new Error(body.error || 'Could not request restart.');
       }
+      setRestartConfirmOpen(false);
       setMessage('Restart requested.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not request restart.');
@@ -5103,18 +5290,402 @@ function AdminConfigurationPanel() {
                 className="ops-secondary"
                 type="button"
                 disabled={restartBusy || !payload?.restart?.configured}
-                onClick={() => {
-                  if (window.confirm('Request a VioScope service restart?')) {
-                    void requestRestart();
-                  }
-                }}
+                onClick={() => setRestartConfirmOpen(true)}
               >
                 <Power aria-hidden="true" />
                 {restartBusy ? 'Requesting' : 'Restart'}
               </button>
             </div>
           </section>
+          <ConfirmDialog
+            id="restart-service-confirm"
+            open={restartConfirmOpen}
+            title="Request service restart?"
+            message="Request a VioScope service restart now? Runtime changes may briefly interrupt active users."
+            confirmLabel="Restart"
+            busy={restartBusy}
+            onCancel={() => setRestartConfirmOpen(false)}
+            onConfirm={() => void requestRestart()}
+          />
         </>
+      )}
+    </section>
+  );
+}
+
+function ThemeMeetingSettingsPanel() {
+  const [payload, setPayload] = useState<ThemeMeetingSettingsPayload | null>(null);
+  const [draft, setDraft] = useState<ThemeMeetingConfig | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const users = useMemo(
+    () => (payload?.users || []).slice().sort((left, right) => left.displayName.localeCompare(right.displayName)),
+    [payload?.users],
+  );
+  const userByUsername = useMemo(() => new Map(users.map((nextUser) => [nextUser.username, nextUser])), [users]);
+  const canEditGlobal = Boolean(payload?.access?.canEditGlobal);
+  const editableThemeIds = payload?.access?.editableThemeIds || [];
+
+  const applyPayload = useCallback((nextPayload: ThemeMeetingSettingsPayload) => {
+    setPayload(nextPayload);
+    setDraft(nextPayload.config ? JSON.parse(JSON.stringify(nextPayload.config)) as ThemeMeetingConfig : null);
+  }, []);
+
+  const loadSettings = useCallback(async () => {
+    setError(null);
+    try {
+      const response = await fetch('/api/theme-meetings/config');
+      const body = (await response.json()) as ThemeMeetingSettingsPayload;
+      if (!response.ok || !body.config) {
+        throw new Error(body.error || 'Could not load theme meeting settings.');
+      }
+      applyPayload(body);
+      setLoaded(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not load theme meeting settings.');
+      setLoaded(true);
+    }
+  }, [applyPayload]);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  function updateTheme(themeId: string, patch: Partial<ThemeMeetingConfig['themes'][number]>) {
+    setDraft((current) => current ? {
+      ...current,
+      themes: current.themes.map((theme) => (theme.theme_id === themeId ? { ...theme, ...patch } : theme)),
+    } : current);
+    setMessage(null);
+  }
+
+  function updateSubmission(type: ThemeUpdateType, durationMinutes: string) {
+    const duration = Math.max(0, Number.parseInt(durationMinutes || '0', 10) || 0);
+    setDraft((current) => current ? {
+      ...current,
+      submission: {
+        ...current.submission,
+        update_types: {
+          ...current.submission.update_types,
+          [type]: {
+            ...(current.submission.update_types[type] || { questions_required: false }),
+            duration_minutes: duration,
+            questions_required: false,
+          },
+        },
+      },
+    } : current);
+    setMessage(null);
+  }
+
+  function updateReminder(name: string, patch: Record<string, string>) {
+    setDraft((current) => {
+      if (!current) return current;
+      const existing = current.reminders.find((reminder) => reminder.name === name) || { name };
+      const reminders = current.reminders.filter((reminder) => reminder.name !== name);
+      return {
+        ...current,
+        reminders: [...reminders, { ...existing, ...patch }],
+      };
+    });
+    setMessage(null);
+  }
+
+  function reminderValue(name: string, key: 'weekday' | 'time', fallback: string): string {
+    const value = draft?.reminders.find((reminder) => reminder.name === name)?.[key];
+    return typeof value === 'string' ? value : fallback;
+  }
+
+  function memberNames(usernames: string[] = []) {
+    return usernames.map((username) => userByUsername.get(username)?.displayName || username).join(', ') || 'No members';
+  }
+
+  function addMember(theme: ThemeMeetingConfig['themes'][number], username: string) {
+    const normalized = username.trim().toLowerCase();
+    if (!normalized) return;
+    updateTheme(theme.theme_id, {
+      member_users: [...new Set([...(theme.member_users || []), normalized])],
+    });
+  }
+
+  function removeMember(theme: ThemeMeetingConfig['themes'][number], username: string) {
+    updateTheme(theme.theme_id, {
+      member_users: (theme.member_users || []).filter((member) => member !== username),
+    });
+  }
+
+  async function saveSettings() {
+    if (!draft) return;
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/theme-meetings/config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: draft }),
+      });
+      const body = (await response.json()) as ThemeMeetingSettingsPayload;
+      if (!response.ok || !body.config) {
+        throw new Error(body.error || 'Could not save theme meeting settings.');
+      }
+      applyPayload(body);
+      setMessage('Theme meeting settings saved.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not save theme meeting settings.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="settings-section">
+      <div className="settings-section-heading">
+        <h2>Theme meeting</h2>
+        <p>Manage theme groups, coordinators, slot durations, and reminder timing.</p>
+      </div>
+      {error && <div className="form-message error">{error}</div>}
+      {message && <div className="form-message">{message}</div>}
+      {!loaded || !draft ? (
+        <div className="members-loading">
+          <DotMatrixIcon variant="loading" size={24} />
+          <span>Loading theme meeting settings</span>
+        </div>
+      ) : (
+        <div className="theme-settings-shell">
+          <section className="ops-panel theme-settings-toolbar">
+            <div className="ops-panel-head">
+              <div>
+                <h2>Meeting configuration</h2>
+                <p>{canEditGlobal ? 'PI/admin access' : 'Coordinator access'} · {payload?.paths?.config || 'configured path'}</p>
+              </div>
+              <div className="button-row">
+                <button className="ops-secondary" type="button" disabled={busy || !payload} onClick={() => payload && applyPayload(payload)}>
+                  <RotateCcw aria-hidden="true" />
+                  Reset
+                </button>
+                <button className="ops-primary" type="button" disabled={busy} onClick={() => void saveSettings()}>
+                  <Save aria-hidden="true" />
+                  {busy ? 'Saving' : 'Save changes'}
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {canEditGlobal && (
+            <div className="theme-settings-config-grid">
+              <section className="ops-panel theme-settings-section">
+                <div className="theme-settings-section-head">
+                  <h3>Schedule</h3>
+                </div>
+                <div className="theme-settings-row">
+                  <div>
+                    <strong>Timezone</strong>
+                    <p>Theme meetings use UK local time.</p>
+                  </div>
+                  <div className="theme-settings-control">
+                    <input value={draft.timezone} onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} />
+                  </div>
+                </div>
+                <div className="theme-settings-row">
+                  <div>
+                    <strong>Anchor date</strong>
+                    <p>Defines the alternating AB/CD cycle.</p>
+                  </div>
+                  <div className="theme-settings-control">
+                    <input
+                      type="date"
+                      value={draft.cycle.anchor_date}
+                      onChange={(event) => setDraft({ ...draft, cycle: { ...draft.cycle, anchor_date: event.target.value } })}
+                    />
+                  </div>
+                </div>
+                {themeMeetingReminderRows.map((row) => (
+                  <div className="theme-settings-row" key={row.name}>
+                    <div>
+                      <strong>{row.label}</strong>
+                      <p>{row.name}</p>
+                    </div>
+                    <div className="theme-settings-control split">
+                      <select
+                        value={reminderValue(row.name, 'weekday', row.name === 'agenda_cutoff' ? 'Wednesday' : row.name === 'first_reminder' ? 'Monday' : 'Tuesday')}
+                        onChange={(event) => updateReminder(row.name, { weekday: event.target.value })}
+                      >
+                        {configWeekdays.map((weekday) => (
+                          <option key={weekday} value={weekday}>
+                            {weekday}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="time"
+                        value={reminderValue(row.name, 'time', row.name === 'agenda_cutoff' ? '08:00' : row.name === 'first_reminder' ? '10:00' : '15:00')}
+                        onChange={(event) => updateReminder(row.name, { time: event.target.value })}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </section>
+
+              <section className="ops-panel theme-settings-section">
+                <div className="theme-settings-section-head">
+                  <h3>Slots</h3>
+                </div>
+                <div className="theme-settings-row">
+                  <div>
+                    <strong>Progress word target</strong>
+                    <p>Project progress summaries should stay brief.</p>
+                  </div>
+                  <div className="theme-settings-control">
+                    <input
+                      type="number"
+                      min={1}
+                      value={draft.submission.progress_word_target}
+                      onChange={(event) => setDraft({
+                        ...draft,
+                        submission: { ...draft.submission, progress_word_target: Number.parseInt(event.target.value || '1', 10) || 1 },
+                      })}
+                    />
+                  </div>
+                </div>
+                {themeMeetingSlotTypes.map((type) => (
+                  <div className="theme-settings-row" key={type}>
+                    <div>
+                      <strong>{updateTypeLabels[type]}</strong>
+                      <p>{updateTypeOptionLabels[type]}</p>
+                    </div>
+                    <div className="theme-settings-control">
+                      <input
+                        type="number"
+                        min={0}
+                        value={draft.submission.update_types[type]?.duration_minutes ?? 0}
+                        onChange={(event) => updateSubmission(type, event.target.value)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </section>
+            </div>
+          )}
+
+          <section className="ops-panel theme-settings-themes">
+            <div className="theme-settings-section-head themes-head">
+              <div>
+                <h3>Themes</h3>
+                <p>{canEditGlobal ? 'All theme groups' : 'Your managed theme groups'}</p>
+              </div>
+              <span>{draft.themes.length} visible</span>
+            </div>
+            <div className="theme-settings-list">
+              {draft.themes.map((theme) => {
+                const canEditTheme = canEditGlobal || editableThemeIds.includes(theme.theme_id);
+                const coordinatorUsername = theme.coordinator_user || '';
+                const addableUsers = users.filter((nextUser) => !(theme.member_users || []).includes(nextUser.username));
+                return (
+                  <article className="theme-settings-card" key={theme.theme_id}>
+                    <div className="theme-settings-card-head">
+                      <div>
+                        <span className="track-chip">Theme {theme.theme_id}</span>
+                        <h4>{theme.title}</h4>
+                      </div>
+                      <span className="status-pill">{theme.cycle_group}</span>
+                    </div>
+
+                    {canEditGlobal ? (
+                      <div className="theme-settings-fields">
+                        <label className="theme-settings-field title-field">
+                          <span>Title</span>
+                          <input value={theme.title} onChange={(event) => updateTheme(theme.theme_id, { title: event.target.value })} />
+                        </label>
+                        <label className="theme-settings-field">
+                          <span>Cycle</span>
+                          <select value={theme.cycle_group} onChange={(event) => updateTheme(theme.theme_id, { cycle_group: event.target.value })}>
+                            {draft.cycle.rotation.map((cycle) => (
+                              <option key={cycle} value={cycle}>{cycle}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="theme-settings-field">
+                          <span>Time</span>
+                          <input type="time" value={theme.time} onChange={(event) => updateTheme(theme.theme_id, { time: event.target.value })} />
+                        </label>
+                        <label className="theme-settings-field">
+                          <span>Duration</span>
+                          <input
+                            type="number"
+                            min={1}
+                            value={theme.duration_minutes}
+                            onChange={(event) => updateTheme(theme.theme_id, { duration_minutes: Number.parseInt(event.target.value || '60', 10) || 60 })}
+                          />
+                        </label>
+                        <label className="theme-settings-field coordinator-field">
+                          <span>Coordinator</span>
+                          <select
+                            value={coordinatorUsername}
+                            onChange={(event) => {
+                              const username = event.target.value;
+                              const nextMembers = username && !(theme.member_users || []).includes(username)
+                                ? [...(theme.member_users || []), username]
+                                : theme.member_users;
+                              updateTheme(theme.theme_id, { coordinator_user: username, member_users: nextMembers });
+                            }}
+                          >
+                            <option value="">Choose coordinator</option>
+                            {users.map((nextUser) => (
+                              <option key={nextUser.username} value={nextUser.username}>
+                                {nextUser.displayName} (@{nextUser.username})
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    ) : (
+                      <div className="theme-settings-readonly-grid">
+                        <div className="theme-settings-readonly"><span>Coordinator</span><strong>{theme.coordinator}</strong></div>
+                        <div className="theme-settings-readonly"><span>Time</span><strong>{theme.weekday} {theme.time}</strong></div>
+                      </div>
+                    )}
+
+                    <div className="theme-settings-members-block">
+                      <label className="theme-settings-field">
+                        <span>Members</span>
+                        <select disabled={!canEditTheme || !addableUsers.length} value="" onChange={(event) => addMember(theme, event.target.value)}>
+                          <option value="">{addableUsers.length ? 'Add active member' : 'No active members to add'}</option>
+                          {addableUsers.map((nextUser) => (
+                            <option key={nextUser.username} value={nextUser.username}>
+                              {nextUser.displayName} (@{nextUser.username})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="theme-settings-member-list">
+                        {(theme.member_users || []).map((username) => (
+                          <div className="theme-settings-member-row" key={username}>
+                            <span>
+                              <strong>{userByUsername.get(username)?.displayName || username}</strong>
+                              <small>@{username}</small>
+                            </span>
+                            <button
+                              aria-label={`Remove ${userByUsername.get(username)?.displayName || username}`}
+                              type="button"
+                              disabled={!canEditTheme || username === coordinatorUsername}
+                              onClick={() => removeMember(theme, username)}
+                            >
+                              <Trash2 aria-hidden="true" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="settings-footnote">{memberNames(theme.member_users)}</p>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        </div>
       )}
     </section>
   );
@@ -5129,7 +5700,9 @@ function AuditLogSettingsPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<AuditLogRecord | null>(null);
+  const auditCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const logGroups = useMemo(() => groupedAuditDays(days), [days]);
+  useCustomDialogFocus(Boolean(selectedLog), auditCloseButtonRef);
 
   const loadLogs = useCallback(async () => {
     setBusy(true);
@@ -5302,13 +5875,14 @@ function AuditLogSettingsPanel() {
             aria-modal="true"
             aria-labelledby="audit-json-title"
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => trapCustomDialogFocus(event, () => setSelectedLog(null))}
           >
             <header>
               <div>
                 <h2 id="audit-json-title">Audit entry</h2>
                 <p>{selectedLog.action} · {auditLogTime(selectedLog.eventTime)}</p>
               </div>
-              <button type="button" aria-label="Close" onClick={() => setSelectedLog(null)}>
+              <button ref={auditCloseButtonRef} type="button" aria-label="Close" onClick={() => setSelectedLog(null)}>
                 <X aria-hidden="true" />
               </button>
             </header>
@@ -5337,6 +5911,7 @@ function UsersView({
   setFontTheme,
   onSaveThemeSettings,
   canManageUsers,
+  canManageThemeSettings,
 }: {
   user: CurrentUser;
   onUserChanged: (user: CurrentUser) => void;
@@ -5349,6 +5924,7 @@ function UsersView({
   setFontTheme: (font: ConsoleFontTheme) => void;
   onSaveThemeSettings: () => void;
   canManageUsers: boolean;
+  canManageThemeSettings: boolean;
 }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [drafts, setDrafts] = useState<Record<string, UserDraft>>({});
@@ -5380,11 +5956,15 @@ function UsersView({
   const [busyCreate, setBusyCreate] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const createCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const editCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const editingUser = users.find((user) => user.id === editingUserId) || null;
   const editingDraft = editingUser ? drafts[editingUser.id] || draftFromUser(editingUser) : null;
   const actionUser = actionUserId ? users.find((user) => user.id === actionUserId) || null : null;
   const canViewAudit = user.role === 'administrator';
   const canViewConfig = user.role === 'administrator';
+  useCustomDialogFocus(createOpen, createCloseButtonRef);
+  useCustomDialogFocus(Boolean(editingUser), editCloseButtonRef);
 
   useEffect(() => {
     setNotificationPrefs(normalizedNotificationPreferences(user.notificationPreferences));
@@ -5450,13 +6030,14 @@ function UsersView({
 
   useEffect(() => {
     if (
+      (!canManageThemeSettings && settingsTab === 'themeMeeting') ||
       (!canManageUsers && settingsTab === 'users') ||
       (!canViewAudit && settingsTab === 'audit') ||
       (!canViewConfig && settingsTab === 'config')
     ) {
       setSettingsTab('general');
     }
-  }, [canManageUsers, canViewAudit, canViewConfig, settingsTab]);
+  }, [canManageThemeSettings, canManageUsers, canViewAudit, canViewConfig, settingsTab]);
 
   useEffect(() => {
     setSettingsTab('general');
@@ -5684,23 +6265,11 @@ function UsersView({
   const integrationRows = [
     { mark: 'OL', name: 'Overleaf', desc: 'Import LaTeX drafts for checklist runs.', status: 'Backlog' },
   ];
-  const settingsBadge = settingsTab === 'users'
-    ? 'Admin / PI'
-    : settingsTab === 'audit' || settingsTab === 'config'
-      ? 'Admin'
-      : titleCase(settingsTab);
-
   return (
     <ConsolePageFrame
       title="Settings"
       className="users-page settings-page"
       wide
-      badge={
-        <span className={settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'ops-pill admin-access' : 'ops-pill'}>
-          <Settings aria-hidden="true" />
-          {settingsBadge}
-        </span>
-      }
     >
       <div className="settings-layout">
         <aside className="settings-sidebar" aria-label="Settings sections">
@@ -5716,10 +6285,17 @@ function UsersView({
             <FileText aria-hidden="true" />
             <span>Integrations</span>
           </button>
-          {(canManageUsers || canViewAudit || canViewConfig) && (
+          {(canManageThemeSettings || canManageUsers || canViewAudit || canViewConfig) && (
             <>
               <div className="settings-sidebar-rule" />
               <div className="settings-sidebar-label">Administration</div>
+              {canManageThemeSettings && (
+                <button className={settingsTab === 'themeMeeting' ? 'active' : ''} type="button" onClick={() => setSettingsTab('themeMeeting')}>
+                  <CalendarDays aria-hidden="true" />
+                  <span>Theme meeting</span>
+                  <KeyRound className="settings-lock-icon" aria-hidden="true" />
+                </button>
+              )}
               {canManageUsers && (
                 <button className={settingsTab === 'users' ? 'active' : ''} type="button" onClick={() => setSettingsTab('users')}>
                   <Users aria-hidden="true" />
@@ -5749,7 +6325,7 @@ function UsersView({
           </button>
         </aside>
 
-        <div className={`settings-main ${settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'settings-main-wide' : ''}`}>
+        <div className={`settings-main ${settingsTab === 'themeMeeting' || settingsTab === 'users' || settingsTab === 'audit' || settingsTab === 'config' ? 'settings-main-wide' : ''}`}>
           {settingsTab === 'general' ? (
             <div className="settings-section">
               <div className="settings-section-heading">
@@ -5950,6 +6526,8 @@ function UsersView({
                 ))}
               </div>
             </section>
+          ) : settingsTab === 'themeMeeting' ? (
+            <ThemeMeetingSettingsPanel />
           ) : settingsTab === 'config' ? (
             <AdminConfigurationPanel />
           ) : settingsTab === 'audit' ? (
@@ -5967,13 +6545,9 @@ function UsersView({
               </div>
               <p className="settings-footnote">VioScope is advisory: it surfaces evidence and citations, and a human always decides.</p>
             </section>
-          ) : (
+              ) : (
             <div className="settings-section settings-section-members">
               <div className="settings-members-head">
-                <span className="ops-pill admin-access">
-                  <KeyRound aria-hidden="true" />
-                  Visible to PIs & admins only
-                </span>
                 {userActions}
               </div>
       {error && <div className="form-message error">{error}</div>}
@@ -5985,10 +6559,6 @@ function UsersView({
             <h2>Lab members</h2>
             <p>{activeUserCount} active · {users.length} total · {filteredUsers.length} shown</p>
           </div>
-          <span className="ops-pill">
-            <KeyRound aria-hidden="true" />
-            Credentials issued here
-          </span>
         </div>
 
         {!usersLoaded ? (
@@ -6114,10 +6684,18 @@ function UsersView({
 
       {createOpen && (
         <div className="users-modal-backdrop" role="presentation" onClick={() => setCreateOpen(false)}>
-          <form className="users-modal" onSubmit={createUser} onClick={(event) => event.stopPropagation()}>
+          <form
+            className="users-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-user-title"
+            onSubmit={createUser}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => trapCustomDialogFocus(event, () => setCreateOpen(false))}
+          >
             <header>
-              <h2>Add a member</h2>
-              <button type="button" aria-label="Close" onClick={() => setCreateOpen(false)}>
+              <h2 id="create-user-title">Add a member</h2>
+              <button ref={createCloseButtonRef} type="button" aria-label="Close" onClick={() => setCreateOpen(false)}>
                 <X aria-hidden="true" />
               </button>
             </header>
@@ -6210,15 +6788,19 @@ function UsersView({
         <div className="users-modal-backdrop" role="presentation" onClick={() => setEditingUserId(null)}>
           <form
             className="users-modal user-edit-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-user-title"
             onSubmit={(event) => {
               event.preventDefault();
               void saveUser(editingUser);
             }}
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => trapCustomDialogFocus(event, () => setEditingUserId(null))}
           >
             <header>
-              <h2>Edit member</h2>
-              <button type="button" aria-label="Close" onClick={() => setEditingUserId(null)}>
+              <h2 id="edit-user-title">Edit member</h2>
+              <button ref={editCloseButtonRef} type="button" aria-label="Close" onClick={() => setEditingUserId(null)}>
                 <X aria-hidden="true" />
               </button>
             </header>
@@ -6579,6 +7161,9 @@ export function OperationsConsole() {
   const unreadChatNotificationCount = chatNotifications.filter((notification) => !notification.readAt).length;
   const attentionProjectNotifications =
     projectsPayload?.projects?.filter((project) => project.lifecycle !== 'archived' && projectNeedsAttention(project)) || [];
+  const canManageThemeSettings = user
+    ? canSeeAllRole(user.role) || user.role === 'organizer' || Boolean(themePayload?.access?.canManageThemeIds?.length)
+    : false;
 
   const bottomNavItems = useMemo(
     () => [{ id: 'users' as const, label: 'Settings', icon: Settings }],
@@ -6614,9 +7199,7 @@ export function OperationsConsole() {
     <main className="console-app">
       <header className="console-topbar">
         <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true">
-            <span />
-          </span>
+          <img className="brand-mark" src="/art/VIOS_icon.jpg" alt="" aria-hidden="true" />
           <div>
             <strong>VioScope</strong>
             <small>VIOS Lab</small>
@@ -6787,6 +7370,7 @@ export function OperationsConsole() {
               setFontTheme={setFontTheme}
               onSaveThemeSettings={() => saveStoredThemeSettings(user.id, { mode: theme, accent: accentTheme, font: fontTheme })}
               canManageUsers={user.role === 'administrator' || user.role === 'pi'}
+              canManageThemeSettings={canManageThemeSettings}
             />
           )}
         </div>

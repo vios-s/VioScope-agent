@@ -51,6 +51,7 @@ Keep site-specific files under `DATASTORE_DIR` or another internal repo, not thi
 ```
 
 If your paths differ, set `THEME_MEETING_CONFIG_PATH`, `TEAM_PROFILE_MARKDOWN`, `MASTRA_STORAGE_URL`, or `SUBMISSION_REVIEW_UPLOAD_DIR` in `.env`.
+The files under `fixtures/` are examples and test inputs only; the running app does not use them as production theme-meeting configuration.
 
 ### Database
 
@@ -64,6 +65,20 @@ Stop it when needed:
 
 ```bash
 npm run db:down
+```
+
+Create a dated Postgres snapshot:
+
+```bash
+npm run db:snapshot
+```
+
+The default snapshot path is `backups/vioscope-postgres-YYYY-MM-DD.dump`. Each default snapshot run prunes snapshots older than `POSTGRES_BACKUP_RETENTION_DAYS` days, which defaults to 14. Schedule `npm run db:snapshot` once per day with cron or systemd on the deployment host.
+
+Restore requires an explicit destructive confirmation:
+
+```bash
+npm run db:restore -- backups/vioscope-postgres-YYYY-MM-DD.dump --yes
 ```
 
 ### Local Email
@@ -105,7 +120,7 @@ it exits without touching the vector index; if content changed, it runs the same
 Daily EIDF cron example:
 
 ```cron
-17 3 * * * PATH=/home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /bin/bash -lc 'cd /home/eidf105/eidf105/rasin/Workspace/VioScope-agent && /home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin/npm --silent run sync:gitbook >> /Public/logs/vioscope-gitbook-sync.log 2>&1'
+17 3 * * * /bin/bash -lc 'cd /path/to/VioScope-agent && npm --silent run sync:gitbook >> /Public/logs/vioscope-gitbook-sync.log 2>&1'
 ```
 
 ### Run
@@ -156,7 +171,7 @@ Supported v1 draft formats are text-like files (`.md`, `.txt`, `.tex`, `.latex`,
 - Agent output is advisory and should cite supporting evidence once retrieval is wired in.
 - Unsupported wiki/lab questions can be logged to `kb_gaps` for triage; this is not an authoritative knowledge store.
 - Runtime skills are loaded from `VIOS_SKILLS_DIR` and must stay outside this repository unless they are generic enough to publish.
-- Public team profiles can seed `users` as `profile_only`, but account activation, roles, and passwords require human confirmation.
+- Public team profiles can seed active profile records for theme-meeting references, but roles and passwords still require human confirmation.
 
 ## Project State
 

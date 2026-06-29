@@ -10,9 +10,8 @@ import {
   type ThemeMeetingStoreOptions,
   writeThemeMeetingConfig,
 } from './store';
-import { getAppSettingValue } from '../db/app-settings';
 import { getUserById, getUserByUsername, listUsersForAdmin, type AuthUser } from '../db/users';
-import { sendNotificationEmail } from '../email';
+import { registeredNotificationEmail, sendNotificationEmail } from '../email';
 import {
   themeMeetingNotificationSchema,
   themeMeetingPlanSchema,
@@ -33,6 +32,7 @@ const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 export type BuildThemeMeetingPlanOptions = ThemeMeetingStoreOptions & {
   meetingDate?: string;
   now?: Date;
+  validateUsers?: boolean;
 };
 
 export type BuildThemeMeetingReminderRunOptions = BuildThemeMeetingPlanOptions & {
@@ -48,6 +48,7 @@ export type SubmitThemeMeetingUpdateInput = ThemeMeetingStoreOptions & {
   questions?: string;
   submittedVia?: ThemeMeetingUpdate['submitted_via'];
   now?: Date;
+  validateUsers?: boolean;
 };
 
 export type ThemeMeetingReminderRun = {
@@ -198,6 +199,42 @@ function coordinatorDisplayName(
     : theme.coordinator;
 }
 
+function configuredThemeUsernames(config: ThemeMeetingConfig): string[] {
+  return [
+    ...config.pi_users,
+    config.administrator_user || '',
+    ...config.themes.flatMap((theme) => [theme.coordinator_user || '', ...(theme.member_users || [])]),
+  ]
+    .map(normalizeUsername)
+    .filter(Boolean)
+    .filter((username, index, usernames) => usernames.indexOf(username) === index);
+}
+
+function assertConfiguredUsersActive(
+  config: ThemeMeetingConfig,
+  usersByUsername: Map<string, Pick<AuthUser, 'username' | 'displayName' | 'aliases' | 'provisioningStatus'>>,
+) {
+  const missing: string[] = [];
+  const inactive: string[] = [];
+
+  for (const username of configuredThemeUsernames(config)) {
+    const user = usersByUsername.get(username);
+    if (!user) {
+      missing.push(username);
+    } else if (user.provisioningStatus !== 'active') {
+      inactive.push(username);
+    }
+  }
+
+  if (missing.length || inactive.length) {
+    const parts = [
+      missing.length ? `missing users: ${missing.join(', ')}` : '',
+      inactive.length ? `inactive users: ${inactive.join(', ')}` : '',
+    ].filter(Boolean);
+    throw new Error(`Theme meeting config references ${parts.join('; ')}.`);
+  }
+}
+
 function updateLookupKeys(update: Pick<ThemeMeetingUpdate, 'member' | 'member_username'>): string[] {
   return [
     update.member_username ? `u:${normalizeUsername(update.member_username)}` : '',
@@ -267,12 +304,14 @@ function updateDuration(config: ThemeMeetingConfig, updateType: ThemeUpdateType)
   return config.submission.update_types[updateType]?.duration_minutes ?? 0;
 }
 
-async function configuredSetting(key: string, fallback: string): Promise<string> {
-  return (await getAppSettingValue(key).catch(() => null))?.trim() || process.env[key]?.trim() || fallback;
+function reminderSetting(config: ThemeMeetingConfig, name: string, key: 'weekday' | 'time', fallback: string): string {
+  const reminder = config.reminders.find((nextReminder) => nextReminder.name === name);
+  const value = reminder?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
 }
 
-async function configuredReminderTime(key: string, fallback: string): Promise<string> {
-  const value = await configuredSetting(key, fallback);
+function configuredReminderTime(config: ThemeMeetingConfig, name: string, fallback: string): string {
+  const value = reminderSetting(config, name, 'time', fallback);
   return value && timePattern.test(value) ? value : fallback;
 }
 
@@ -280,23 +319,23 @@ function normalizedWeekday(value: string, fallback: string): string {
   return weekdays.find((weekday) => weekday.toLowerCase() === value.trim().toLowerCase()) || fallback;
 }
 
-async function configuredReminderWeekday(key: string, fallback: string): Promise<string> {
-  return normalizedWeekday(await configuredSetting(key, fallback), fallback);
+function configuredReminderWeekday(config: ThemeMeetingConfig, name: string, fallback: string): string {
+  return normalizedWeekday(reminderSetting(config, name, 'weekday', fallback), fallback);
 }
 
-async function configuredReminderSchedule() {
+function configuredReminderSchedule(config: ThemeMeetingConfig) {
   return {
     firstReminder: {
-      weekday: await configuredReminderWeekday('THEME_MEETING_FIRST_REMINDER_WEEKDAY', 'Monday'),
-      time: await configuredReminderTime('THEME_MEETING_FIRST_REMINDER_TIME', '08:00'),
+      weekday: configuredReminderWeekday(config, 'first_reminder', 'Monday'),
+      time: configuredReminderTime(config, 'first_reminder', '08:00'),
     },
     gentleReminder: {
-      weekday: await configuredReminderWeekday('THEME_MEETING_GENTLE_REMINDER_WEEKDAY', 'Tuesday'),
-      time: await configuredReminderTime('THEME_MEETING_GENTLE_REMINDER_TIME', '04:00'),
+      weekday: configuredReminderWeekday(config, 'gentle_missing_update_reminder', 'Tuesday'),
+      time: configuredReminderTime(config, 'gentle_missing_update_reminder', '04:00'),
     },
     agendaCutoff: {
-      weekday: await configuredReminderWeekday('THEME_MEETING_CUTOFF_WEEKDAY', 'Wednesday'),
-      time: await configuredReminderTime('THEME_MEETING_CUTOFF_TIME', '08:00'),
+      weekday: configuredReminderWeekday(config, 'agenda_cutoff', 'Wednesday'),
+      time: configuredReminderTime(config, 'agenda_cutoff', '08:00'),
     },
   };
 }
@@ -313,6 +352,9 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
   const { path: updatesPath, updates } = await readThemeMeetingUpdates(options);
   const { path: notificationsPath, notifications } = await readThemeMeetingNotifications(options);
   const usersByUsername = await userDirectory();
+  if (options.validateUsers) {
+    assertConfiguredUsersActive(config, usersByUsername);
+  }
   const meetingDate = options.meetingDate || upcomingWednesday(options.now, config.timezone);
   const cycleGroup = cycleGroupForDate(config, meetingDate);
   const activeThemes = config.themes.filter((theme) => theme.cycle_group === cycleGroup);
@@ -379,6 +421,9 @@ export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateIn
 }> {
   const { config } = await readThemeMeetingConfig(input);
   const usersByUsername = await userDirectory();
+  if (input.validateUsers) {
+    assertConfiguredUsersActive(config, usersByUsername);
+  }
   const meetingDate = input.meetingDate || upcomingWednesday(input.now, config.timezone);
   const member = canonicalMember(config, input.themeId, input.member, usersByUsername);
   const questions = input.questions?.trim() || '';
@@ -431,7 +476,7 @@ export async function buildThemeMeetingReminderRun(
   options: BuildThemeMeetingReminderRunOptions = {},
 ): Promise<ThemeMeetingReminderRun> {
   const { config, plan } = await buildThemeMeetingPlan(options);
-  const reminderSchedule = await configuredReminderSchedule();
+  const reminderSchedule = configuredReminderSchedule(config);
   const createdAt = (options.now || new Date()).toISOString();
   const meetings = options.themeId
     ? plan.meetings.filter((meeting) => meeting.theme_id === options.themeId)
@@ -499,7 +544,8 @@ export async function sendThemeMeetingReminderEmails(
     }
     const user = users.get(username);
     const topic = notification.action === 'agenda_cutoff' ? 'theme_meeting_reminders' : 'project_progress_reminders';
-    if (!user || user.provisioningStatus !== 'active' || !user.notificationPreferences[topic].email) {
+    const email = registeredNotificationEmail(user?.email);
+    if (!user || user.provisioningStatus !== 'active' || !email || !user.notificationPreferences[topic].email) {
       result.skipped += 1;
       continue;
     }
@@ -509,7 +555,7 @@ export async function sendThemeMeetingReminderEmails(
       const sent = await sendClaimedThemeMeetingEmail(
         deliveryId,
         {
-          to: user.email,
+          to: email,
           subject: notification.title,
           text: `${notification.body}\n\nMeeting date: ${notification.meeting_date}\nTheme: ${notification.theme_id}\n\nOpen VioScope to respond.`,
         },
@@ -566,7 +612,8 @@ export async function sendThemeMeetingAgendaEmails(
 
   for (const username of agendaRecipientUsernames(plan, config, options)) {
     const user = await getUserByUsername(username);
-    if (!user || user.provisioningStatus !== 'active' || !user.notificationPreferences.theme_meeting_reminders.email) {
+    const email = registeredNotificationEmail(user?.email);
+    if (!user || user.provisioningStatus !== 'active' || !email || !user.notificationPreferences.theme_meeting_reminders.email) {
       result.skipped += 1;
       continue;
     }
@@ -576,7 +623,7 @@ export async function sendThemeMeetingAgendaEmails(
       const sent = await sendClaimedThemeMeetingEmail(
         deliveryId,
         {
-          to: user.email,
+          to: email,
           subject,
           text: `${markdown}\n\nThis agenda is advisory until confirmed by a coordinator, PI, or administrator.`,
         },

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SERVICE="${VIOSCOPE_WEB_SERVICE:-vioscope-web.service}"
-NPM="/home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin/npm"
+NPM="${NPM:-npm}"
 ACTION="${1:-status}"
 
 case "$ACTION" in

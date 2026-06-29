@@ -49,6 +49,7 @@ mastra.db
 # Logs and reports
 logs/
 *.log
+backups/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

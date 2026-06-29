@@ -1,14 +1,11 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+import { chromium, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { upsertLocalUser, type UserRole } from '../src/mastra/db/users';
 
-const node = '/home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin/node';
-const npm = '/home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin/npm';
 const password = 'ThemeUi1!';
 const port = 3127;
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -22,14 +19,16 @@ const runtimeCachePath = resolve(runtimeDir, `theme-meeting-ui-${stamp}-runtime.
 const users = {
   member: `ui.member.${stamp}`,
   coordinator: `ui.coord.${stamp}`,
+  coordA: `ui.coord.a.${stamp}`,
+  coordC: `ui.coord.c.${stamp}`,
+  coordD: `ui.coord.d.${stamp}`,
+  memberA: `ui.member.a.${stamp}`,
+  memberB: `ui.member.b.${stamp}`,
+  memberC: `ui.member.c.${stamp}`,
   pi: `ui.pi.${stamp}`,
   admin: `ui.admin.${stamp}`,
 };
 const usernames = Object.values(users);
-
-const require = createRequire(import.meta.url);
-const globalNodeModules = execFileSync(npm, ['root', '-g'], { encoding: 'utf8' }).trim();
-const { chromium } = require(require.resolve('playwright', { paths: [globalNodeModules] }));
 
 async function seedUser(username: string, role: UserRole, displayName: string) {
   await upsertLocalUser({
@@ -69,11 +68,11 @@ themes:
     time: "10:00"
     duration_minutes: 60
     coordinator: UI Coordinator A
-    coordinator_user: ui.coord.a.${stamp}
+    coordinator_user: ${users.coordA}
     members:
       - UI Member A
     member_users:
-      - ui.member.a.${stamp}
+      - ${users.memberA}
   - theme_id: B
     title: UI Theme B
     cycle_group: AB
@@ -87,7 +86,7 @@ themes:
       - UI Member B
     member_users:
       - ${users.coordinator}
-      - ui.member.b.${stamp}
+      - ${users.memberB}
   - theme_id: C
     title: UI Theme C
     cycle_group: CD
@@ -95,11 +94,11 @@ themes:
     time: "10:00"
     duration_minutes: 60
     coordinator: UI Coordinator C
-    coordinator_user: ui.coord.c.${stamp}
+    coordinator_user: ${users.coordC}
     members:
       - UI Member C
     member_users:
-      - ui.member.c.${stamp}
+      - ${users.memberC}
   - theme_id: D
     title: UI Theme D
     cycle_group: CD
@@ -107,11 +106,13 @@ themes:
     time: "11:00"
     duration_minutes: 60
     coordinator: UI Coordinator D
-    coordinator_user: ui.coord.d.${stamp}
+    coordinator_user: ${users.coordD}
     members:
       - UI Member
+      - UI Admin
     member_users:
       - ${users.member}
+      - ${users.admin}
 submission:
   progress_word_target: 50
   update_types:
@@ -142,42 +143,17 @@ permissions:
   );
 }
 
-function startServer(): ChildProcessWithoutNullStreams {
-  return spawn(node, [resolve('node_modules/next/dist/bin/next'), 'dev', '-p', String(port)], {
-    cwd: process.cwd(),
+function startServer() {
+  return startNextServer({
+    port,
+    mode: 'start',
     env: {
-      ...process.env,
       THEME_MEETING_CONFIG_PATH: configPath,
       THEME_MEETING_UPDATES_PATH: updatesPath,
       THEME_MEETING_NOTIFICATIONS_PATH: notificationsPath,
       VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH: runtimeCachePath,
-      NEXT_TELEMETRY_DISABLED: '1',
     },
   });
-}
-
-async function waitForServer(server: ChildProcessWithoutNullStreams) {
-  let output = '';
-  server.stdout.on('data', (chunk) => {
-    output += chunk.toString();
-  });
-  server.stderr.on('data', (chunk) => {
-    output += chunk.toString();
-  });
-
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (server.exitCode !== null) {
-      throw new Error(`Next test server exited early:\n${output}`);
-    }
-    try {
-      const response = await fetch(baseUrl);
-      if (response.ok) return;
-    } catch {
-      // keep polling
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
-  }
-  throw new Error(`Next test server did not start:\n${output}`);
 }
 
 async function login(page: any, username: string) {
@@ -196,11 +172,9 @@ async function expectVisible(page: any, text: string) {
 async function checkMember(browser: any) {
   const page = await browser.newPage();
   await login(page, users.member);
-  await expectVisible(page, 'Theme A');
-  await expectVisible(page, 'Theme B');
   await expectVisible(page, 'Past meetings');
   await expectVisible(page, 'Suggest theme slot');
-  await expectVisible(page, 'For 2026-07-01');
+  await page.getByText(/^For \d{4}-\d{2}-\d{2}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
   const slotSelect = page.locator('.theme-update-form select').nth(2);
   assert.equal(await slotSelect.locator('option[value="deep_dive"]').textContent(), 'Deep dive (20-30 min)');
@@ -212,18 +186,22 @@ async function checkMember(browser: any) {
   await page.locator('.theme-update-form textarea').nth(1).fill('Can the UI save this member update?');
   await page.getByRole('button', { name: 'Save slot' }).click();
   await expectVisible(page, 'Update saved.');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  assert.equal(await page.getByRole('button', { name: 'Theme meeting' }).count(), 0, 'Member should not see theme meeting settings.');
   await page.close();
 }
 
 async function checkCoordinator(browser: any) {
   const page = await browser.newPage();
   await login(page, users.coordinator);
-  await expectVisible(page, 'Theme A');
-  await expectVisible(page, 'Theme B');
-  await expectVisible(page, 'Remind missing');
+  await expectVisible(page, 'Past meetings');
   await expectVisible(page, 'Suggest theme slot');
-  await expectVisible(page, 'For 2026-06-24');
+  await page.getByText(/^For \d{4}-\d{2}-\d{2}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'B');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Theme meeting' }).click();
+  await expectVisible(page, 'Meeting configuration');
+  await expectVisible(page, 'Theme B');
   await page.close();
 }
 
@@ -234,7 +212,27 @@ async function checkPlanningOnly(browser: any, username: string) {
   await expectVisible(page, 'Theme B');
   await expectVisible(page, 'Past meetings');
   assert.equal(await page.getByText('Suggest theme slot').count(), 0);
-  assert.equal(await page.getByText('Remind missing').count(), 0);
+  assert.ok(await page.getByText('Remind missing').count() > 0, 'PI/admin planning view should expose theme management actions.');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Theme meeting' }).click();
+  await expectVisible(page, 'Meeting configuration');
+  await expectVisible(page, 'Theme A');
+  await page.close();
+}
+
+async function checkAdminMember(browser: any) {
+  const page = await browser.newPage();
+  await login(page, users.admin);
+  await expectVisible(page, 'Theme A');
+  await expectVisible(page, 'Theme B');
+  await expectVisible(page, 'Suggest theme slot');
+  await page.getByText(/^For \d{4}-\d{2}-\d{2}$/).waitFor({ state: 'visible', timeout: 10_000 });
+  assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Theme meeting' }).click();
+  await expectVisible(page, 'Meeting configuration');
+  await expectVisible(page, 'All theme groups');
+  await expectVisible(page, 'UI Theme D');
   await page.close();
 }
 
@@ -256,18 +254,24 @@ async function main() {
   await writeMockConfig();
   await seedUser(users.member, 'member', 'UI Member');
   await seedUser(users.coordinator, 'organizer', 'UI Coordinator');
+  await seedUser(users.coordA, 'organizer', 'UI Coordinator A');
+  await seedUser(users.coordC, 'organizer', 'UI Coordinator C');
+  await seedUser(users.coordD, 'organizer', 'UI Coordinator D');
+  await seedUser(users.memberA, 'member', 'UI Member A');
+  await seedUser(users.memberB, 'member', 'UI Member B');
+  await seedUser(users.memberC, 'member', 'UI Member C');
   await seedUser(users.pi, 'pi', 'UI PI');
   await seedUser(users.admin, 'administrator', 'UI Admin');
 
   const server = startServer();
   try {
-    await waitForServer(server);
+    await waitForServer(server, baseUrl, 80);
     const browser = await chromium.launch({ headless: true });
     try {
       await checkMember(browser);
       await checkCoordinator(browser);
       await checkPlanningOnly(browser, users.pi);
-      await checkPlanningOnly(browser, users.admin);
+      await checkAdminMember(browser);
     } finally {
       await browser.close();
     }
@@ -287,7 +291,7 @@ async function main() {
       ),
     );
   } finally {
-    server.kill('SIGTERM');
+    await stopServer(server);
     await cleanup();
   }
 }

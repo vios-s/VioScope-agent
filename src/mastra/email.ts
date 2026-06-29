@@ -24,9 +24,14 @@ function addressFromHeader(value: string): string {
   return value.match(/<([^>]+)>/)?.[1]?.trim() || value.trim();
 }
 
+export function registeredNotificationEmail(value: string | null | undefined): string | null {
+  const email = value?.trim() || '';
+  return email.includes('@') ? email : null;
+}
+
 export async function sendNotificationEmail(input: NotificationEmail): Promise<boolean> {
   if (!enabled(process.env.EMAIL_NOTIFICATIONS_ENABLED)) return false;
-  const to = input.to?.trim();
+  const to = registeredNotificationEmail(input.to);
   if (!to) return false;
 
   const user = process.env.SMTP_USER?.trim();

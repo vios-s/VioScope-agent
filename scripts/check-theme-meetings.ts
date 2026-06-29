@@ -9,6 +9,7 @@ import {
 } from '../src/mastra/theme-meetings/planner';
 import { managedThemeIdsForUser, visiblePlanForUser } from '../src/mastra/theme-meetings/access';
 import { defaultNotificationPreferences, type AuthUser } from '../src/mastra/db/users';
+import { registeredNotificationEmail } from '../src/mastra/email';
 import {
   claimThemeMeetingEmailDelivery,
   hasThemeMeetingEmailDelivery,
@@ -141,6 +142,23 @@ async function main() {
     throw new Error(`Expected Theme A planned minutes to remain 10, got ${themeAAfterNothing?.planned_minutes}.`);
   }
 
+  const previousCutoffTime = process.env.THEME_MEETING_CUTOFF_TIME;
+  process.env.THEME_MEETING_CUTOFF_TIME = '23:59';
+  const configReminder = await buildThemeMeetingReminderRun('manual_missing_update_reminder', {
+    ...storePaths,
+    meetingDate: '2026-06-24',
+    themeId: 'B',
+    now: new Date('2026-06-23T10:00:00.000Z'),
+  });
+  if (previousCutoffTime === undefined) {
+    delete process.env.THEME_MEETING_CUTOFF_TIME;
+  } else {
+    process.env.THEME_MEETING_CUTOFF_TIME = previousCutoffTime;
+  }
+  if (!configReminder.notifications.some((notification) => notification.body.includes('Wednesday 08:00'))) {
+    throw new Error('Expected reminder cutoff text to come from theme meeting config, not legacy admin/env settings.');
+  }
+
   const manualReminder = await buildThemeMeetingReminderRun('manual_missing_update_reminder', {
     ...storePaths,
     meetingDate: '2026-06-24',
@@ -181,6 +199,13 @@ async function main() {
   await releaseThemeMeetingEmailDeliveryClaim(claimId, storePaths);
   if (await claimThemeMeetingEmailDelivery(claimId, storePaths)) {
     throw new Error('Expected recorded email delivery to block future claims.');
+  }
+
+  if (registeredNotificationEmail(null) !== null || registeredNotificationEmail('') !== null) {
+    throw new Error('Expected missing registered email to be skipped.');
+  }
+  if (registeredNotificationEmail('  alice@example.test  ') !== 'alice@example.test') {
+    throw new Error('Expected registered email to be normalized before sending.');
   }
 
   console.log('Theme meeting check passed.');

@@ -1,13 +1,10 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
-import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { createRequire } from 'node:module';
+import { chromium, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { createProject } from '../src/mastra/db/projects';
 import { getUserByUsername, upsertLocalUser, type AuthUser, type UserRole } from '../src/mastra/db/users';
 
-const node = '/home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin/node';
-const npm = '/home/eidf105/eidf105/rasin/.nvm/versions/node/v24.17.0/bin/npm';
 const password = 'ProjectUi1!';
 const port = 3128;
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -22,10 +19,6 @@ const users = {
   pi: `project.ui.pi.${stamp}`,
   admin: `project.ui.admin.${stamp}`,
 };
-
-const require = createRequire(import.meta.url);
-const globalNodeModules = execFileSync(npm, ['root', '-g'], { encoding: 'utf8' }).trim();
-const { chromium } = require(require.resolve('playwright', { paths: [globalNodeModules] }));
 
 async function seedUser(username: string, role: UserRole, displayName: string): Promise<AuthUser> {
   await upsertLocalUser({
@@ -64,35 +57,8 @@ async function seedProject(owner: AuthUser) {
   );
 }
 
-function startServer(): ChildProcessWithoutNullStreams {
-  return spawn(node, [process.cwd() + '/node_modules/next/dist/bin/next', 'dev', '-p', String(port)], {
-    cwd: process.cwd(),
-    env: { ...process.env, NEXT_TELEMETRY_DISABLED: '1' },
-  });
-}
-
-async function waitForServer(server: ChildProcessWithoutNullStreams) {
-  let output = '';
-  server.stdout.on('data', (chunk) => {
-    output += chunk.toString();
-  });
-  server.stderr.on('data', (chunk) => {
-    output += chunk.toString();
-  });
-
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (server.exitCode !== null) {
-      throw new Error(`Next test server exited early:\n${output}`);
-    }
-    try {
-      const response = await fetch(baseUrl);
-      if (response.ok) return;
-    } catch {
-      // keep polling
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  throw new Error(`Next test server did not start:\n${output}`);
+function startServer() {
+  return startNextServer({ port, mode: 'start' });
 }
 
 async function login(browser: any, username: string, heading?: string) {
@@ -102,7 +68,8 @@ async function login(browser: any, username: string, heading?: string) {
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByText('Dashboard').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByText('Briefing').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
   if (heading) {
     await page.getByRole('heading', { name: heading }).first().waitFor({ state: 'visible', timeout: 15_000 });
   }
@@ -168,8 +135,8 @@ async function checkMember(browser: any) {
     await page.getByText('Stage 3 / 5 - 85%').waitFor({ state: 'visible' });
 
     await page.getByLabel(`Project details for ${title}`).click();
-    page.once('dialog', (dialog: any) => dialog.accept());
     await page.getByRole('button', { name: 'Archive' }).click();
+    await page.getByRole('dialog', { name: 'Archive project?' }).getByRole('button', { name: 'Archive' }).click();
     await page.getByRole('heading', { name: 'Archived projects' }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByLabel(`Unarchive ${title}`).click();
     await page.getByText('Stage 3 / 5 - 85%').waitFor({ state: 'visible', timeout: 15_000 });
@@ -200,7 +167,7 @@ async function checkMember(browser: any) {
 async function checkPi(browser: any) {
   const { context, page } = await login(browser, users.pi);
   try {
-    await page.getByText('Lab-wide view').first().waitFor({ state: 'visible' });
+    await page.getByText('All projects').first().waitFor({ state: 'visible' });
     await page.getByRole('cell', { name: title, exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('cell', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
     await page.getByText('85%').first().waitFor({ state: 'visible' });
@@ -224,7 +191,7 @@ async function checkPi(browser: any) {
 async function checkAdmin(browser: any) {
   const { context, page } = await login(browser, users.admin);
   try {
-    await page.getByText('Lab-wide view').first().waitFor({ state: 'visible' });
+    await page.getByText('All projects').first().waitFor({ state: 'visible' });
     await page.getByRole('cell', { name: title, exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('cell', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: 'Run project scan' }).click();
@@ -264,7 +231,7 @@ async function main() {
 
   const server = startServer();
   try {
-    await waitForServer(server);
+    await waitForServer(server, baseUrl, 80);
     const browser = await chromium.launch({ headless: true });
     try {
       await checkEmptyMemberCreateProject(browser);
@@ -296,7 +263,7 @@ async function main() {
       ),
     );
   } finally {
-    server.kill('SIGTERM');
+    await stopServer(server);
     await cleanup();
   }
 }
