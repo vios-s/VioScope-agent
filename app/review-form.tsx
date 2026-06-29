@@ -14,6 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { ReviewResult, ReviewRunRecord, ReviewRunSummary, ReviewSignoffStatus, ReviewVerdict } from './review-types';
+import styles from './review-form.module.css';
 
 type SkillId = 'vios-skeleton-lock' | 'vios-pdra-meta-review' | 'vios-internal-red-team' | 'vios-revision-lock';
 
@@ -71,16 +72,24 @@ function defaultSignoff(): SignoffState {
   };
 }
 
+function cx(...classes: Array<string | false | null | undefined>) {
+  return classes
+    .filter(Boolean)
+    .map((name) => styles[name as keyof typeof styles])
+    .filter(Boolean)
+    .join(' ');
+}
+
 function verdictClass(verdict: ReviewVerdict) {
-  if (verdict === 'CLEARED') return 'verdict verdict-cleared';
-  if (verdict === 'CONDITIONAL') return 'verdict verdict-conditional';
-  return 'verdict verdict-slide';
+  if (verdict === 'CLEARED') return cx('verdict', 'verdict-cleared');
+  if (verdict === 'CONDITIONAL') return cx('verdict', 'verdict-conditional');
+  return cx('verdict', 'verdict-slide');
 }
 
 function tabVerdictClass(verdict: ReviewVerdict) {
-  if (verdict === 'CLEARED') return 'tab-verdict tab-cleared';
-  if (verdict === 'CONDITIONAL') return 'tab-verdict tab-conditional';
-  return 'tab-verdict tab-slide';
+  if (verdict === 'CLEARED') return cx('tab-verdict', 'tab-cleared');
+  if (verdict === 'CONDITIONAL') return cx('tab-verdict', 'tab-conditional');
+  return cx('tab-verdict', 'tab-slide');
 }
 
 function downloadText(name: string, text: string, type: string) {
@@ -444,25 +453,25 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
 
   const content = (
     <>
-      <header className="topbar">
+      <header className={cx('topbar')}>
         <div>
-          <div className="eyebrow">VioScope</div>
+          <div className={cx('eyebrow')}>VioScope</div>
           <h1>B2 Review Workbench</h1>
         </div>
-        <div className="status-pill">
+        <div className={cx('status-pill')}>
           <ClipboardList aria-hidden="true" />
           {completion.completed}/{completion.total}
         </div>
       </header>
 
-      <section className="workspace">
-        <form ref={formRef} className="input-panel">
-          <div className="panel-heading">
+      <section className={cx('workspace')}>
+        <form ref={formRef} className={cx('input-panel')}>
+          <div className={cx('panel-heading')}>
             <FileText aria-hidden="true" />
             <h2>Draft</h2>
           </div>
 
-          <label className="file-drop">
+          <label className={cx('file-drop')}>
             <input
               name="draftFile"
               type="file"
@@ -476,17 +485,17 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
             <span>{fileName || 'Select draft or deck'}</span>
           </label>
 
-          <label className="field">
+          <label className={cx('field')}>
             <span>Paste Draft</span>
             <textarea name="draftText" rows={10} placeholder="Optional if a file is selected" onChange={clearDraftReviewState} />
           </label>
 
-          <div className="field-row">
-            <label className="field">
+          <div className={cx('field-row')}>
+            <label className={cx('field')}>
               <span>Project</span>
               <input value={runMeta.projectName} onChange={(event) => setMetaField('projectName', event.target.value)} />
             </label>
-            <label className="field">
+            <label className={cx('field')}>
               <span>Target</span>
               <input
                 name="targetVenue"
@@ -497,8 +506,8 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
             </label>
           </div>
 
-          <div className="field-row">
-            <label className="field">
+          <div className={cx('field-row')}>
+            <label className={cx('field')}>
               <span>Deadline</span>
               <input
                 name="deadline"
@@ -507,27 +516,27 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                 placeholder="YYYY-MM-DD"
               />
             </label>
-            <label className="field">
+            <label className={cx('field')}>
               <span>Initiator</span>
               <input value={runMeta.initiator} onChange={(event) => setMetaField('initiator', event.target.value)} />
             </label>
           </div>
 
-          <div className="field-row">
-            <label className="field">
+          <div className={cx('field-row')}>
+            <label className={cx('field')}>
               <span>PI / Senior</span>
               <input
                 value={runMeta.piOrSeniorReviewer}
                 onChange={(event) => setMetaField('piOrSeniorReviewer', event.target.value)}
               />
             </label>
-            <label className="field">
+            <label className={cx('field')}>
               <span>Reviewer</span>
               <input value={runMeta.reviewer} onChange={(event) => setMetaField('reviewer', event.target.value)} />
             </label>
           </div>
 
-          <label className="field">
+          <label className={cx('field')}>
             <span>Cooperators</span>
             <input
               value={runMeta.cooperators}
@@ -536,53 +545,53 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
             />
           </label>
 
-          <div className="field-row compact">
-            <label className="field">
+          <div className={cx('field-row', 'compact')}>
+            <label className={cx('field')}>
               <span>Draft Chars</span>
               <input name="maxDraftChars" type="number" min="1000" step="1000" placeholder="60000" />
             </label>
-            <label className="field">
+            <label className={cx('field')}>
               <span>Output Tokens</span>
               <input name="maxOutputTokens" type="number" min="2500" step="500" placeholder="5000" />
             </label>
           </div>
 
-          <div className="action-row">
-            <button className="primary-button" type="button" disabled={isBusy} onClick={() => runSkill(activeSkillId)}>
-              {busySkillId === activeSkillId ? <Loader2 className="spin" aria-hidden="true" /> : <Play aria-hidden="true" />}
+          <div className={cx('action-row')}>
+            <button className={cx('primary-button')} type="button" disabled={isBusy} onClick={() => runSkill(activeSkillId)}>
+              {busySkillId === activeSkillId ? <Loader2 className={cx('spin')} aria-hidden="true" /> : <Play aria-hidden="true" />}
               <span>{busySkillId === activeSkillId ? 'Running' : 'Run This Check'}</span>
             </button>
-            <button className="ghost-button" type="button" onClick={runAllSkills} disabled={isBusy}>
-              {busySkillId === 'all' ? <Loader2 className="spin" aria-hidden="true" /> : <Play aria-hidden="true" />}
+            <button className={cx('ghost-button')} type="button" onClick={runAllSkills} disabled={isBusy}>
+              {busySkillId === 'all' ? <Loader2 className={cx('spin')} aria-hidden="true" /> : <Play aria-hidden="true" />}
               Run All
             </button>
-            <button className="ghost-button" type="button" onClick={saveRun} disabled={isBusy || !completedSkillIds.length}>
-              {saving ? <Loader2 className="spin" aria-hidden="true" /> : <Save aria-hidden="true" />}
+            <button className={cx('ghost-button')} type="button" onClick={saveRun} disabled={isBusy || !completedSkillIds.length}>
+              {saving ? <Loader2 className={cx('spin')} aria-hidden="true" /> : <Save aria-hidden="true" />}
               Save Run
             </button>
-            <button className="ghost-button" type="button" onClick={resetForm} disabled={isBusy}>
+            <button className={cx('ghost-button')} type="button" onClick={resetForm} disabled={isBusy}>
               <RotateCcw aria-hidden="true" />
               Reset
             </button>
           </div>
 
-          {statusMessage && <div className="notice inline">{statusMessage}</div>}
+          {statusMessage && <div className={cx('notice', 'inline')}>{statusMessage}</div>}
 
-          <section className="history-block">
-            <div className="history-heading">
+          <section className={cx('history-block')}>
+            <div className={cx('history-heading')}>
               <h2>History</h2>
-              <button className="tiny-button" type="button" onClick={loadHistory} disabled={isBusy}>
+              <button className={cx('tiny-button')} type="button" onClick={loadHistory} disabled={isBusy}>
                 Refresh
               </button>
             </div>
-            {historyError && <div className="notice error compact-notice">{historyError}</div>}
-            <div className="history-list">
+            {historyError && <div className={cx('notice', 'error', 'compact-notice')}>{historyError}</div>}
+            <div className={cx('history-list')}>
               {history.length ? (
                 history.map((run) => (
                   <button
                     key={run.id}
                     type="button"
-                    className={`history-item${currentRunId === run.id ? ' history-active' : ''}`}
+                    className={cx('history-item', currentRunId === run.id && 'history-active')}
                     onClick={() => openRun(run.id)}
                     disabled={isBusy}
                   >
@@ -593,22 +602,22 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                   </button>
                 ))
               ) : (
-                <div className="history-empty">No saved runs</div>
+                <div className={cx('history-empty')}>No saved runs</div>
               )}
             </div>
           </section>
         </form>
 
-        <section className="result-panel">
-          <div className="panel-heading result-heading">
+        <section className={cx('result-panel')}>
+          <div className={cx('panel-heading', 'result-heading')}>
             <div>
               <ClipboardList aria-hidden="true" />
               <h2>{activeSkill.label}</h2>
             </div>
-            <div className="download-row">
+            <div className={cx('download-row')}>
               <button
                 type="button"
-                className="icon-button"
+                className={cx('icon-button')}
                 title="Download current Markdown"
                 aria-label="Download current Markdown"
                 onClick={downloadCurrentMarkdown}
@@ -619,7 +628,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
               </button>
               <button
                 type="button"
-                className="icon-button"
+                className={cx('icon-button')}
                 title="Download current JSON"
                 aria-label="Download current JSON"
                 onClick={downloadCurrentJson}
@@ -630,7 +639,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
               </button>
               <button
                 type="button"
-                className="icon-button"
+                className={cx('icon-button')}
                 title="Download all completed JSON"
                 aria-label="Download all completed JSON"
                 onClick={downloadBundleJson}
@@ -642,7 +651,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
             </div>
           </div>
 
-          <div className="check-tabs" role="tablist" aria-label="B2 checks">
+          <div className={cx('check-tabs')} role="tablist" aria-label="B2 checks">
             {reviewSkills.map((skill) => {
               const result = results[skill.id];
               const hasError = Boolean(errors[skill.id]);
@@ -656,16 +665,16 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                   type="button"
                   role="tab"
                   aria-selected={selected}
-                  className={`tab-button${selected ? ' tab-active' : ''}${hasError ? ' tab-error' : ''}`}
+                  className={cx('tab-button', selected && 'tab-active', hasError && 'tab-error')}
                   onClick={() => setActiveSkillId(skill.id)}
                   disabled={busySkillId === 'all'}
                 >
                   <span>{skill.shortLabel}</span>
-                  {running && <Loader2 className="spin" aria-hidden="true" />}
+                  {running && <Loader2 className={cx('spin')} aria-hidden="true" />}
                   {!running && result && <span className={tabVerdictClass(result.structured.verdict)}>{result.structured.verdict}</span>}
-                  {!running && hasError && <span className="tab-verdict tab-error-pill">Error</span>}
+                  {!running && hasError && <span className={cx('tab-verdict', 'tab-error-pill')}>Error</span>}
                   {!running && result && signoff?.signoffStatus !== 'pending' && (
-                    <span className="tab-verdict tab-signed">{signoff?.signoffStatus.replace('_', ' ')}</span>
+                    <span className={cx('tab-verdict', 'tab-signed')}>{signoff?.signoffStatus.replace('_', ' ')}</span>
                   )}
                 </button>
               );
@@ -673,39 +682,39 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
           </div>
 
           {activeError && (
-            <div className="notice error">
+            <div className={cx('notice', 'error')}>
               <AlertTriangle aria-hidden="true" />
               <span>{activeError}</span>
             </div>
           )}
 
           {!activeResult && !activeError && (
-            <div className="empty-state">
-              {busySkillId === activeSkillId ? <Loader2 className="spin" aria-hidden="true" /> : <FileText aria-hidden="true" />}
+            <div className={cx('empty-state')}>
+              {busySkillId === activeSkillId ? <Loader2 className={cx('spin')} aria-hidden="true" /> : <FileText aria-hidden="true" />}
               <span>{busySkillId === activeSkillId ? 'Running check' : 'No result for this check'}</span>
             </div>
           )}
 
           {activeResult && (
-            <div className="result-stack">
-              <div className="verdict-row">
+            <div className={cx('result-stack')}>
+              <div className={cx('verdict-row')}>
                 <div className={verdictClass(activeResult.structured.verdict)}>
                   <VerdictIcon verdict={activeResult.structured.verdict} />
                   <span>{activeResult.structured.verdict}</span>
                 </div>
-                <div className="metric-strip compact-strip">
+                <div className={cx('metric-strip', 'compact-strip')}>
                   <span>Draft: {activeResult.draftName}</span>
                   <span>Chars: {activeResult.draftChars.toLocaleString()}</span>
                   <span>{activeResult.draftTruncated ? 'Truncated' : 'Full'}</span>
                 </div>
               </div>
 
-              <p className="summary">{activeResult.structured.summary}</p>
+              <p className={cx('summary')}>{activeResult.structured.summary}</p>
 
-              <section className="section-block signoff-block">
+              <section className={cx('section-block', 'signoff-block')}>
                 <h3>Human Sign-Off</h3>
-                <div className="signoff-controls">
-                  <label className="field">
+                <div className={cx('signoff-controls')}>
+                  <label className={cx('field')}>
                     <span>Status</span>
                     <select
                       value={activeSignoff.signoffStatus}
@@ -721,7 +730,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                       ))}
                     </select>
                   </label>
-                  <label className="field">
+                  <label className={cx('field')}>
                     <span>Signed By</span>
                     <input
                       value={activeSignoff.signedOffBy}
@@ -730,7 +739,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                       placeholder={runMeta.reviewer || 'Name'}
                     />
                   </label>
-                  <label className="field signoff-note">
+                  <label className={cx('field', 'signoff-note')}>
                     <span>Reviewer Note</span>
                     <textarea
                       value={activeSignoff.reviewerNote}
@@ -739,16 +748,16 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                       rows={3}
                     />
                   </label>
-                  <button className="ghost-button signoff-button" type="button" onClick={saveSignoff} disabled={!canSignOff || isBusy || !currentRunId}>
+                  <button className={cx('ghost-button', 'signoff-button')} type="button" onClick={saveSignoff} disabled={!canSignOff || isBusy || !currentRunId}>
                     <Save aria-hidden="true" />
                     Save Sign-Off
                   </button>
                 </div>
               </section>
 
-              <section className="section-block">
+              <section className={cx('section-block')}>
                 <h3>Findings</h3>
-                <div className="table-wrap">
+                <div className={cx('table-wrap')}>
                   <table>
                     <thead>
                       <tr>
@@ -763,7 +772,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                         <tr key={`${finding.area}-${finding.status}`}>
                           <td>{finding.area}</td>
                           <td>
-                            <span className={`status status-${finding.status}`}>{finding.status}</span>
+                            <span className={cx('status', `status-${finding.status}`)}>{finding.status}</span>
                           </td>
                           <td>{finding.evidence.join(', ') || 'missing'}</td>
                           <td>{finding.requiredAction}</td>
@@ -774,10 +783,10 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                 </div>
               </section>
 
-              <section className="section-block split-block">
+              <section className={cx('section-block', 'split-block')}>
                 <div>
                   <h3>Reasons To Reject</h3>
-                  <ol className="tight-list">
+                  <ol className={cx('tight-list')}>
                     {activeResult.structured.reasonsToReject.length ? (
                       activeResult.structured.reasonsToReject.map((item) => <li key={item}>{item}</li>)
                     ) : (
@@ -787,7 +796,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                 </div>
                 <div>
                   <h3>Checkmate Questions</h3>
-                  <ol className="tight-list">
+                  <ol className={cx('tight-list')}>
                     {activeResult.structured.checkmateQuestions.length ? (
                       activeResult.structured.checkmateQuestions.map((item) => <li key={item}>{item}</li>)
                     ) : (
@@ -797,11 +806,11 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                 </div>
               </section>
 
-              <section className="section-block">
+              <section className={cx('section-block')}>
                 <h3>Mitigations</h3>
-                <div className="mitigation-grid">
+                <div className={cx('mitigation-grid')}>
                   {activeResult.structured.mitigations.map((item) => (
-                    <article className="mitigation-item" key={`${item.priority}-${item.risk}`}>
+                    <article className={cx('mitigation-item')} key={`${item.priority}-${item.risk}`}>
                       <strong>{item.priority}</strong>
                       <span>{item.risk}</span>
                       <p>{item.action}</p>
@@ -816,5 +825,5 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
     </>
   );
 
-  return embedded ? <div className="shell review-embedded">{content}</div> : <main className="shell">{content}</main>;
+  return embedded ? <div className={cx('shell', 'review-embedded')}>{content}</div> : <main className={cx('shell')}>{content}</main>;
 }

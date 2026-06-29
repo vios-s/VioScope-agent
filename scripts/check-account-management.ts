@@ -288,7 +288,7 @@ async function main() {
     const userRoute = await import('../app/api/users/[userId]/route');
     const accountRoute = await import('../app/api/account/route');
     const auditRoute = await import('../app/api/audit-log/route');
-    const labStateRoute = await import('../app/api/lab-state/route');
+    const projectsRoute = await import('../app/api/projects/route');
 
     const badLogin = await loginRoute.POST(jsonRequest('/api/auth/login', {
       username: users.member.username,
@@ -313,7 +313,7 @@ async function main() {
     const me = await meRoute.GET(getRequest('/api/auth/me', resetLogin.cookie || undefined));
     assert.equal(me.status, 200, 'Password-reset user may read /me.');
 
-    const blockedByReset = await labStateRoute.GET(getRequest('/api/lab-state', resetLogin.cookie || undefined));
+    const blockedByReset = await projectsRoute.GET(getRequest('/api/projects', resetLogin.cookie || undefined));
     assert.equal(blockedByReset.status, 403, 'Password-reset user should be blocked from normal app APIs.');
 
     const weakChange = await changePasswordRoute.POST(jsonRequest('/api/auth/change-password', {

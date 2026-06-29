@@ -5,7 +5,6 @@ import { Memory } from '@mastra/memory';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { elmChatModel } from '../llm';
-import { readLabStateTool, summarizeThemeMeetingTool } from '../tools/lab-state';
 import { logKbGapTool } from '../tools/log-kb-gap';
 import { checkProjectProgressTool, getProjectDetailTool, listVisibleProjectsTool } from '../tools/projects';
 import { submissionReviewTool } from '../tools/submission-review';
@@ -38,8 +37,6 @@ export const vioscopeAgent = new Agent({
     'list-visible-projects': listVisibleProjectsTool,
     'get-project-detail': getProjectDetailTool,
     'check-project-progress': checkProjectProgressTool,
-    'read-lab-state': readLabStateTool,
-    'summarize-theme-meeting': summarizeThemeMeetingTool,
     'read-theme-meeting-plan': readThemeMeetingPlanTool,
     'submit-theme-meeting-update': submitThemeMeetingUpdateTool,
   },

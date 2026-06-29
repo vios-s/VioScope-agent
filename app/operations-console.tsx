@@ -18,6 +18,8 @@ import {
   MessageCircle,
   Moon,
   MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Power,
@@ -38,7 +40,7 @@ import { DotMatrixIcon } from './dot-matrix-icon';
 import { ReviewForm } from './review-form';
 import type {
   ProjectStatus,
-} from '../src/mastra/state/schema';
+} from '../src/mastra/db/projects';
 import type {
   ThemeMeetingConfig,
   ThemeMeetingNotification,
@@ -451,7 +453,7 @@ type AdminConfigPayload = {
 
 type ConsoleTheme = 'light' | 'dark' | 'system';
 type ConsoleAccentTheme = 'cyan' | 'aegean' | 'blue' | 'green' | 'indigo' | 'orange' | 'red';
-type ConsoleFontTheme = 'public' | 'serif' | 'mulish' | 'quicksand' | 'mali' | 'jura';
+type ConsoleFontTheme = 'public' | 'serif' | 'quicksand';
 type ConsoleThemeSettings = {
   mode: ConsoleTheme;
   accent: ConsoleAccentTheme;
@@ -679,10 +681,7 @@ const consoleAccentOptions: Array<{ id: ConsoleAccentTheme; label: string; color
 const consoleFontOptions: Array<{ id: ConsoleFontTheme; label: string; fontFamily: string }> = [
   { id: 'public', label: 'Public Sans', fontFamily: '"Public Sans", sans-serif' },
   { id: 'serif', label: 'Source Serif', fontFamily: '"Source Serif 4", serif' },
-  { id: 'mulish', label: 'Mulish', fontFamily: 'Mulish, sans-serif' },
   { id: 'quicksand', label: 'Quicksand', fontFamily: 'Quicksand, sans-serif' },
-  { id: 'mali', label: 'Mali', fontFamily: 'Mali, cursive' },
-  { id: 'jura', label: 'Jura', fontFamily: 'Jura, sans-serif' },
 ];
 const rowMenuWidth = 190;
 const rowMenuHeight = 88;
@@ -1232,6 +1231,9 @@ function profileAvatarUrl(user: CurrentUser): string {
   return user.profile?.avatarUrl || '';
 }
 
+const passwordRequirementText = '8+ characters with a letter, number, and special character.';
+const passwordRequirementError = `Password must be ${passwordRequirementText}`;
+
 function passwordStrength(password: string): PasswordStrength {
   const hasLetter = /[A-Za-z]/.test(password);
   const hasDigit = /\d/.test(password);
@@ -1252,6 +1254,14 @@ function PasswordStrengthMeter({ password }: { password: string }) {
       <span />
       <strong>{titleCase(strength)}</strong>
     </div>
+  );
+}
+
+function PasswordRequirement({ id }: { id: string }) {
+  return (
+    <span id={id} className="password-requirement">
+      Password requirement: {passwordRequirementText}
+    </span>
   );
 }
 
@@ -1640,7 +1650,7 @@ function ChangePasswordView({
       return;
     }
     if (passwordStrength(newPassword) === 'weak') {
-      setError('Password must be 8+ characters with a letter, number, and special character.');
+      setError(passwordRequirementError);
       return;
     }
     if (!user.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -1682,6 +1692,7 @@ function ChangePasswordView({
           <span>Current password</span>
           <input
             autoComplete="current-password"
+            required
             type="password"
             value={currentPassword}
             onChange={(event) => setCurrentPassword(event.target.value)}
@@ -1703,17 +1714,21 @@ function ChangePasswordView({
         <label>
           <span>New password</span>
           <input
+            aria-describedby="setup-password-requirement"
             autoComplete="new-password"
+            required
             type="password"
             value={newPassword}
             onChange={(event) => setNewPassword(event.target.value)}
           />
+          <PasswordRequirement id="setup-password-requirement" />
           <PasswordStrengthMeter password={newPassword} />
         </label>
         <label>
           <span>Confirm password</span>
           <input
             autoComplete="new-password"
+            required
             type="password"
             value={confirmPassword}
             onChange={(event) => setConfirmPassword(event.target.value)}
@@ -1817,7 +1832,7 @@ function AccountDetailsPanel({
       return;
     }
     if (passwordStrength(passwordDraft.newPassword) === 'weak') {
-      setPasswordError('Password must be 8+ characters with a letter, number, and special character.');
+      setPasswordError(passwordRequirementError);
       return;
     }
 
@@ -1904,6 +1919,7 @@ function AccountDetailsPanel({
               <span>Current password</span>
               <input
                 autoComplete="current-password"
+                required
                 type="password"
                 value={passwordDraft.currentPassword}
                 onChange={(event) => setPasswordDraft((current) => ({ ...current, currentPassword: event.target.value }))}
@@ -1912,17 +1928,21 @@ function AccountDetailsPanel({
             <label>
               <span>New password</span>
               <input
+                aria-describedby="account-password-requirement"
                 autoComplete="new-password"
+                required
                 type="password"
                 value={passwordDraft.newPassword}
                 onChange={(event) => setPasswordDraft((current) => ({ ...current, newPassword: event.target.value }))}
               />
+              <PasswordRequirement id="account-password-requirement" />
               <PasswordStrengthMeter password={passwordDraft.newPassword} />
             </label>
             <label>
               <span>Confirm password</span>
               <input
                 autoComplete="new-password"
+                required
                 type="password"
                 value={passwordDraft.confirmPassword}
                 onChange={(event) => setPasswordDraft((current) => ({ ...current, confirmPassword: event.target.value }))}
@@ -6913,6 +6933,7 @@ function UsersView({
 
 export function OperationsConsole() {
   const [activeView, setActiveView] = useState<ActiveView>('briefing');
+  const [railHidden, setRailHidden] = useState(false);
   const [theme, setTheme] = useState<ConsoleTheme>('light');
   const [accentTheme, setAccentTheme] = useState<ConsoleAccentTheme>('aegean');
   const [fontTheme, setFontTheme] = useState<ConsoleFontTheme>('public');
@@ -7204,6 +7225,17 @@ export function OperationsConsole() {
             <strong>VioScope</strong>
             <small>VIOS Lab</small>
           </div>
+          <button
+            className="rail-toggle"
+            type="button"
+            aria-label={railHidden ? 'Show primary navigation' : 'Hide primary navigation'}
+            aria-controls="primary-navigation"
+            aria-expanded={!railHidden}
+            title={railHidden ? 'Show navigation' : 'Hide navigation'}
+            onClick={() => setRailHidden((current) => !current)}
+          >
+            {railHidden ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+          </button>
         </div>
         <div className="account-block">
           <TopbarNotificationCenter
@@ -7277,7 +7309,7 @@ export function OperationsConsole() {
       </header>
 
       <div className="console-body">
-        <nav className="console-rail" aria-label="Primary">
+        <nav id="primary-navigation" className="console-rail" aria-label="Primary" hidden={railHidden}>
           {topNavItems.map((item) => {
             const Icon = item.icon;
             return (

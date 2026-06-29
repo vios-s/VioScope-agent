@@ -11,8 +11,6 @@ import { userDatastoreRoot } from '../src/mastra/users/datastore';
 const stamp = Date.now();
 const aliceName = `m3.alice.${stamp}`;
 const bobName = `m3.bob.${stamp}`;
-const piOneName = `m3.pi.one.${stamp}`;
-const piTwoName = `m3.pi.two.${stamp}`;
 const aliceCode = `M3ALICE${stamp}`;
 const bobCode = `M3BOB${stamp}`;
 const sessionCode = `M3SESSION${stamp}`;
@@ -42,30 +40,6 @@ async function seedUser(username: string, role: UserRole = 'member'): Promise<Au
   const user = await getUserByUsername(username);
   assert.ok(user, `Expected ${username} to exist.`);
   return user;
-}
-
-async function labState(user: AuthUser): Promise<{
-  source?: string;
-  summary?: { totalProjects?: number };
-  state?: { projects?: Array<{ project?: string; venue?: string | null; submission_deadline?: string | null }> };
-  error?: string;
-}> {
-  const labStateRoute = await import('../app/api/lab-state/route');
-  const response = await labStateRoute.GET(
-    new Request('http://localhost:3000/api/lab-state', {
-      headers: {
-        cookie: `${sessionCookieName}=${createSessionToken(user)}`,
-      },
-    }),
-  );
-  const body = (await response.json()) as {
-    source?: string;
-    summary?: { totalProjects?: number };
-    state?: { projects?: Array<{ project?: string; venue?: string | null; submission_deadline?: string | null }> };
-    error?: string;
-  };
-  assert.equal(response.status, 200, body.error || `Lab state failed for ${user.username}.`);
-  return body;
 }
 
 async function writePrivateMemory(user: AuthUser, code: string): Promise<string> {
@@ -122,8 +96,6 @@ async function main() {
 
   const alice = await seedUser(aliceName);
   const bob = await seedUser(bobName);
-  const piOne = await seedUser(piOneName, 'pi');
-  const piTwo = await seedUser(piTwoName, 'pi');
   const roots: string[] = [];
 
   try {
@@ -158,20 +130,6 @@ async function main() {
     assert.ok(includesCode(bobMemory, bobCode), `Bob memory did not include ${bobCode}: ${bobMemory}`);
     assert.equal(includesCode(bobMemory, aliceCode), false, `Bob response leaked Alice code: ${bobMemory}`);
 
-    const piOneState = await labState(piOne);
-    const piTwoState = await labState(piTwo);
-    assert.equal(piOneState.summary?.totalProjects, piTwoState.summary?.totalProjects, 'Allowed users should see same public lab-state total.');
-    assert.deepEqual(
-      piOneState.state?.projects?.map((project) => project.project),
-      piTwoState.state?.projects?.map((project) => project.project),
-      'Allowed users should see same public lab-state projects.',
-    );
-    if (piOneState.source === 'fixture') {
-      const toyProject = piOneState.state?.projects?.find((project) => project.project === 'toy-segmentation');
-      assert.equal(toyProject?.venue, 'ToyConf', 'Fixture lab-state venue should be visible to allowed users.');
-      assert.equal(toyProject?.submission_deadline, '2026-09-15', 'Fixture lab-state deadline should be visible to allowed users.');
-    }
-
     await chat(
       alice,
       shareThread,
@@ -190,7 +148,6 @@ async function main() {
         {
           sessionMemory: 'passed',
           personalMemoryIsolation: 'passed',
-          publicMemoryShared: 'passed',
           sharedChatDirectMemoryLeak: 'not observed',
         },
         null,
@@ -198,7 +155,7 @@ async function main() {
       ),
     );
   } finally {
-    await cleanup([alice, bob, piOne, piTwo], roots);
+    await cleanup([alice, bob], roots);
   }
 }
 

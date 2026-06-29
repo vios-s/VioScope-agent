@@ -175,7 +175,7 @@ Supported v1 draft formats are text-like files (`.md`, `.txt`, `.tex`, `.latex`,
 
 ## Project State
 
-Project Manager database records are the operational source of truth for the dashboard, progress updates, artifacts, planning scans, and permission checks. The old `lab-state.yaml` reader remains only as a compatibility/export path for legacy tools; the current member workflow should not depend on creating or hand-editing that file.
+Project Manager database records are the operational source of truth for the dashboard, progress updates, artifacts, planning scans, and permission checks. The old `lab-state.yaml` API, reader, tools, and fixture have been removed.
 
 ## Runtime Skills
 
