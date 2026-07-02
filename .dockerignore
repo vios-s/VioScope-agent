@@ -42,3 +42,4 @@ docs/*.docx
 secrets
 .tokens
 src/mastra/public
+slides/

@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 const source = readFileSync('app/api/chat/route.ts', 'utf8');
 const uiSource = readFileSync('app/operations-console.tsx', 'utf8');
 const iconSource = readFileSync('app/dot-matrix-icon.tsx', 'utf8');
-const agentPromptSource = readFileSync('src/mastra/agents/vioscope.prompt.yaml', 'utf8');
+const agentPromptSource = readFileSync('src/mastra/prompts/agent.yaml', 'utf8');
+const uiCopyPromptSource = readFileSync('src/mastra/prompts/ui-copy.yaml', 'utf8');
 const chatPolicySource = readFileSync('src/mastra/agents/vioscope.chat-policy.config.ts', 'utf8');
 const chatUiConfigSource = readFileSync('src/mastra/agents/vioscope.chat-ui.config.ts', 'utf8');
 const checks = [
@@ -19,7 +20,7 @@ const checks = [
   ['includes user context', /messageWithUserContext\(message,\s*user,\s*userDatastoreContext/.test(source)],
   ['blocks obvious out-of-scope chat', /isClearlyOutOfScope\(message\)/.test(source)],
   ['keeps chat scope policy in config', /labScopeTerms/.test(chatPolicySource) && /annual leave/.test(chatPolicySource)],
-  ['keeps starter prompts in config', /starterPrompts/.test(chatUiConfigSource) && !/const prompts/.test(uiSource)],
+  ['keeps starter prompts in prompt yaml', /starterPrompts/.test(uiCopyPromptSource) && !/const prompts/.test(uiSource) && !/starterPrompts/.test(chatUiConfigSource)],
   ['loads user datastore context', /loadUserDatastoreContext\(user\)/.test(source)],
   ['states lab-only scope in agent prompt', /VioScope only helps with VIOS lab work/.test(agentPromptSource)],
   ['searches wiki before rejecting local procedure questions', /Search the wiki before deciding they are out of scope/.test(agentPromptSource)],

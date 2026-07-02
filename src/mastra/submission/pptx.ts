@@ -29,9 +29,9 @@ function asArray<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
-function collectTextNodes(value: unknown, output: string[] = []): string[] {
+function collectTextNodes(value: unknown, output: string[] = [], inTextRun = false): string[] {
   if (typeof value === 'string') {
-    const text = value.trim();
+    const text = inTextRun ? value.trim() : '';
     if (text) {
       output.push(text);
     }
@@ -40,7 +40,7 @@ function collectTextNodes(value: unknown, output: string[] = []): string[] {
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      collectTextNodes(item, output);
+      collectTextNodes(item, output, inTextRun);
     }
     return output;
   }
@@ -50,12 +50,8 @@ function collectTextNodes(value: unknown, output: string[] = []): string[] {
   }
 
   for (const [key, child] of Object.entries(value)) {
-    if (key === 'a:t') {
-      collectTextNodes(child, output);
-      continue;
-    }
-
-    collectTextNodes(child, output);
+    if (key.startsWith('@_')) continue;
+    collectTextNodes(child, output, inTextRun || key === 'a:t');
   }
 
   return output;
@@ -139,8 +135,8 @@ function renderDeck(name: string, slides: ExtractedSlide[]): string {
   return [`# PowerPoint Deck: ${name}`, '', ...sections].join('\n\n');
 }
 
-export async function extractPptx(path: string): Promise<ExtractedPptx> {
-  const zip = await JSZip.loadAsync(await readFile(path));
+export async function extractPptxBuffer(buffer: Buffer, name: string): Promise<ExtractedPptx> {
+  const zip = await JSZip.loadAsync(buffer);
   const slides: ExtractedSlide[] = [];
 
   for (const slidePath of sortedSlidePaths(zip)) {
@@ -161,6 +157,10 @@ export async function extractPptx(path: string): Promise<ExtractedPptx> {
 
   return {
     slides,
-    text: renderDeck(path, slides),
+    text: renderDeck(name, slides),
   };
+}
+
+export async function extractPptx(path: string): Promise<ExtractedPptx> {
+  return extractPptxBuffer(await readFile(path), path);
 }

@@ -1,0 +1,18 @@
+project:
+  progress: |-
+    Write a VioScope project progress update in 50 words or fewer for "{{projectTitle}}". Focus on what changed since the last update, evidence or results, the next step, and any decision needed. Current stage: {{stage}}/5, {{stageProgress}}%.
+  target: |-
+    Write a concise target for the next update on "{{projectTitle}}". State the next concrete milestone or outcome and, if useful, the date or venue.
+  blocker: |-
+    Write a concise blocker or risk entry for "{{projectTitle}}". If there is no blocker, write "No blocker." Include what help or decision is needed if there is one.
+theme:
+  progress: |-
+    Write a theme meeting progress summary in 50 words or fewer{{projectContext}}. Focus on new progress since the last update, results, current risk, and why this slot is needed. Avoid spending more than one sentence on background or recap.
+  questions: |-
+    Write optional theme meeting questions{{projectContext}}. Include decisions, feedback, blockers, or PI/coordinator input needed. Keep it concise; bullets are OK.
+chat:
+  starterPrompts:
+    - How do I create an EIDF account?
+    - How to ask for an annual leave?
+    - What is the process for idea pitches?
+    - Can you help me update the project's status about ...

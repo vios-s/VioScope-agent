@@ -6,7 +6,9 @@ import { generateText } from 'ai';
 import JSZip from 'jszip';
 import { getUserByUsername } from '../db/users';
 import { elmChatModel } from '../llm';
+import { artifactSummaryPrompt, renderPromptTemplate } from '../prompts';
 import { runtimeEnv } from '../runtime-config';
+import { extractPptxBuffer, type ExtractedPptx } from '../submission/pptx';
 import { userDatastoreSlug } from '../users/datastore';
 import type { ProjectArtifactInput, ProjectArtifactRecord, ProjectRecord } from '../db/projects';
 
@@ -233,7 +235,9 @@ async function zipText(buffer: Buffer, extractRoot: string): Promise<{ text: str
     const ext = extname(safePath).toLowerCase();
     if (textExtensions.has(ext)) {
       parts.push(`${safePath}:\n${entryBuffer.toString('utf8')}`);
-    } else if (ext === '.docx' || ext === '.pptx') {
+    } else if (ext === '.pptx') {
+      parts.push(`${safePath}:\n${deckTextForDigest(safePath, await extractPptxBuffer(entryBuffer, safePath))}`);
+    } else if (ext === '.docx') {
       parts.push(`${safePath}:\n${await officeText(entryBuffer, safePath)}`);
     } else if (ext === '.pdf') {
       parts.push(`${safePath}:\n${pdfText(entryBuffer)}`);
@@ -248,7 +252,10 @@ async function extractText(buffer: Buffer, fileName: string, targetPath: string)
   if (textExtensions.has(ext)) {
     return { text: buffer.toString('utf8').slice(0, maxDigestChars), files: [sanitizeFileName(fileName)] };
   }
-  if (ext === '.docx' || ext === '.pptx') {
+  if (ext === '.pptx') {
+    return { text: deckTextForDigest(fileName, await extractPptxBuffer(buffer, fileName)).slice(0, maxDigestChars), files: [sanitizeFileName(fileName)] };
+  }
+  if (ext === '.docx') {
     return { text: (await officeText(buffer, fileName)).slice(0, maxDigestChars), files: [sanitizeFileName(fileName)] };
   }
   if (ext === '.pdf') {
@@ -258,6 +265,14 @@ async function extractText(buffer: Buffer, fileName: string, targetPath: string)
     return zipText(buffer, `${targetPath}.extracted`);
   }
   return { text: '', files: [sanitizeFileName(fileName)] };
+}
+
+function deckTextForDigest(fileName: string, deck: ExtractedPptx): string {
+  const slides = deck.slides.map((slide) => {
+    const body = [...slide.text, ...slide.notes.map((note) => `Note: ${note}`)].join(' | ').replace(/\s+/g, ' ').trim();
+    return `Slide ${slide.number}: ${body.slice(0, 900) || '(no extractable text)'}`;
+  });
+  return [`PowerPoint deck: ${fileName}`, ...slides].join('\n');
 }
 
 function fallbackDigest(fileName: string, kind: string, text: string, files: string[]): string {
@@ -277,9 +292,13 @@ async function summarizeArtifact(fileName: string, kind: string, text: string, f
   try {
     const result = await generateText({
       model: elmChatModel,
-      system:
-        'You summarize lab project artifacts for a project dashboard. Return 2 concise sentences. Do not invent details. Mention the likely artifact purpose and key contents.',
-      prompt: `Artifact filename: ${fileName}\nArtifact kind: ${kind}\nExtracted files: ${files.join(', ') || 'none'}\n\nExtracted text:\n${text.slice(0, maxDigestChars)}`,
+      system: artifactSummaryPrompt.system,
+      prompt: renderPromptTemplate(artifactSummaryPrompt.userTemplate, {
+        fileName,
+        kind,
+        files: files.join(', ') || 'none',
+        text: text.slice(0, maxDigestChars),
+      }),
       maxOutputTokens: 180,
     });
     const summary = result.text.trim();

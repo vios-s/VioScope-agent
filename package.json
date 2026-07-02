@@ -1,6 +1,6 @@
 {
   "name": "vioscope-agent",
-  "version": "0.1.0",
+  "version": "1.1.0",
   "description": "Mastra-based agent system scaffold for VioScope.",
   "license": "Apache-2.0",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "mastra dev",
-    "build": "mastra build",
+    "build": "mastra build && tsx scripts/copy-mastra-prompt-assets.ts",
     "start": "mastra start",
     "web:dev": "next dev",
     "web:build": "next build",

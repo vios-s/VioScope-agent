@@ -24,6 +24,7 @@ secrets/
 /materials/
 .local/
 docs/design/
+slides/
 
 # Node / Mastra / TypeScript
 node_modules/

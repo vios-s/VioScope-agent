@@ -1,5 +1,6 @@
 import { generateText } from 'ai';
 import { elmChatModel } from '../llm';
+import { renderPromptTemplate, submissionReviewPrompt } from '../prompts';
 import { runtimeEnvNumber } from '../runtime-config';
 import { readViosSkill, type ViosSkill } from '../skills/loader';
 import { readDraftFile, type DraftSource } from './draft';
@@ -258,45 +259,17 @@ function buildPrompt({
   deadline?: string;
   draftTruncated: boolean;
 }) {
-  return `Run a VIOS B2 pre-submission review using the supplied runtime skills.
-
-Context:
-- Draft name: ${draft.name}
-- Target venue: ${targetVenue || 'not provided'}
-- Deadline: ${deadline || 'not provided'}
-- Draft was truncated: ${draftTruncated ? 'yes' : 'no'}
-- Skills to apply: ${skills.map((skill) => `${skill.name}${skill.version ? `@${skill.version}` : ''}`).join(', ')}
-
-Instructions:
-- Be advisory, not authoritative. A human signs off.
-- Use only evidence visible in the numbered draft and the supplied skill instructions.
-- Cite draft evidence with line references like \`draft:L12-L18\`.
-- If evidence is missing, write "missing" and explain what the user should provide.
-- Do not invent experiments, results, citations, deadlines, or author decisions.
-- Suggest one overall verdict: CLEARED, CONDITIONAL, or SLIDE.
-- Also provide per-skill findings.
-
-Required structured output:
-- verdict must be exactly CLEARED, CONDITIONAL, or SLIDE.
-- summary should be short and decision-oriented.
-- findings must use status pass, partial, fail, missing, or conditional.
-- findings evidence must contain draft line references like \`draft:L12-L18\`, or the string "missing".
-- reasonsToReject should list blocking risks only. Use an empty array when none are visible.
-- checkmateQuestions should list the hardest questions a reviewer, PI, or external critic would ask.
-- mitigations should use priority P0, P1, P2, or P3.
-- humanSignOff must stay pending unless the draft itself explicitly records sign-off.
-- perSkillNotes must include one entry for each supplied skill.
-- Use "missing", "pending", or "not applicable" for unknown text fields. Do not leave important fields blank.
-
-Runtime skills:
-
-${buildSkillsBlock(skills)}
-
-Numbered draft:
-
-${numberedDraft}
-`;
+  return renderPromptTemplate(submissionReviewPrompt.reviewTemplate, {
+    draftName: draft.name,
+    targetVenue: targetVenue || 'not provided',
+    deadline: deadline || 'not provided',
+    draftTruncated: draftTruncated ? 'yes' : 'no',
+    skills: skills.map((skill) => `${skill.name}${skill.version ? `@${skill.version}` : ''}`).join(', '),
+    runtimeSkills: buildSkillsBlock(skills),
+    numberedDraft,
+  });
 }
+
 
 export async function reviewSubmission(input: SubmissionReviewInput): Promise<SubmissionReviewResult> {
   const draft = await resolveDraft(input);
@@ -313,51 +286,13 @@ export async function reviewSubmission(input: SubmissionReviewInput): Promise<Su
   });
   const jsonPrompt = `${prompt}
 
-Return only one valid JSON object. Do not wrap it in markdown. The object must contain exactly these top-level fields:
-verdict, summary, findings, reasonsToReject, checkmateQuestions, mitigations, humanSignOff, perSkillNotes.
-
-Use this exact object shape:
-{
-  "verdict": "CONDITIONAL",
-  "summary": "short advisory summary",
-  "findings": [
-    {
-      "area": "area name",
-      "status": "missing",
-      "evidence": ["missing"],
-      "gap": "what is missing or weak",
-      "requiredAction": "what the user should do next"
-    }
-  ],
-  "reasonsToReject": [],
-  "checkmateQuestions": ["hard question"],
-  "mitigations": [
-    {
-      "priority": "P1",
-      "risk": "risk name",
-      "action": "mitigation action",
-      "owner": "pending",
-      "due": "pending",
-      "evidenceNeeded": "evidence needed"
-    }
-  ],
-  "humanSignOff": {
-    "leadPdra": "pending",
-    "piOrOrganizer": "pending",
-    "remainingEvidenceNeeded": ["evidence needed before sign-off"]
-  },
-  "perSkillNotes": [
-    {
-      "skill": "${skills[0]?.name || 'skill-name'}",
-      "notes": ["note"]
-    }
-  ]
-}`;
+${renderPromptTemplate(submissionReviewPrompt.jsonResponseTemplate, {
+    exampleSkill: skills[0]?.name || 'skill-name',
+  })}`;
 
   const result = await generateText({
     model: elmChatModel,
-    system:
-      'You are VioScope running a VIOS pre-submission review harness. Return only valid JSON. Be concise, evidence-backed, and explicit about uncertainty. Never claim human approval.',
+    system: submissionReviewPrompt.system,
     prompt: jsonPrompt,
     maxOutputTokens: input.maxOutputTokens || defaultMaxOutputTokens,
   });

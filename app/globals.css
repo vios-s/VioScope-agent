@@ -2279,6 +2279,59 @@ html[data-theme="dark"] .briefing-hero::after {
   font-weight: 850;
 }
 
+.theme-prefill-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.theme-prefill-row .ops-secondary {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.prompt-field {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.prompt-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.prompt-copy-button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.prompt-copy-button:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+  color: var(--ink-3);
+}
+
+.prompt-copy-button svg {
+  width: 13px;
+  height: 13px;
+}
+
 .theme-update-form select,
 .theme-update-form textarea {
   width: 100%;
@@ -4224,6 +4277,30 @@ html[data-theme="dark"] .briefing-hero::after {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
+}
+
+.artifact-actions .working {
+  border-color: var(--teal-surface-bd);
+  background: var(--teal-tint);
+  color: var(--teal-ink);
+}
+
+.artifact-action-status {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--surface-3);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.spin {
+  animation: icon-spin 0.9s linear infinite;
 }
 
 .upload-progress {
@@ -4611,6 +4688,22 @@ html[data-theme="dark"] .briefing-hero::after {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.project-table-actions {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 108px;
+}
+
+.project-table-actions .icon-only-button {
+  width: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  flex: 0 0 auto;
 }
 
 .chat-view {
@@ -5133,6 +5226,19 @@ html[data-theme="dark"] .briefing-hero::after {
   40% {
     opacity: 1;
     transform: translateY(-3px);
+  }
+}
+
+@keyframes icon-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
   }
 }
 
@@ -5742,6 +5848,10 @@ html[data-theme="dark"] .briefing-hero::after {
   }
 
   .theme-meeting-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .theme-prefill-row {
     grid-template-columns: 1fr;
   }
 

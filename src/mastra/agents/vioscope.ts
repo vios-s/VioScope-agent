@@ -1,10 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { Agent } from '@mastra/core/agent';
 import { Memory } from '@mastra/memory';
-import { parse as parseYaml } from 'yaml';
-import { z } from 'zod';
 import { elmChatModel } from '../llm';
+import { agentPrompt } from '../prompts';
 import { logKbGapTool } from '../tools/log-kb-gap';
 import { checkProjectProgressTool, getProjectDetailTool, listVisibleProjectsTool } from '../tools/projects';
 import { submissionReviewTool } from '../tools/submission-review';
@@ -12,22 +9,11 @@ import { readThemeMeetingPlanTool, submitThemeMeetingUpdateTool } from '../tools
 import { listViosSkillsTool, readViosSkillTool } from '../tools/vios-skills';
 import { wikiSearchTool } from '../tools/wiki-search';
 
-const promptSchema = z.object({
-  instructions: z.string().trim().min(1),
-});
-
-function loadVioScopePrompt() {
-  const promptPath = fileURLToPath(new URL('./vioscope.prompt.yaml', import.meta.url));
-  return promptSchema.parse(parseYaml(readFileSync(promptPath, 'utf8')));
-}
-
-const vioscopePrompt = loadVioScopePrompt();
-
 export const vioscopeAgent = new Agent({
   id: 'vioscope',
   name: 'VioScope',
   model: elmChatModel,
-  instructions: vioscopePrompt.instructions,
+  instructions: agentPrompt.instructions,
   tools: {
     'search-wiki': wikiSearchTool,
     'log-kb-gap': logKbGapTool,

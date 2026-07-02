@@ -7,6 +7,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  Copy,
   ClipboardList,
   Download,
   FileText,
@@ -121,6 +122,26 @@ type MentionUsersPayload = {
 
 type NotificationsPayload = {
   notifications?: ChatNotification[];
+  error?: string;
+};
+
+type UiCopyPrompts = {
+  project: {
+    progress: string;
+    target: string;
+    blocker: string;
+  };
+  theme: {
+    progress: string;
+    questions: string;
+  };
+  chat: {
+    starterPrompts: string[];
+  };
+};
+
+type UiCopyPromptsPayload = {
+  prompts?: UiCopyPrompts;
   error?: string;
 };
 
@@ -858,6 +879,63 @@ function defaultTimelineDraft(project?: ManagedProject | null): ProjectTimelineD
 
 function countWords(value: string) {
   return value.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function trimWords(value: string, maxWords: number) {
+  return value.trim().split(/\s+/).filter(Boolean).slice(0, maxWords).join(' ');
+}
+
+function latestProjectUpdate(project: ManagedProject) {
+  return project.updates.find((update) => update.type === 'progress') || project.updates[0] || null;
+}
+
+function meetingDraftFromProject(project: ManagedProject) {
+  const update = latestProjectUpdate(project);
+  const parts = [
+    update?.text,
+    project.target ? `Next: ${project.target}` : null,
+    project.blocker ? `Blocker: ${project.blocker}` : null,
+  ].filter(Boolean);
+  return trimWords(parts.join(' '), 50);
+}
+
+function renderUiPrompt(template: string | undefined, values: Record<string, string | number | null | undefined>) {
+  if (!template) return '';
+  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => String(values[key] ?? ''));
+}
+
+function projectPromptValues(project: ManagedProject) {
+  return {
+    projectTitle: project.title,
+    stage: project.stage,
+    stageProgress: project.stageProgress,
+  };
+}
+
+function projectProgressPrompt(prompts: UiCopyPrompts | null, project: ManagedProject) {
+  return renderUiPrompt(prompts?.project.progress, projectPromptValues(project));
+}
+
+function projectTargetPrompt(prompts: UiCopyPrompts | null, project: ManagedProject) {
+  return renderUiPrompt(prompts?.project.target, projectPromptValues(project));
+}
+
+function projectBlockerPrompt(prompts: UiCopyPrompts | null, project: ManagedProject) {
+  return renderUiPrompt(prompts?.project.blocker, projectPromptValues(project));
+}
+
+function themePromptValues(project?: ManagedProject | null) {
+  return {
+    projectContext: project ? ` for "${project.title}", suggested slot: ${projectSlotLabels[project.recommendation]}` : '',
+  };
+}
+
+function themeProgressPrompt(prompts: UiCopyPrompts | null, project?: ManagedProject | null) {
+  return renderUiPrompt(prompts?.theme.progress, themePromptValues(project));
+}
+
+function themeQuestionsPrompt(prompts: UiCopyPrompts | null, project?: ManagedProject | null) {
+  return renderUiPrompt(prompts?.theme.questions, themePromptValues(project));
 }
 
 function inferArtifactKind(fileName: string) {
@@ -1643,6 +1721,31 @@ function StatusChip({ status }: { status: ProjectStatus }) {
   return <span className={`status-text status-${status}`}>{statusLabels[status]}</span>;
 }
 
+function PromptCopyButton({ prompt, label }: { prompt: string; label: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const ready = Boolean(prompt);
+
+  async function copyPrompt() {
+    if (!ready) return;
+    try {
+      await navigator.clipboard.writeText(prompt);
+      setState('copied');
+      window.setTimeout(() => setState('idle'), 1600);
+    } catch {
+      setState('failed');
+    }
+  }
+
+  const text = !ready ? 'Prompt loading' : state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy prompt';
+
+  return (
+    <button className="prompt-copy-button" type="button" disabled={!ready} onClick={copyPrompt} aria-label={label} title={text}>
+      <Copy aria-hidden="true" />
+      <span>{text}</span>
+    </button>
+  );
+}
+
 function ChecklistTagPill({ tag }: { tag: ChecklistTag }) {
   return <span className={`checklist-tag tag-${tag.toLowerCase()}`}>{tag}</span>;
 }
@@ -2204,7 +2307,7 @@ function ProjectCard({
         <strong>{currentArtifacts.length} current / {project.artifacts.length} total</strong>
       </div>
       <div className="project-meta-row">
-        <span>Meeting slot</span>
+        <span>Suggested slot</span>
         <strong>{projectSlotLabels[project.recommendation]}</strong>
       </div>
       {project.blocker && <p className="project-blocker">{project.blocker}</p>}
@@ -2536,6 +2639,7 @@ function ProjectDetailModal({
   viewer,
   collaboratorUsers,
   existingProjects,
+  uiCopyPrompts,
   initialMode,
   onClose,
   onSaved,
@@ -2547,6 +2651,7 @@ function ProjectDetailModal({
   viewer: CurrentUser;
   collaboratorUsers: MentionableUser[];
   existingProjects: ManagedProject[];
+  uiCopyPrompts: UiCopyPrompts | null;
   initialMode: ProjectDetailMode;
   onClose: () => void;
   onSaved: (project: ManagedProject) => Promise<void>;
@@ -2570,6 +2675,9 @@ function ProjectDetailModal({
   const currentArtifacts = currentProjectArtifacts(project);
   const oldArtifacts = project.artifacts.filter((artifact) => !artifact.isCurrent);
   const canComment = project.access.canComment && (canSeeAllRole(viewer.role) || project.access.reason !== 'coordinator');
+  const targetFieldId = `project-update-target-${project.id}`;
+  const blockerFieldId = `project-update-blocker-${project.id}`;
+  const progressFieldId = `project-update-progress-${project.id}`;
   useCustomDialogFocus(true, closeButtonRef);
 
   useEffect(() => {
@@ -2974,7 +3082,7 @@ function ProjectDetailModal({
               <StatusChip status={project.status} />
             </div>
             <div>
-              <span>Stage progress</span>
+              <span>Stage progress (%)</span>
               <strong>{project.stageProgress}%</strong>
             </div>
             <div>
@@ -3007,7 +3115,7 @@ function ProjectDetailModal({
           <div className="artifact-list">
             {currentArtifacts.length ? (
               currentArtifacts.map((artifact) => (
-                <div key={artifact.id} className="artifact-row">
+                <div key={artifact.id} className="artifact-row" aria-busy={busy === `digest:${artifact.id}`}>
                   <div>
                     <strong>{artifact.title}</strong>
                     <small>{artifact.kind} / current</small>
@@ -3034,12 +3142,16 @@ function ProjectDetailModal({
                     {project.access.canEdit && (
                       <>
                         <button
-                          className="ops-secondary icon-only-button"
+                          className={`ops-secondary icon-only-button${busy === `digest:${artifact.id}` ? ' working' : ''}`}
                           type="button"
                           disabled={busy === `digest:${artifact.id}`}
                           onClick={() => void redigestArtifact(artifact)}
-                          aria-label={`Regenerate digest for ${artifact.title}`}
-                          title="Regenerate digest"
+                          aria-label={
+                            busy === `digest:${artifact.id}`
+                              ? `Regenerating digest for ${artifact.title}`
+                              : `Regenerate digest for ${artifact.title}`
+                          }
+                          title={busy === `digest:${artifact.id}` ? 'Regenerating digest' : 'Regenerate digest'}
                         >
                           <RefreshCw aria-hidden="true" className={busy === `digest:${artifact.id}` ? 'spin' : undefined} />
                         </button>
@@ -3054,6 +3166,11 @@ function ProjectDetailModal({
                           <Trash2 aria-hidden="true" />
                         </button>
                       </>
+                    )}
+                    {busy === `digest:${artifact.id}` && (
+                      <span className="artifact-action-status" role="status">
+                        Regenerating summary
+                      </span>
                     )}
                   </div>
                 </div>
@@ -3164,7 +3281,7 @@ function ProjectDetailModal({
               </select>
             </label>
             <label>
-              <span>Stage progress</span>
+              <span>Stage progress (%)</span>
               <input
                 type="number"
                 min="0"
@@ -3191,18 +3308,27 @@ function ProjectDetailModal({
               />
               <span>Milestone reached</span>
             </label>
-            <label className="full">
-              <span>Target</span>
-              <textarea rows={2} value={draft.target} onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))} />
-            </label>
-            <label className="full">
-              <span>Blocker</span>
-              <textarea rows={2} value={draft.blocker} onChange={(event) => setDraft((current) => ({ ...current, blocker: event.target.value }))} />
-            </label>
-            <label className="full">
-              <span>Progress text ({countWords(draft.text)}/50 words)</span>
-              <textarea rows={4} value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} />
-            </label>
+            <div className="prompt-field full">
+              <div className="prompt-field-head">
+                <label htmlFor={targetFieldId}>Target</label>
+                <PromptCopyButton prompt={projectTargetPrompt(uiCopyPrompts, project)} label="Copy target prompt" />
+              </div>
+              <textarea id={targetFieldId} rows={2} value={draft.target} onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))} />
+            </div>
+            <div className="prompt-field full">
+              <div className="prompt-field-head">
+                <label htmlFor={blockerFieldId}>Blocker</label>
+                <PromptCopyButton prompt={projectBlockerPrompt(uiCopyPrompts, project)} label="Copy blocker prompt" />
+              </div>
+              <textarea id={blockerFieldId} rows={2} value={draft.blocker} onChange={(event) => setDraft((current) => ({ ...current, blocker: event.target.value }))} />
+            </div>
+            <div className="prompt-field full">
+              <div className="prompt-field-head">
+                <label htmlFor={progressFieldId}>Progress text ({countWords(draft.text)}/50 words)</label>
+                <PromptCopyButton prompt={projectProgressPrompt(uiCopyPrompts, project)} label="Copy progress text prompt" />
+              </div>
+              <textarea id={progressFieldId} rows={4} value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} />
+            </div>
             <div className="full artifact-upload-field">
               <span>New artifact</span>
               <span className="artifact-upload-row">
@@ -3381,11 +3507,15 @@ function ThemeMeetingPanel({
   loading,
   onChanged,
   viewer,
+  projects,
+  uiCopyPrompts,
 }: {
   payload: ThemeMeetingPayload | null;
   loading: boolean;
   onChanged: () => Promise<void>;
   viewer: CurrentUser;
+  projects: ManagedProject[];
+  uiCopyPrompts: UiCopyPrompts | null;
 }) {
   const [themeId, setThemeId] = useState('');
   const [member, setMember] = useState('');
@@ -3394,6 +3524,7 @@ function ThemeMeetingPanel({
   const [questions, setQuestions] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [sourceProjectId, setSourceProjectId] = useState('');
   const [memberCandidateByTheme, setMemberCandidateByTheme] = useState<Record<string, string>>({});
 
   const plan = payload?.plan;
@@ -3450,6 +3581,16 @@ function ThemeMeetingPanel({
   }, [selectedMeeting, viewer]);
   const showPersonalUpdateForm = submitMembers.length > 0;
   const planLabel = overviewPlan || plan || updatePlan;
+  const sourceProjects = useMemo(
+    () =>
+      projects
+        .filter((project) => normalizedName(project.ownerUsername) === normalizedName(viewer.username) && project.lifecycle !== 'archived')
+        .sort((left, right) => (right.lastUpdate || '').localeCompare(left.lastUpdate || '')),
+    [projects, viewer.username],
+  );
+  const sourceProject = sourceProjects.find((project) => project.id === sourceProjectId) || sourceProjects[0] || null;
+  const progressFieldId = 'theme-meeting-progress';
+  const questionsFieldId = 'theme-meeting-questions';
 
   useEffect(() => {
     if (selectedThemeId && themeId !== selectedThemeId) {
@@ -3462,6 +3603,12 @@ function ThemeMeetingPanel({
       setMember(submitMembers[0].username);
     }
   }, [member, submitMembers]);
+
+  useEffect(() => {
+    if (sourceProject && sourceProject.id !== sourceProjectId) {
+      setSourceProjectId(sourceProject.id);
+    }
+  }, [sourceProject, sourceProjectId]);
 
   async function enableBrowserNotifications() {
     if (!('Notification' in window)) {
@@ -3510,6 +3657,26 @@ function ThemeMeetingPanel({
     await onChanged();
   }
 
+  function prefillFromProject() {
+    if (!sourceProject) {
+      setFormError('No owned project update is available to prefill.');
+      return;
+    }
+
+    const text = meetingDraftFromProject(sourceProject);
+    if (!text) {
+      setFormError(`No progress text is available for ${sourceProject.title}.`);
+      return;
+    }
+
+    setFormError(null);
+    setProgressText(text);
+    if (sourceProject.recommendation !== 'none') {
+      setUpdateType(sourceProject.recommendation);
+    }
+    setStatus(`Prefilled from ${sourceProject.title}. Review before saving.`);
+  }
+
   async function sendMissingReminders(nextThemeId: string) {
     setFormError(null);
     setStatus(null);
@@ -3522,13 +3689,19 @@ function ThemeMeetingPanel({
         themeId: nextThemeId,
       }),
     });
-    const body = (await response.json()) as { notifications?: unknown[]; error?: string };
+    const body = (await response.json()) as {
+      notifications?: unknown[];
+      emails?: { sent: number; skipped: number; failed: number };
+      error?: string;
+    };
     if (!response.ok) {
       setFormError(body.error || 'Could not send reminders.');
       return;
     }
 
-    setStatus(`Sent ${body.notifications?.length || 0} missing-update reminders.`);
+    const emails = body.emails;
+    const emailStatus = emails ? ` Email: ${emails.sent} sent, ${emails.skipped} skipped, ${emails.failed} failed.` : '';
+    setStatus(`Sent ${body.notifications?.length || 0} missing-update reminders.${emailStatus}`);
     await onChanged();
   }
 
@@ -3723,24 +3896,50 @@ function ThemeMeetingPanel({
                     ))}
                   </select>
                 </label>
-                <label>
-                  <span>Progress</span>
+                {sourceProjects.length > 0 && (
+                  <div className="theme-prefill-row">
+                    <label>
+                      <span>Project source</span>
+                      <select value={sourceProject?.id || ''} onChange={(event) => setSourceProjectId(event.target.value)}>
+                        {sourceProjects.map((project) => (
+                          <option key={project.id} value={project.id}>
+                            {project.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="ops-secondary" type="button" onClick={prefillFromProject}>
+                      <RefreshCw aria-hidden="true" />
+                      Use project update
+                    </button>
+                  </div>
+                )}
+                <div className="prompt-field">
+                  <div className="prompt-field-head">
+                    <label htmlFor={progressFieldId}>Progress</label>
+                    <PromptCopyButton prompt={themeProgressPrompt(uiCopyPrompts, sourceProject)} label="Copy theme progress prompt" />
+                  </div>
                   <textarea
+                    id={progressFieldId}
                     value={progressText}
                     onChange={(event) => setProgressText(event.target.value)}
                     placeholder="Project progress summary, up to 50 words"
                     rows={4}
                   />
-                </label>
-                <label>
-                  <span>Questions</span>
+                </div>
+                <div className="prompt-field">
+                  <div className="prompt-field-head">
+                    <label htmlFor={questionsFieldId}>Questions</label>
+                    <PromptCopyButton prompt={themeQuestionsPrompt(uiCopyPrompts, sourceProject)} label="Copy theme questions prompt" />
+                  </div>
                   <textarea
+                    id={questionsFieldId}
                     value={questions}
                     onChange={(event) => setQuestions(event.target.value)}
                     placeholder="Optional context or question for the slot"
                     rows={3}
                   />
-                </label>
+                </div>
                 <button className="ops-primary" type="submit">
                   <Check aria-hidden="true" />
                   Update
@@ -4015,12 +4214,14 @@ function ProjectsView({
   projectsLoading,
   viewer,
   collaboratorUsers,
+  uiCopyPrompts,
   onProjectsChanged,
 }: {
   projectsPayload: ProjectsPayload | null;
   projectsLoading: boolean;
   viewer: CurrentUser;
   collaboratorUsers: MentionableUser[];
+  uiCopyPrompts: UiCopyPrompts | null;
   onProjectsChanged: () => Promise<void>;
 }) {
   const canSeeAll = canSeeAllRole(viewer.role);
@@ -4437,7 +4638,7 @@ function ProjectsView({
                       <td>{project.target || 'Not set'}</td>
                       <td>{currentProjectArtifacts(project).length}</td>
                       <td>
-                        <div className="button-row compact">
+                        <div className="project-table-actions">
                           <button
                             className="ops-secondary icon-only-button"
                             type="button"
@@ -4446,15 +4647,6 @@ function ProjectsView({
                             title="Project details"
                           >
                             <FileText aria-hidden="true" />
-                          </button>
-                          <button
-                            className="ops-secondary icon-only-button"
-                            type="button"
-                            onClick={() => openProject(project, 'todos')}
-                            aria-label={`TODO list for ${project.title}`}
-                            title="TODO list"
-                          >
-                            <ClipboardList aria-hidden="true" />
                           </button>
                           {project.access.canAddUpdate && project.lifecycle !== 'archived' && (
                             <button
@@ -4467,6 +4659,15 @@ function ProjectsView({
                               <Plus aria-hidden="true" />
                             </button>
                           )}
+                          <button
+                            className="ops-secondary icon-only-button"
+                            type="button"
+                            onClick={() => openProject(project, 'todos')}
+                            aria-label={`TODO list for ${project.title}`}
+                            title="TODO list"
+                          >
+                            <ClipboardList aria-hidden="true" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -4495,6 +4696,7 @@ function ProjectsView({
           viewer={viewer}
           collaboratorUsers={collaboratorUsers}
           existingProjects={projects}
+          uiCopyPrompts={uiCopyPrompts}
           initialMode={detailMode}
           onClose={() => setDetailProject(null)}
           onSaved={handleProjectChanged}
@@ -4525,11 +4727,15 @@ function MeetingView({
   loading,
   onThemeMeetingChanged,
   viewer,
+  projects,
+  uiCopyPrompts,
 }: {
   payload: ThemeMeetingPayload | null;
   loading: boolean;
   onThemeMeetingChanged: () => Promise<void>;
   viewer: CurrentUser;
+  projects: ManagedProject[];
+  uiCopyPrompts: UiCopyPrompts | null;
 }) {
   return (
     <ConsolePageFrame
@@ -4537,7 +4743,14 @@ function MeetingView({
       className="meeting-page"
       wide
     >
-      <ThemeMeetingPanel payload={payload} loading={loading} onChanged={onThemeMeetingChanged} viewer={viewer} />
+      <ThemeMeetingPanel
+        payload={payload}
+        loading={loading}
+        onChanged={onThemeMeetingChanged}
+        viewer={viewer}
+        projects={projects}
+        uiCopyPrompts={uiCopyPrompts}
+      />
     </ConsolePageFrame>
   );
 }
@@ -4546,10 +4759,12 @@ function ChatView({
   viewer,
   openThreadId,
   onOpenThreadHandled,
+  uiCopyPrompts,
 }: {
   viewer: CurrentUser;
   openThreadId: string | null;
   onOpenThreadHandled: () => void;
+  uiCopyPrompts: UiCopyPrompts | null;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -4970,7 +5185,7 @@ function ChatView({
                 <DotMatrixIcon iconIndex={0} size={48} />
                 <h2>{vioscopeChatUiConfig.emptyTitle}</h2>
                 <div className="prompt-grid">
-                  {vioscopeChatUiConfig.starterPrompts.map((prompt) => (
+                  {(uiCopyPrompts?.chat.starterPrompts || []).map((prompt) => (
                     <button key={prompt} type="button" onClick={() => usePrompt(prompt)}>
                       {prompt}
                     </button>
@@ -7492,6 +7707,7 @@ export function OperationsConsole() {
   const [themePayload, setThemePayload] = useState<ThemeMeetingPayload | null>(null);
   const [themeMeetingsLoading, setThemeMeetingsLoading] = useState(false);
   const [collaboratorUsers, setCollaboratorUsers] = useState<MentionableUser[]>([]);
+  const [uiCopyPrompts, setUiCopyPrompts] = useState<UiCopyPrompts | null>(null);
   const [chatNotifications, setChatNotifications] = useState<ChatNotification[]>([]);
   const [openChatThreadId, setOpenChatThreadId] = useState<string | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -7658,6 +7874,15 @@ export function OperationsConsole() {
     setChatNotifications(nextPayload.notifications || []);
   }, []);
 
+  const loadUiCopyPrompts = useCallback(async () => {
+    const response = await fetch('/api/prompts/ui-copy');
+    const nextPayload = (await response.json()) as UiCopyPromptsPayload;
+    if (!response.ok || !nextPayload.prompts) {
+      throw new Error(nextPayload.error || 'Could not load prompt templates.');
+    }
+    setUiCopyPrompts(nextPayload.prompts);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -7667,6 +7892,7 @@ export function OperationsConsole() {
       setCollaboratorUsers([]);
       setThemePayload(null);
       setThemeMeetingsLoading(false);
+      setUiCopyPrompts(null);
       setChatNotifications([]);
       return () => {
         cancelled = true;
@@ -7693,10 +7919,15 @@ export function OperationsConsole() {
         setError(caught instanceof Error ? caught.message : 'Could not load notifications.');
       }
     });
+    void loadUiCopyPrompts().catch((caught) => {
+      if (!cancelled) {
+        setError(caught instanceof Error ? caught.message : 'Could not load prompt templates.');
+      }
+    });
     return () => {
       cancelled = true;
     };
-  }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, user]);
+  }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, loadUiCopyPrompts, user]);
 
   async function markChatNotificationRead(notificationId: string) {
     const response = await fetch('/api/notifications', {
@@ -7965,14 +8196,27 @@ export function OperationsConsole() {
               projectsLoading={projectsLoading}
               viewer={user}
               collaboratorUsers={collaboratorUsers}
+              uiCopyPrompts={uiCopyPrompts}
               onProjectsChanged={loadProjects}
             />
           )}
           {activeView === 'chat' && (
-            <ChatView viewer={user} openThreadId={openChatThreadId} onOpenThreadHandled={handleChatThreadOpened} />
+            <ChatView
+              viewer={user}
+              openThreadId={openChatThreadId}
+              onOpenThreadHandled={handleChatThreadOpened}
+              uiCopyPrompts={uiCopyPrompts}
+            />
           )}
           {activeView === 'meeting' && (
-            <MeetingView payload={themePayload} loading={themeMeetingsLoading} onThemeMeetingChanged={loadThemeMeetings} viewer={user} />
+            <MeetingView
+              payload={themePayload}
+              loading={themeMeetingsLoading}
+              onThemeMeetingChanged={loadThemeMeetings}
+              viewer={user}
+              projects={projectsPayload?.projects || []}
+              uiCopyPrompts={uiCopyPrompts}
+            />
           )}
           {activeView === 'checklists' && <ChecklistsView canSignOff={canSeeAllRole(user.role)} />}
           {activeView === 'users' && (
