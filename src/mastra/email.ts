@@ -10,6 +10,10 @@ function enabled(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes((value || '').trim().toLowerCase());
 }
 
+export function notificationEmailEnabled(): boolean {
+  return enabled(process.env.EMAIL_NOTIFICATIONS_ENABLED);
+}
+
 function smtpPort(): number {
   const port = Number(process.env.SMTP_PORT || 1025);
   return Number.isFinite(port) && port > 0 ? port : 1025;
@@ -30,7 +34,7 @@ export function registeredNotificationEmail(value: string | null | undefined): s
 }
 
 export async function sendNotificationEmail(input: NotificationEmail): Promise<boolean> {
-  if (!enabled(process.env.EMAIL_NOTIFICATIONS_ENABLED)) return false;
+  if (!notificationEmailEnabled()) return false;
   const to = registeredNotificationEmail(input.to);
   if (!to) return false;
 
