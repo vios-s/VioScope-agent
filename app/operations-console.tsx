@@ -1877,6 +1877,9 @@ function LoginView({ onLogin, initialError }: { onLogin: (user: CurrentUser) => 
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(initialError || null);
   const [busy, setBusy] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(false);
+  const [identifier, setIdentifier] = useState('');
+  const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1901,6 +1904,61 @@ function LoginView({ onLogin, initialError }: { onLogin: (user: CurrentUser) => 
     }
   }
 
+  async function requestTemporaryPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setRecoveryMessage(null);
+
+    try {
+      const response = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier }),
+      });
+      const body = (await response.json()) as { message?: string; error?: string };
+      if (!response.ok) throw new Error(body.error || 'Could not request a temporary password.');
+      setRecoveryMessage(body.message || 'If an active account matches these details, a temporary password has been sent to its registered email address.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not request a temporary password.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (showRecovery) {
+    return (
+      <AuthFrame>
+        <form className="auth-form" onSubmit={requestTemporaryPassword}>
+          <div>
+            <h1>Reset password</h1>
+            <p>Enter your username or registered email. We will email a one-time temporary password that expires in 15 minutes.</p>
+          </div>
+          <label>
+            <span>Username or email</span>
+            <input
+              autoComplete="username"
+              required
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
+            />
+          </label>
+          {error && <div className="form-message error" role="alert">{error}</div>}
+          {recoveryMessage && <div className="form-message" role="status">{recoveryMessage}</div>}
+          <div className="button-row">
+            <button className="ops-primary" type="submit" disabled={busy}>
+              <KeyRound aria-hidden="true" />
+              {busy ? 'Sending' : 'Email temporary password'}
+            </button>
+            <button className="ops-secondary" type="button" onClick={() => { setShowRecovery(false); setError(null); }}>
+              Back to sign in
+            </button>
+          </div>
+        </form>
+      </AuthFrame>
+    );
+  }
+
   return (
     <AuthFrame>
       <form className="auth-form" onSubmit={submit}>
@@ -1921,10 +1979,13 @@ function LoginView({ onLogin, initialError }: { onLogin: (user: CurrentUser) => 
             onChange={(event) => setPassword(event.target.value)}
           />
         </label>
-        {error && <div className="form-message error">{error}</div>}
+        {error && <div className="form-message error" role="alert">{error}</div>}
         <button className="ops-primary" type="submit" disabled={busy}>
           <LogIn aria-hidden="true" />
           {busy ? 'Signing in' : 'Sign in'}
+        </button>
+        <button className="ops-secondary" type="button" onClick={() => { setShowRecovery(true); setError(null); }}>
+          Forgot password?
         </button>
       </form>
     </AuthFrame>

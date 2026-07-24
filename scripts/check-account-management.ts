@@ -18,6 +18,10 @@ type SnapshotRow = {
   email: string;
   role: string;
   password_hash: string | null;
+  password_reset_hash: string | null;
+  password_reset_expires_at: string | null;
+  password_reset_used_at: string | null;
+  password_reset_sent_at: string | null;
   password_reset_required: boolean;
   password_changed_at: string | null;
   last_login_at: string | null;
@@ -43,6 +47,7 @@ const users = {
   reset: { username: 'account.smoke.reset', role: 'member' as const, password: '123456' },
   disabled: { username: 'account.smoke.disabled', role: 'member' as const, password: 'Disabled123!' },
   profileOnly: { username: 'account.smoke.profile', role: 'viewer' as const },
+  recover: { username: 'account.smoke.recover', role: 'member' as const, password: 'Recover123!' },
   piBlockedAdmin: { username: 'account.smoke.pi.blocked.admin', role: 'administrator' as const },
   noEmailInvite: { username: 'account.smoke.no.email', role: 'member' as const },
 };
@@ -65,6 +70,10 @@ async function snapshotUsers(usernames: string[]): Promise<Map<string, UserSnaps
           email,
           role,
           password_hash,
+          password_reset_hash,
+          password_reset_expires_at::text,
+          password_reset_used_at::text,
+          password_reset_sent_at::text,
           password_reset_required,
           password_changed_at::text,
           last_login_at::text,
@@ -109,17 +118,21 @@ async function restoreUsers(snapshots: Map<string, UserSnapshot>): Promise<void>
             email = $4,
             role = $5,
             password_hash = $6,
-            password_reset_required = $7,
-            password_changed_at = $8::timestamptz,
-            last_login_at = $9::timestamptz,
-            auth_provider = $10,
-            provisioning_status = $11,
-            source = $12,
-            source_url = $13,
-            source_profile_id = $14,
-            metadata = $15::jsonb,
-            created_at = $16::timestamptz,
-            updated_at = $17::timestamptz
+            password_reset_hash = $7,
+            password_reset_expires_at = $8::timestamptz,
+            password_reset_used_at = $9::timestamptz,
+            password_reset_sent_at = $10::timestamptz,
+            password_reset_required = $11,
+            password_changed_at = $12::timestamptz,
+            last_login_at = $13::timestamptz,
+            auth_provider = $14,
+            provisioning_status = $15,
+            source = $16,
+            source_url = $17,
+            source_profile_id = $18,
+            metadata = $19::jsonb,
+            created_at = $20::timestamptz,
+            updated_at = $21::timestamptz
           WHERE id = $1
         `,
         [
@@ -129,6 +142,10 @@ async function restoreUsers(snapshots: Map<string, UserSnapshot>): Promise<void>
           row.email,
           row.role,
           row.password_hash,
+          row.password_reset_hash,
+          row.password_reset_expires_at,
+          row.password_reset_used_at,
+          row.password_reset_sent_at,
           row.password_reset_required,
           row.password_changed_at,
           row.last_login_at,
@@ -275,6 +292,7 @@ async function main() {
     const admin = await seedUser(users.admin);
     const pi = await seedUser(users.pi);
     await seedUser(users.member);
+    await seedUser(users.recover);
     const resetUser = await seedUser({ ...users.reset, passwordResetRequired: true });
     await seedUser(users.disabled);
     await setStatus(users.disabled.username, 'disabled');
@@ -283,6 +301,7 @@ async function main() {
     const loginRoute = await import('../app/api/auth/login/route');
     const meRoute = await import('../app/api/auth/me/route');
     const changePasswordRoute = await import('../app/api/auth/change-password/route');
+    const { requestPasswordReset } = await import('../src/mastra/db/users');
     const logoutRoute = await import('../app/api/auth/logout/route');
     const usersRoute = await import('../app/api/users/route');
     const userRoute = await import('../app/api/users/[userId]/route');
@@ -302,6 +321,23 @@ async function main() {
 
     const profileLogin = await login(users.profileOnly.username, 'anything');
     assert.equal(profileLogin.response.status, 401, 'Profile-only user should not log in.');
+
+    const passwordReset = await requestPasswordReset(users.recover.username);
+    assert.ok(passwordReset, 'Active user with an email should receive a temporary password.');
+    assert.equal(passwordReset.email, email(users.recover.username));
+    assert.equal(await requestPasswordReset(users.recover.username), null, 'Password reset requests should be rate-limited.');
+    const recoveryLogin = await login(users.recover.username, passwordReset.temporaryPassword);
+    assert.equal(recoveryLogin.response.status, 200, 'Temporary password should log in once.');
+    assert.equal(recoveryLogin.body.user.passwordResetRequired, true, 'Temporary password should force a password change.');
+    const repeatedRecoveryLogin = await login(users.recover.username, passwordReset.temporaryPassword);
+    assert.equal(repeatedRecoveryLogin.response.status, 401, 'Temporary password should not work twice.');
+    const recoveryChange = await changePasswordRoute.POST(jsonRequest('/api/auth/change-password', {
+      currentPassword: passwordReset.temporaryPassword,
+      newPassword: 'Recovered1!',
+    }, recoveryLogin.cookie || undefined));
+    assert.equal(recoveryChange.status, 200, 'Temporary password session should set a new password.');
+    const recoveryNewLogin = await login(users.recover.username, 'Recovered1!');
+    assert.equal(recoveryNewLogin.response.status, 200, 'New password should work after recovery.');
 
     const resetLogin = await login(users.reset.username, users.reset.password);
     assert.equal(resetLogin.response.status, 200, 'Temporary password should log in before forced reset.');

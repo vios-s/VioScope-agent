@@ -89,6 +89,10 @@ type UserSeedRow = {
 
 type AuthUserRow = UserSeedRow & {
   password_hash: string | null;
+  password_reset_hash?: string | null;
+  password_reset_expires_at?: string | null;
+  password_reset_used_at?: string | null;
+  password_reset_sent_at?: string | null;
   has_password?: boolean;
   metadata: Record<string, unknown> | string | null;
 };
@@ -351,6 +355,10 @@ async function ensureUsersTableOnce(): Promise<void> {
         email TEXT NOT NULL DEFAULT '',
         role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('administrator', 'pi', 'organizer', 'member', 'viewer', 'service')),
         password_hash TEXT,
+        password_reset_hash TEXT,
+        password_reset_expires_at TIMESTAMPTZ,
+        password_reset_used_at TIMESTAMPTZ,
+        password_reset_sent_at TIMESTAMPTZ,
         password_reset_required BOOLEAN NOT NULL DEFAULT false,
         password_changed_at TIMESTAMPTZ,
         last_login_at TIMESTAMPTZ,
@@ -370,6 +378,10 @@ async function ensureUsersTableOnce(): Promise<void> {
     `);
     await postgres.pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT NOT NULL DEFAULT ''");
     await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_required BOOLEAN DEFAULT false');
+    await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_hash TEXT');
+    await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ');
+    await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_used_at TIMESTAMPTZ');
+    await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_sent_at TIMESTAMPTZ');
     await postgres.pool.query('UPDATE users SET password_reset_required = false WHERE password_reset_required IS NULL');
     await postgres.pool.query('ALTER TABLE users ALTER COLUMN password_reset_required SET DEFAULT false');
     await postgres.pool.query('ALTER TABLE users ALTER COLUMN password_reset_required SET NOT NULL');
@@ -440,7 +452,13 @@ export async function ensureUsersTable(): Promise<void> {
 async function getAuthUserBy(
   column: 'id' | 'username',
   value: string,
-): Promise<{ user: AuthUser; passwordHash: string | null } | null> {
+): Promise<{
+  user: AuthUser;
+  passwordHash: string | null;
+  passwordResetHash: string | null;
+  passwordResetExpiresAt: string | null;
+  passwordResetUsedAt: string | null;
+} | null> {
   await ensureUsersTable();
   const postgres = createPostgresClient('vioscope-users');
 
@@ -457,6 +475,10 @@ async function getAuthUserBy(
           source,
           source_profile_id,
           password_hash,
+          password_reset_hash,
+          password_reset_expires_at::text,
+          password_reset_used_at::text,
+          password_reset_sent_at::text,
           metadata,
           password_reset_required,
           password_changed_at::text,
@@ -467,7 +489,15 @@ async function getAuthUserBy(
       [column === 'username' ? normalizeUsername(value) : value],
     );
     const row = result.rows[0];
-    return row ? { user: toAuthUser(row), passwordHash: row.password_hash } : null;
+    return row
+      ? {
+          user: toAuthUser(row),
+          passwordHash: row.password_hash,
+          passwordResetHash: row.password_reset_hash || null,
+          passwordResetExpiresAt: row.password_reset_expires_at || null,
+          passwordResetUsedAt: row.password_reset_used_at || null,
+        }
+      : null;
   } finally {
     await postgres.disconnect();
   }
@@ -526,7 +556,13 @@ export async function authenticateLocalUser(username: string, password: string):
   }
 
   const passwordMatches = await verifyPassword(password, record.passwordHash);
-  if (!passwordMatches) {
+  const temporaryPasswordMatches = Boolean(!passwordMatches
+    && record.passwordResetHash
+    && record.passwordResetExpiresAt
+    && !record.passwordResetUsedAt
+    && new Date(record.passwordResetExpiresAt).getTime() > Date.now()
+    && await verifyPassword(password, record.passwordResetHash));
+  if (!passwordMatches && !temporaryPasswordMatches) {
     return null;
   }
 
@@ -535,8 +571,16 @@ export async function authenticateLocalUser(username: string, password: string):
     const result = await postgres.pool.query<AuthUserRow>(
       `
         UPDATE users
-        SET last_login_at = now(), updated_at = now()
+        SET
+          last_login_at = now(),
+          password_reset_required = CASE WHEN $2 THEN true ELSE password_reset_required END,
+          password_reset_used_at = CASE WHEN $2 THEN now() ELSE password_reset_used_at END,
+          updated_at = now()
         WHERE id = $1
+          AND (
+            NOT $2
+            OR (password_reset_used_at IS NULL AND password_reset_expires_at > now())
+          )
         RETURNING
           id::text,
           username,
@@ -547,15 +591,19 @@ export async function authenticateLocalUser(username: string, password: string):
           source,
           source_profile_id,
           password_hash,
+          password_reset_hash,
+          password_reset_expires_at::text,
+          password_reset_used_at::text,
+          password_reset_sent_at::text,
           metadata,
           password_reset_required,
           password_changed_at::text,
           last_login_at::text
       `,
-      [record.user.id],
+      [record.user.id, Boolean(temporaryPasswordMatches)],
     );
     const row = result.rows[0];
-    return row ? toAuthUser(row) : record.user;
+    return row ? toAuthUser(row) : temporaryPasswordMatches ? null : record.user;
   } finally {
     await postgres.disconnect();
   }
@@ -574,7 +622,11 @@ export async function changeLocalUserPassword(
   }
   const nextEmail = record.user.email || assertRequiredEmail(email);
 
-  if (!(await verifyPassword(currentPassword, record.passwordHash))) {
+  const currentPasswordMatches = await verifyPassword(currentPassword, record.passwordHash);
+  const temporaryPasswordMatches = Boolean(record.user.passwordResetRequired
+    && record.passwordResetHash
+    && await verifyPassword(currentPassword, record.passwordResetHash));
+  if (!currentPasswordMatches && !temporaryPasswordMatches) {
     throw new Error('Current password is incorrect.');
   }
 
@@ -589,6 +641,10 @@ export async function changeLocalUserPassword(
           email = $3,
           metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{email}', to_jsonb($3::text), true),
           password_reset_required = false,
+          password_reset_hash = NULL,
+          password_reset_expires_at = NULL,
+          password_reset_used_at = NULL,
+          password_reset_sent_at = NULL,
           password_changed_at = now(),
           updated_at = now()
         WHERE id = $1
@@ -602,6 +658,10 @@ export async function changeLocalUserPassword(
           source,
           source_profile_id,
           password_hash,
+          password_reset_hash,
+          password_reset_expires_at::text,
+          password_reset_used_at::text,
+          password_reset_sent_at::text,
           metadata,
           password_reset_required,
           password_changed_at::text,
@@ -614,6 +674,50 @@ export async function changeLocalUserPassword(
       throw new Error('User not found.');
     }
     return toAuthUser(row);
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
+export type PasswordResetRequest = {
+  username: string;
+  email: string;
+  temporaryPassword: string;
+  expiresAt: string;
+};
+
+function newTemporaryPassword(): string {
+  return `Vio-${randomBytes(9).toString('base64url')}9!`;
+}
+
+export async function requestPasswordReset(identifier: string): Promise<PasswordResetRequest | null> {
+  await ensureUsersTable();
+  const value = identifier.trim().toLowerCase();
+  if (!value) return null;
+
+  const temporaryPassword = newTemporaryPassword();
+  const passwordHash = await hashPassword(temporaryPassword);
+  const postgres = createPostgresClient('vioscope-password-reset');
+  try {
+    const result = await postgres.pool.query<{ username: string; email: string; expires_at: string }>(
+      `
+        UPDATE users
+        SET
+          password_reset_hash = $2,
+          password_reset_expires_at = now() + interval '15 minutes',
+          password_reset_used_at = NULL,
+          password_reset_sent_at = now(),
+          updated_at = now()
+        WHERE provisioning_status = 'active'
+          AND email <> ''
+          AND (username = $1 OR lower(email) = $1)
+          AND (password_reset_sent_at IS NULL OR password_reset_sent_at < now() - interval '60 seconds')
+        RETURNING username, email, password_reset_expires_at::text AS expires_at
+      `,
+      [value, passwordHash],
+    );
+    const row = result.rows[0];
+    return row ? { username: row.username, email: row.email, temporaryPassword, expiresAt: row.expires_at } : null;
   } finally {
     await postgres.disconnect();
   }
