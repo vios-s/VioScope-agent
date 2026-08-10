@@ -42,6 +42,7 @@ async function seedUser(username: string, role: 'member' | 'administrator'): Pro
 async function cleanup() {
   const postgres = createPostgresClient('vioscope-feedback-check-cleanup');
   try {
+    await postgres.pool.query('DELETE FROM audit_log WHERE actor_username = ANY($1::text[])', [Object.values(usernames)]).catch(() => undefined);
     await postgres.pool.query('DELETE FROM users WHERE username = ANY($1::text[])', [Object.values(usernames)]).catch(() => undefined);
   } finally {
     await postgres.disconnect();

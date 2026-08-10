@@ -164,13 +164,14 @@ async function checkFeedback(page: any, baseUrl: string, browser: any) {
   const adminPage = await adminContext.newPage();
   try {
     await loginAs(adminPage, baseUrl, users.admin);
+    await dismissWelcomeIfVisible(adminPage);
     await adminPage.getByRole('button', { name: 'Feedback' }).click();
     await adminPage.getByText(title, { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
-    await adminPage.getByLabel('Status').selectOption('solved');
+    await adminPage.getByLabel('Status', { exact: true }).selectOption('solved');
     await adminPage.getByLabel('Reply to requester').fill('Resolved by the release UI smoke check.');
     await adminPage.getByRole('button', { name: 'Save update' }).click();
     await adminPage.getByRole('status').filter({ hasText: 'Feedback request updated.' }).waitFor({ state: 'visible', timeout: 15_000 });
-    await adminPage.getByText('Solved', { exact: true }).waitFor({ state: 'visible' });
+    await adminPage.locator('.feedback-card').filter({ hasText: title }).locator('.feedback-status-solved').waitFor({ state: 'visible' });
   } finally {
     await adminContext.close();
   }

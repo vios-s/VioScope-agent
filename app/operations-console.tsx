@@ -7833,6 +7833,7 @@ function FeedbackView() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setMessage(null);
     setError(null);
     if (!title.trim() || !description.trim()) {
@@ -7853,7 +7854,7 @@ function FeedbackView() {
       setTitle('');
       setDescription('');
       setAttachment(null);
-      event.currentTarget.reset();
+      formElement.reset();
       setMessage(
         body.adminEmailNotified
           ? 'Feedback submitted. Administrators have been notified by email.'
@@ -7891,6 +7892,10 @@ function FeedbackView() {
     () => Object.fromEntries((Object.keys(feedbackStatusLabels) as FeedbackStatus[]).map((status) => [status, queries.filter((query) => query.status === status).length])),
     [queries],
   ) as Record<FeedbackStatus, number>;
+  const requiredFieldsError = error === 'Please add both a title and a description.' ? error : null;
+  const titleError = requiredFieldsError && !title.trim() ? requiredFieldsError : null;
+  const descriptionError = requiredFieldsError && !description.trim() ? requiredFieldsError : null;
+  const formError = error && !titleError && !descriptionError ? error : null;
 
   return (
     <ConsolePageFrame title="Feedback" subtitle="Report a problem, ask for help, and track the response." wide className="feedback-page">
@@ -7912,11 +7917,12 @@ function FeedbackView() {
                 onChange={(event) => setTitle(event.target.value)}
                 maxLength={180}
                 required
-                aria-invalid={Boolean(error && !title.trim())}
-                aria-describedby="feedback-title-help"
+                aria-invalid={Boolean(titleError)}
+                aria-describedby={titleError ? 'feedback-title-help feedback-title-error' : 'feedback-title-help'}
                 placeholder="What do you need help with?"
               />
               <small id="feedback-title-help">A short summary, up to 180 characters.</small>
+              {titleError && <small id="feedback-title-error" className="feedback-field-error">{titleError}</small>}
             </label>
             <label>
               <span>Description</span>
@@ -7926,11 +7932,12 @@ function FeedbackView() {
                 maxLength={10000}
                 required
                 rows={6}
-                aria-invalid={Boolean(error && !description.trim())}
-                aria-describedby="feedback-description-help"
+                aria-invalid={Boolean(descriptionError)}
+                aria-describedby={descriptionError ? 'feedback-description-help feedback-description-error' : 'feedback-description-help'}
                 placeholder="What happened, what did you expect, and what have you tried?"
               />
               <small id="feedback-description-help">Please do not include passwords, API keys, or sensitive personal data.</small>
+              {descriptionError && <small id="feedback-description-error" className="feedback-field-error">{descriptionError}</small>}
             </label>
             <label>
               <span>Attachment or screenshot <em>optional</em></span>
@@ -7942,7 +7949,7 @@ function FeedbackView() {
               />
               <small id="feedback-attachment-help">PNG, JPEG, WebP, GIF, PDF, or text file; maximum 10 MB.</small>
             </label>
-            {error && <p className="feedback-message error" role="alert">{error}</p>}
+            {formError && <p className="feedback-message error" role="alert">{formError}</p>}
             {message && <p className="feedback-message success" role="status">{message}</p>}
             <footer>
               <button className="ops-primary" type="submit" disabled={submitting}>
@@ -8007,25 +8014,27 @@ function FeedbackView() {
                     )}
                     {canManage && (
                       <form className="feedback-manager" onSubmit={(event) => { event.preventDefault(); void saveManagerUpdate(query); }}>
-                        <label>
-                          <span>Status</span>
+                        <div className="feedback-manager-field">
+                          <label htmlFor={`feedback-status-${query.id}`}>Status</label>
                           <select
+                            id={`feedback-status-${query.id}`}
                             value={draft.status}
                             onChange={(event) => setManagerDrafts((current) => ({ ...current, [query.id]: { ...draft, status: event.target.value as FeedbackStatus } }))}
                           >
                             {(Object.keys(feedbackStatusLabels) as FeedbackStatus[]).map((status) => <option key={status} value={status}>{feedbackStatusLabels[status]}</option>)}
                           </select>
-                        </label>
-                        <label>
-                          <span>Reply to requester</span>
+                        </div>
+                        <div className="feedback-manager-field">
+                          <label htmlFor={`feedback-reply-${query.id}`}>Reply to requester</label>
                           <textarea
+                            id={`feedback-reply-${query.id}`}
                             value={draft.adminNote}
                             maxLength={5000}
                             rows={3}
                             onChange={(event) => setManagerDrafts((current) => ({ ...current, [query.id]: { ...draft, adminNote: event.target.value } }))}
                             placeholder="Explain the resolution or next step."
                           />
-                        </label>
+                        </div>
                         <button className="ops-primary" type="submit" disabled={savingId === query.id}>
                           <Save aria-hidden="true" />
                           {savingId === query.id ? 'Saving…' : 'Save update'}

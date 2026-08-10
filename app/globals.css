@@ -1654,7 +1654,7 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .feedback-form label,
-.feedback-manager label {
+.feedback-manager-field {
   display: grid;
   gap: 7px;
   color: var(--ink-2);
@@ -1692,6 +1692,10 @@ html[data-theme="dark"] .briefing-hero::after {
   font-size: 0.75rem;
   font-weight: 600;
   line-height: 1.42;
+}
+
+.feedback-form .feedback-field-error {
+  color: var(--danger-fg);
 }
 
 .feedback-form footer,
