@@ -18,6 +18,7 @@
     "precommit": "npm run typecheck",
     "check:elm": "tsx scripts/check-elm.ts",
     "check:gitbook": "tsx scripts/check-gitbook.ts",
+    "check:gitbook-extract": "tsx scripts/check-gitbook-extract.ts",
     "check:theme-meetings": "tsx scripts/check-theme-meetings.ts",
     "check:theme-meeting-auth": "tsx scripts/check-theme-meeting-auth.ts",
     "check:theme-meeting-ui": "npm run web:build && tsx scripts/check-theme-meeting-ui.ts",
