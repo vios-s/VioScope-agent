@@ -12,6 +12,7 @@ import {
   Download,
   FileText,
   History,
+  LifeBuoy,
   KeyRound,
   LayoutDashboard,
   LogIn,
@@ -50,7 +51,7 @@ import type {
 } from '../src/mastra/theme-meetings/schema';
 import { vioscopeChatUiConfig } from '../src/mastra/agents/vioscope.chat-ui.config';
 
-type ActiveView = 'briefing' | 'projects' | 'chat' | 'meeting' | 'checklists' | 'users';
+type ActiveView = 'briefing' | 'projects' | 'chat' | 'meeting' | 'checklists' | 'feedback' | 'users';
 type ProjectsMode = 'member' | 'pi';
 type ProjectDetailMode = 'details' | 'progress' | 'todos';
 type ChatMessageStatus = 'thinking' | 'answer' | 'refusal';
@@ -411,6 +412,31 @@ type UsersPayload = {
   error?: string;
 };
 
+type FeedbackStatus = 'pending' | 'in_progress' | 'solved' | 'closed';
+
+type FeedbackQuery = {
+  id: string;
+  title: string;
+  description: string;
+  status: FeedbackStatus;
+  adminNote: string;
+  submitterUsername: string;
+  submitterDisplayName: string;
+  attachment: { name: string; mimeType: string; size: number } | null;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt: string | null;
+  resolvedByUsername: string | null;
+};
+
+type FeedbackPayload = {
+  queries?: FeedbackQuery[];
+  query?: FeedbackQuery;
+  canManage?: boolean;
+  adminEmailNotified?: boolean;
+  error?: string;
+};
+
 type MarkdownFilePayload = {
   markdown?: string;
   path?: string;
@@ -739,7 +765,7 @@ const rowMenuWidth = 190;
 const rowMenuHeight = 88;
 const rowMenuGutter = 10;
 const refusalPattern = /could not find|cannot find|not enough|insufficient|knowledge gap|limited to VIOS lab|non-lab topics/i;
-const activeViews: ActiveView[] = ['briefing', 'projects', 'chat', 'meeting', 'checklists', 'users'];
+const activeViews: ActiveView[] = ['briefing', 'projects', 'chat', 'meeting', 'checklists', 'feedback', 'users'];
 const viewQueryParam = 'view';
 
 function activeViewFromSearch(search: string): ActiveView {
@@ -7750,6 +7776,273 @@ function UsersView({
   );
 }
 
+const feedbackStatusLabels: Record<FeedbackStatus, string> = {
+  pending: 'Pending',
+  in_progress: 'In progress',
+  solved: 'Solved',
+  closed: 'Closed',
+};
+
+function FeedbackStatusChip({ status }: { status: FeedbackStatus }) {
+  return <span className={`feedback-status feedback-status-${status}`}>{feedbackStatusLabels[status]}</span>;
+}
+
+function feedbackDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}
+
+function FeedbackView() {
+  const [queries, setQueries] = useState<FeedbackQuery[]>([]);
+  const [canManage, setCanManage] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [managerDrafts, setManagerDrafts] = useState<Record<string, { status: FeedbackStatus; adminNote: string }>>({});
+
+  const applyQueries = useCallback((nextQueries: FeedbackQuery[]) => {
+    setQueries(nextQueries);
+    setManagerDrafts(Object.fromEntries(nextQueries.map((query) => [query.id, { status: query.status, adminNote: query.adminNote }])));
+  }, []);
+
+  const loadQueries = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/feedback');
+      const body = (await response.json()) as FeedbackPayload;
+      if (!response.ok) throw new Error(body.error || 'Could not load feedback requests.');
+      applyQueries(body.queries || []);
+      setCanManage(Boolean(body.canManage));
+    } finally {
+      setLoading(false);
+      setLoaded(true);
+    }
+  }, [applyQueries]);
+
+  useEffect(() => {
+    void loadQueries().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not load feedback requests.'));
+  }, [loadQueries]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    if (!title.trim() || !description.trim()) {
+      setError('Please add both a title and a description.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const form = new FormData();
+      form.set('title', title.trim());
+      form.set('description', description.trim());
+      if (attachment) form.set('attachment', attachment);
+      const response = await fetch('/api/feedback', { method: 'POST', body: form });
+      const body = (await response.json()) as FeedbackPayload;
+      if (!response.ok || !body.query) throw new Error(body.error || 'Could not submit feedback.');
+      applyQueries([body.query, ...queries]);
+      setTitle('');
+      setDescription('');
+      setAttachment(null);
+      event.currentTarget.reset();
+      setMessage(
+        body.adminEmailNotified
+          ? 'Feedback submitted. Administrators have been notified by email.'
+          : 'Feedback submitted. It is visible to administrators, but email delivery is currently unavailable.',
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not submit feedback.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function saveManagerUpdate(query: FeedbackQuery) {
+    const draft = managerDrafts[query.id] || { status: query.status, adminNote: query.adminNote };
+    setSavingId(query.id);
+    setError(null);
+    try {
+      const response = await fetch(`/api/feedback/${query.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(draft),
+      });
+      const body = (await response.json()) as FeedbackPayload;
+      if (!response.ok || !body.query) throw new Error(body.error || 'Could not update feedback.');
+      applyQueries(queries.map((item) => (item.id === body.query?.id ? body.query : item)));
+      setMessage('Feedback request updated.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not update feedback.');
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  const statusCounts = useMemo(
+    () => Object.fromEntries((Object.keys(feedbackStatusLabels) as FeedbackStatus[]).map((status) => [status, queries.filter((query) => query.status === status).length])),
+    [queries],
+  ) as Record<FeedbackStatus, number>;
+
+  return (
+    <ConsolePageFrame title="Feedback" subtitle="Report a problem, ask for help, and track the response." wide className="feedback-page">
+      <div className="feedback-layout">
+        <section className="ops-panel feedback-submit-panel" aria-labelledby="feedback-submit-title">
+          <header className="ops-panel-head">
+            <div>
+              <p className="ops-eyebrow">Support desk</p>
+              <h2 id="feedback-submit-title">Send feedback</h2>
+              <p>Include enough context to reproduce the issue. You can attach one screenshot or supporting file.</p>
+            </div>
+            <LifeBuoy aria-hidden="true" />
+          </header>
+          <form className="feedback-form" onSubmit={submit} noValidate aria-busy={submitting}>
+            <label>
+              <span>Title</span>
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                maxLength={180}
+                required
+                aria-invalid={Boolean(error && !title.trim())}
+                aria-describedby="feedback-title-help"
+                placeholder="What do you need help with?"
+              />
+              <small id="feedback-title-help">A short summary, up to 180 characters.</small>
+            </label>
+            <label>
+              <span>Description</span>
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                maxLength={10000}
+                required
+                rows={6}
+                aria-invalid={Boolean(error && !description.trim())}
+                aria-describedby="feedback-description-help"
+                placeholder="What happened, what did you expect, and what have you tried?"
+              />
+              <small id="feedback-description-help">Please do not include passwords, API keys, or sensitive personal data.</small>
+            </label>
+            <label>
+              <span>Attachment or screenshot <em>optional</em></span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf,text/plain"
+                aria-describedby="feedback-attachment-help"
+                onChange={(event) => setAttachment(event.target.files?.[0] || null)}
+              />
+              <small id="feedback-attachment-help">PNG, JPEG, WebP, GIF, PDF, or text file; maximum 10 MB.</small>
+            </label>
+            {error && <p className="feedback-message error" role="alert">{error}</p>}
+            {message && <p className="feedback-message success" role="status">{message}</p>}
+            <footer>
+              <button className="ops-primary" type="submit" disabled={submitting}>
+                <Send aria-hidden="true" />
+                {submitting ? 'Sending…' : 'Send feedback'}
+              </button>
+            </footer>
+          </form>
+        </section>
+
+        <section className="feedback-requests" aria-labelledby="feedback-requests-title">
+          <header className="feedback-section-head">
+            <div>
+              <p className="ops-eyebrow">{canManage ? 'Administrator dashboard' : 'Your requests'}</p>
+              <h2 id="feedback-requests-title">{canManage ? 'Feedback queue' : 'Sent feedback'}</h2>
+            </div>
+            <button className="ops-secondary" type="button" onClick={() => void loadQueries().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not refresh feedback.'))} disabled={loading}>
+              <RefreshCw aria-hidden="true" />
+              {loading ? 'Refreshing' : 'Refresh'}
+            </button>
+          </header>
+          {canManage && (
+            <div className="feedback-summary" aria-label="Feedback status summary">
+              {(Object.keys(feedbackStatusLabels) as FeedbackStatus[]).map((status) => (
+                <span key={status}><FeedbackStatusChip status={status} /> <strong>{statusCounts[status]}</strong></span>
+              ))}
+            </div>
+          )}
+          {!loaded || loading ? (
+            <div className="ops-empty" aria-busy="true">Loading feedback requests…</div>
+          ) : !queries.length ? (
+            <div className="ops-empty">{canManage ? 'No feedback requests yet.' : 'You have not sent any feedback yet.'}</div>
+          ) : (
+            <div className="feedback-list">
+              {queries.map((query) => {
+                const draft = managerDrafts[query.id] || { status: query.status, adminNote: query.adminNote };
+                return (
+                  <article className="feedback-card" key={query.id}>
+                    <header>
+                      <div>
+                        <div className="feedback-card-meta">
+                          <FeedbackStatusChip status={query.status} />
+                          <span>{feedbackDate(query.createdAt)}</span>
+                          {canManage && <span>from {query.submitterDisplayName} (@{query.submitterUsername})</span>}
+                        </div>
+                        <h3>{query.title}</h3>
+                      </div>
+                    </header>
+                    <p className="feedback-description">{query.description}</p>
+                    {query.attachment && (
+                      <a className="feedback-attachment" href={`/api/feedback/${query.id}/attachment`}>
+                        <Download aria-hidden="true" />
+                        Download {query.attachment.name}
+                      </a>
+                    )}
+                    {!canManage && query.adminNote && (
+                      <aside className="feedback-reply" aria-label="Administrator reply">
+                        <strong>Administrator reply</strong>
+                        <p>{query.adminNote}</p>
+                        {query.resolvedByUsername && <small>Updated by @{query.resolvedByUsername} · {feedbackDate(query.updatedAt)}</small>}
+                      </aside>
+                    )}
+                    {canManage && (
+                      <form className="feedback-manager" onSubmit={(event) => { event.preventDefault(); void saveManagerUpdate(query); }}>
+                        <label>
+                          <span>Status</span>
+                          <select
+                            value={draft.status}
+                            onChange={(event) => setManagerDrafts((current) => ({ ...current, [query.id]: { ...draft, status: event.target.value as FeedbackStatus } }))}
+                          >
+                            {(Object.keys(feedbackStatusLabels) as FeedbackStatus[]).map((status) => <option key={status} value={status}>{feedbackStatusLabels[status]}</option>)}
+                          </select>
+                        </label>
+                        <label>
+                          <span>Reply to requester</span>
+                          <textarea
+                            value={draft.adminNote}
+                            maxLength={5000}
+                            rows={3}
+                            onChange={(event) => setManagerDrafts((current) => ({ ...current, [query.id]: { ...draft, adminNote: event.target.value } }))}
+                            placeholder="Explain the resolution or next step."
+                          />
+                        </label>
+                        <button className="ops-primary" type="submit" disabled={savingId === query.id}>
+                          <Save aria-hidden="true" />
+                          {savingId === query.id ? 'Saving…' : 'Save update'}
+                        </button>
+                      </form>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    </ConsolePageFrame>
+  );
+}
+
 export function OperationsConsole() {
   const [activeView, setActiveView] = useState<ActiveView>('briefing');
   const [railHidden, setRailHidden] = useState(false);
@@ -8038,6 +8331,7 @@ export function OperationsConsole() {
       { id: 'chat' as const, label: 'Chat', icon: MessageCircle },
       { id: 'meeting' as const, label: 'Meeting', icon: CalendarDays },
       { id: 'checklists' as const, label: 'Checklists', icon: ClipboardList },
+      { id: 'feedback' as const, label: 'Feedback', icon: LifeBuoy },
     ],
     [],
   );
@@ -8280,6 +8574,7 @@ export function OperationsConsole() {
             />
           )}
           {activeView === 'checklists' && <ChecklistsView canSignOff={canSeeAllRole(user.role)} />}
+          {activeView === 'feedback' && <FeedbackView />}
           {activeView === 'users' && (
             <UsersView
               user={user}

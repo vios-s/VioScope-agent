@@ -106,16 +106,22 @@ function serverEnv() {
     THEME_MEETING_CONFIG_PATH: configPath,
     THEME_MEETING_UPDATES_PATH: updatesPath,
     THEME_MEETING_NOTIFICATIONS_PATH: notificationsPath,
+    FEEDBACK_UPLOAD_DIR: join(runDir, 'feedback-uploads'),
+    EMAIL_NOTIFICATIONS_ENABLED: 'false',
   };
 }
 
-async function login(page: any, baseUrl: string) {
+async function loginAs(page: any, baseUrl: string, username: string) {
   await page.goto(baseUrl);
-  await page.getByLabel('Username').fill(users.receiver);
+  await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByText('Briefing').first().waitFor({ state: 'visible', timeout: 15_000 });
   await dismissWelcomeIfVisible(page);
+}
+
+async function login(page: any, baseUrl: string) {
+  await loginAs(page, baseUrl, users.receiver);
 }
 
 async function checkBriefing(page: any) {
@@ -137,6 +143,37 @@ async function checkAlertClickThrough(page: any) {
   await dialog.waitFor({ state: 'visible', timeout: 15_000 });
   await page.keyboard.press('Escape');
   await dialog.waitFor({ state: 'hidden', timeout: 15_000 });
+}
+
+async function checkFeedback(page: any, baseUrl: string, browser: any) {
+  const title = `Feedback release UI ${stamp}`;
+  await page.getByRole('button', { name: 'Feedback' }).click();
+  await page.getByLabel('Title').fill(title);
+  await page.getByLabel('Description').fill('The feedback page smoke check verifies submission, attachment, and administrator workflow.');
+  await page.getByLabel('Attachment or screenshot optional').setInputFiles({
+    name: 'feedback.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from([137, 80, 78, 71]),
+  });
+  await page.getByRole('button', { name: 'Send feedback' }).click();
+  await page.getByRole('status').filter({ hasText: 'Feedback submitted' }).waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByText(title, { exact: true }).waitFor({ state: 'visible' });
+  await page.getByRole('link', { name: 'Download feedback.png' }).waitFor({ state: 'visible' });
+
+  const adminContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const adminPage = await adminContext.newPage();
+  try {
+    await loginAs(adminPage, baseUrl, users.admin);
+    await adminPage.getByRole('button', { name: 'Feedback' }).click();
+    await adminPage.getByText(title, { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
+    await adminPage.getByLabel('Status').selectOption('solved');
+    await adminPage.getByLabel('Reply to requester').fill('Resolved by the release UI smoke check.');
+    await adminPage.getByRole('button', { name: 'Save update' }).click();
+    await adminPage.getByRole('status').filter({ hasText: 'Feedback request updated.' }).waitFor({ state: 'visible', timeout: 15_000 });
+    await adminPage.getByText('Solved', { exact: true }).waitFor({ state: 'visible' });
+  } finally {
+    await adminContext.close();
+  }
 }
 
 async function seedData() {
@@ -211,6 +248,7 @@ async function main() {
     await login(desktopPage, baseUrl);
     await checkBriefing(desktopPage);
     await checkAlertClickThrough(desktopPage);
+    await checkFeedback(desktopPage, baseUrl, browser);
     await desktop.close();
 
     const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
@@ -220,7 +258,7 @@ async function main() {
     await mobile.close();
 
     console.log('Release UI check passed.');
-    console.log(JSON.stringify({ alertClickThrough: true, briefingData: true, mobileLoginBriefing: true }, null, 2));
+    console.log(JSON.stringify({ alertClickThrough: true, briefingData: true, feedbackWorkflow: true, mobileLoginBriefing: true }, null, 2));
   } finally {
     await browser?.close().catch(() => undefined);
     await stopServer(server);
