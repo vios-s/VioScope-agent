@@ -125,7 +125,13 @@ function renderCodeBlock(node: GitBookDocumentNode, fallback: string) {
 }
 
 function renderLink(node: GitBookDocumentNode, label: string) {
-  const url = typeof node.data?.url === 'string' ? node.data.url : undefined;
+  const ref = node.data?.ref;
+  const url =
+    typeof node.data?.url === 'string'
+      ? node.data.url
+      : ref && typeof ref === 'object' && typeof (ref as { url?: unknown }).url === 'string'
+        ? (ref as { url: string }).url
+        : undefined;
   if (!url) return label;
 
   return label ? `${label} (${url})` : url;
