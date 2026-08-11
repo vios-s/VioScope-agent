@@ -3885,11 +3885,11 @@ function ThemeMeetingPanel({
                 return (
                   <article className={`theme-meeting-card${summary.cancelled ? ' is-cancelled' : ''}`} key={summary.theme_id}>
                     <div className="theme-meeting-card-head">
-                      <div>
-                        <span className="track-chip">Theme {summary.theme_id}</span>
-                        <h3>{summary.title}</h3>
+                      <div className="theme-meeting-identity">
+                        <p className="theme-meeting-slot">{summary.time}</p>
+                        <h3>Theme {summary.theme_id}</h3>
+                        <p className="theme-meeting-title">{summary.title}</p>
                       </div>
-                      <strong>{summary.time}</strong>
                     </div>
                     {summary.cancelled ? (
                       <p className="theme-cancelled">This meeting is cancelled. No reminders or agenda will be sent.</p>
@@ -3901,52 +3901,40 @@ function ThemeMeetingPanel({
                       </div>
                     )}
                     <p className="theme-coordinator">Coordinator: {summary.coordinator}</p>
-                    {!summary.cancelled && <div className="agenda-mini">
-                      {meeting?.agenda_items.length ? (
-                        meeting.agenda_items.map((item) => (
-                          <div key={`${item.member}-${item.submitted_at}`}>
-                            <strong>{item.member}</strong>
-                            <span>
-                              {updateTypeLabels[item.update_type]} / {item.duration_minutes} min
-                            </span>
-                          </div>
-                        ))
-                      ) : summary.agenda_count ? (
-                        <div className="ops-muted-line">{summary.agenda_count} planned updates</div>
-                      ) : (
-                        <div className="ops-muted-line">No planned updates yet</div>
-                      )}
-                    </div>}
-                    {meeting && !meeting.cancelled && <p className="theme-missing">Missing: {meeting.missing_members.join(', ') || 'none'}</p>}
+                    {!summary.cancelled && (
+                      <div className="theme-meeting-agenda">
+                        <p className="theme-section-label">Agenda</p>
+                        <div className="agenda-mini">
+                          {meeting?.agenda_items.length ? (
+                            meeting.agenda_items.map((item) => (
+                              <div key={`${item.member}-${item.submitted_at}`}>
+                                <strong>{item.member}</strong>
+                                <span>
+                                  {updateTypeLabels[item.update_type]} / {item.duration_minutes} min
+                                </span>
+                              </div>
+                            ))
+                          ) : summary.agenda_count ? (
+                            <div className="ops-muted-line">{summary.agenda_count} planned updates</div>
+                          ) : (
+                            <div className="ops-muted-line">No planned updates yet</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {meeting && !meeting.cancelled && (
+                      <p className={`theme-missing${meeting.missing_members.length ? ' has-missing' : ' all-submitted'}`}>
+                        {meeting.missing_members.length ? `Missing update: ${meeting.missing_members.join(', ')}` : 'All updates received'}
+                      </p>
+                    )}
                     {meeting && managedThemeIds.has(meeting.theme_id) && (
                       <div className="theme-member-manager">
-                        <div className="theme-meeting-actions">
-                          {meeting.cancelled ? (
-                            <button className="ops-secondary" type="button" disabled={cancellationBusy} onClick={() => void changeMeetingCancellation(meeting, true)}>
-                              <RotateCcw aria-hidden="true" />
-                              Restore meeting
-                            </button>
-                          ) : <>
-                            <button
-                              className="ops-secondary"
-                              type="button"
-                              disabled={!meeting.missing_members.length}
-                              onClick={() => sendMissingReminders(meeting.theme_id)}
-                            >
-                              <Bell aria-hidden="true" />
-                              Remind missing
-                            </button>
-                            <button className="ops-secondary theme-meeting-cancel-action" type="button" onClick={() => setMeetingToCancel(meeting)}>
-                              <X aria-hidden="true" />
-                              Cancel this meeting
-                            </button>
-                          </>}
-                        </div>
-                        <div className="theme-member-list">
+                        <p className="theme-section-label">Members</p>
+                        <ul className="theme-member-list">
                           {meeting.members.map((nextMember, index) => {
                             const username = meeting.member_usernames[index] || nextMember;
                             return (
-                              <span key={`${meeting.theme_id}-${username}`}>
+                              <li key={`${meeting.theme_id}-${username}`}>
                                 {nextMember}
                                 <button
                                   aria-label={`Remove ${nextMember}`}
@@ -3955,12 +3943,13 @@ function ThemeMeetingPanel({
                                 >
                                   <X aria-hidden="true" />
                                 </button>
-                              </span>
+                              </li>
                             );
                           })}
-                        </div>
+                        </ul>
                         <div className="theme-member-add">
                           <select
+                            aria-label={`Add a member to Theme ${meeting.theme_id}`}
                             value={memberCandidateByTheme[meeting.theme_id] || ''}
                             onChange={(event) =>
                               setMemberCandidateByTheme((current) => ({ ...current, [meeting.theme_id]: event.target.value }))
@@ -3984,6 +3973,28 @@ function ThemeMeetingPanel({
                             <Plus aria-hidden="true" />
                             Add
                           </button>
+                        </div>
+                        <div className="theme-meeting-actions">
+                          {meeting.cancelled ? (
+                            <button className="ops-secondary" type="button" disabled={cancellationBusy} onClick={() => void changeMeetingCancellation(meeting, true)}>
+                              <RotateCcw aria-hidden="true" />
+                              Restore meeting
+                            </button>
+                          ) : <>
+                            <button
+                              className="ops-secondary"
+                              type="button"
+                              disabled={!meeting.missing_members.length}
+                              onClick={() => sendMissingReminders(meeting.theme_id)}
+                            >
+                              <Bell aria-hidden="true" />
+                              Remind missing
+                            </button>
+                            <button className="ops-secondary theme-meeting-cancel-action" type="button" onClick={() => setMeetingToCancel(meeting)}>
+                              <X aria-hidden="true" />
+                              Cancel this meeting
+                            </button>
+                          </>}
                         </div>
                       </div>
                     )}
