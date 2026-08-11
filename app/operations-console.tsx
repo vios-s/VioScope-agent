@@ -3920,26 +3920,28 @@ function ThemeMeetingPanel({
                     {meeting && !meeting.cancelled && <p className="theme-missing">Missing: {meeting.missing_members.join(', ') || 'none'}</p>}
                     {meeting && managedThemeIds.has(meeting.theme_id) && (
                       <div className="theme-member-manager">
-                        {meeting.cancelled ? (
-                          <button className="ops-secondary" type="button" disabled={cancellationBusy} onClick={() => void changeMeetingCancellation(meeting, true)}>
-                            <RotateCcw aria-hidden="true" />
-                            Restore meeting
-                          </button>
-                        ) : <>
-                          <button
-                            className="ops-secondary"
-                            type="button"
-                            disabled={!meeting.missing_members.length}
-                            onClick={() => sendMissingReminders(meeting.theme_id)}
-                          >
-                            <Bell aria-hidden="true" />
-                            Remind missing
-                          </button>
-                          <button className="ops-secondary" type="button" onClick={() => setMeetingToCancel(meeting)}>
-                            <X aria-hidden="true" />
-                            Cancel this meeting
-                          </button>
-                        </>}
+                        <div className="theme-meeting-actions">
+                          {meeting.cancelled ? (
+                            <button className="ops-secondary" type="button" disabled={cancellationBusy} onClick={() => void changeMeetingCancellation(meeting, true)}>
+                              <RotateCcw aria-hidden="true" />
+                              Restore meeting
+                            </button>
+                          ) : <>
+                            <button
+                              className="ops-secondary"
+                              type="button"
+                              disabled={!meeting.missing_members.length}
+                              onClick={() => sendMissingReminders(meeting.theme_id)}
+                            >
+                              <Bell aria-hidden="true" />
+                              Remind missing
+                            </button>
+                            <button className="ops-secondary" type="button" onClick={() => setMeetingToCancel(meeting)}>
+                              <X aria-hidden="true" />
+                              Cancel this meeting
+                            </button>
+                          </>}
+                        </div>
                         <div className="theme-member-list">
                           {meeting.members.map((nextMember, index) => {
                             const username = meeting.member_usernames[index] || nextMember;

@@ -2299,14 +2299,14 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .theme-meeting-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 380px);
-  gap: 16px;
-  padding: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(290px, 330px);
+  gap: 12px;
+  padding: 12px;
 }
 
 .theme-meeting-content {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
 .theme-meeting-grid.planning-only {
@@ -2315,17 +2315,17 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .theme-meeting-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 10px;
 }
 
 .theme-meeting-card,
 .theme-update-form {
   display: grid;
-  gap: 11px;
-  padding: 18px;
+  gap: 8px;
+  padding: 14px;
   border: 1px solid var(--border-soft);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface);
 }
 
@@ -2338,34 +2338,37 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .theme-meeting-card-head {
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
 }
 
 .theme-meeting-card h3,
 .theme-update-form h3 {
-  margin: 6px 0 0;
-  font-size: 0.98rem;
+  margin: 4px 0 0;
+  font-size: 0.94rem;
+  line-height: 1.25;
 }
 
 .theme-meeting-card-head strong {
   color: var(--accent);
+  font-size: 0.86rem;
+  white-space: nowrap;
 }
 
 .theme-stats {
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 5px;
 }
 
 .theme-stats span {
-  min-height: 24px;
+  min-height: 22px;
   display: inline-flex;
   align-items: center;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
+  padding: 0 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
   background: var(--panel-muted);
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 850;
 }
 
@@ -2374,18 +2377,18 @@ html[data-theme="dark"] .briefing-hero::after {
 .theme-cancelled {
   margin: 0;
   color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.45;
+  font-size: 0.78rem;
+  line-height: 1.4;
 }
 
 .theme-cancelled {
   margin: 0;
-  padding: 9px 10px;
+  padding: 7px 9px;
   border: 1px solid var(--danger-bd);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--danger-bg);
   color: var(--ink-2);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 750;
   line-height: 1.45;
 }
@@ -2393,17 +2396,17 @@ html[data-theme="dark"] .briefing-hero::after {
 .agenda-mini {
   display: grid;
   border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--surface-2);
   overflow: hidden;
 }
 
 .agenda-mini div {
   justify-content: space-between;
-  gap: 10px;
-  padding: 9px 10px;
+  gap: 8px;
+  padding: 7px 9px;
   border-bottom: 1px solid var(--border-soft);
-  font-size: 0.8rem;
+  font-size: 0.76rem;
 }
 
 .agenda-mini div:last-child {
@@ -2421,9 +2424,9 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .theme-update-form > p {
-  margin: -4px 0 2px;
+  margin: -2px 0 0;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   font-weight: 750;
 }
 
@@ -2432,9 +2435,9 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .past-meetings-panel {
-  margin: 0 14px 14px;
+  margin: 0 12px 12px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--surface);
   overflow: hidden;
 }
@@ -2448,7 +2451,7 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .past-meetings-head {
-  padding: 12px 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--panel-muted);
 }
@@ -2471,8 +2474,8 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .past-meeting-item {
   display: grid;
-  gap: 5px;
-  padding: 11px 14px;
+  gap: 3px;
+  padding: 9px 12px;
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -2487,13 +2490,25 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .theme-member-manager,
 .theme-member-list,
-.theme-member-add {
+.theme-member-add,
+.theme-meeting-actions {
   display: grid;
-  gap: 8px;
+  gap: 6px;
+}
+
+.theme-meeting-actions {
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+}
+
+.theme-meeting-actions .ops-secondary {
+  min-height: 32px;
+  justify-content: center;
+  padding: 0 9px;
+  font-size: 0.76rem;
 }
 
 .theme-member-list {
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
 }
 
 .theme-member-list span {
