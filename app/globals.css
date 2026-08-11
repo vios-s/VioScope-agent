@@ -2108,10 +2108,23 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .theme-coordinator,
-.theme-missing {
+.theme-missing,
+.theme-cancelled {
   margin: 0;
   color: var(--muted);
   font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.theme-cancelled {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--danger-bd);
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--ink-2);
+  font-size: 0.82rem;
+  font-weight: 750;
   line-height: 1.45;
 }
 

@@ -1,10 +1,12 @@
 import {
   claimThemeMeetingEmailDelivery,
+  readThemeMeetingCancellations,
   readThemeMeetingConfig,
   readThemeMeetingNotifications,
   readThemeMeetingUpdates,
   releaseThemeMeetingEmailDeliveryClaim,
   saveThemeMeetingEmailDelivery,
+  saveThemeMeetingCancellation,
   saveThemeMeetingNotifications,
   saveThemeMeetingUpdate,
   type ThemeMeetingStoreOptions,
@@ -17,6 +19,7 @@ import {
   themeMeetingPlanSchema,
   themeMeetingUpdateSchema,
   type ThemeMeetingConfig,
+  type ThemeMeetingCancellation,
   type ThemeMeetingNotification,
   type ThemeMeetingPlan,
   type ThemeMeetingUpdate,
@@ -51,6 +54,14 @@ export type SubmitThemeMeetingUpdateInput = ThemeMeetingStoreOptions & {
   validateUsers?: boolean;
 };
 
+export type CancelThemeMeetingInput = ThemeMeetingStoreOptions & {
+  meetingDate: string;
+  themeId: string;
+  cancelledByUsername: string;
+  reason?: string;
+  now?: Date;
+};
+
 export type ThemeMeetingReminderRun = {
   action: ThemeReminderAction;
   config: ThemeMeetingConfig;
@@ -76,6 +87,10 @@ export type UpdateThemeMeetingMemberInput = ThemeMeetingStoreOptions & {
   action: 'add' | 'remove';
   meetingDate?: string;
 };
+
+function meetingKey(meetingDate: string, themeId: string): string {
+  return `${meetingDate}:${normalizeUsername(themeId)}`;
+}
 
 async function sendClaimedThemeMeetingEmail(
   deliveryId: string,
@@ -342,13 +357,16 @@ function configuredReminderSchedule(config: ThemeMeetingConfig) {
 
 export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOptions = {}): Promise<{
   configPath: string;
+  cancellationsPath: string;
   updatesPath: string;
   notificationsPath: string;
   config: ThemeMeetingConfig;
   plan: ThemeMeetingPlan;
   notifications: ThemeMeetingNotification[];
+  cancellations: ThemeMeetingCancellation[];
 }> {
   const { path: configPath, config } = await readThemeMeetingConfig(options);
+  const { path: cancellationsPath, cancellations } = await readThemeMeetingCancellations(options);
   const { path: updatesPath, updates } = await readThemeMeetingUpdates(options);
   const { path: notificationsPath, notifications } = await readThemeMeetingNotifications(options);
   const usersByUsername = await userDirectory();
@@ -360,6 +378,11 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
   const activeThemes = config.themes.filter((theme) => theme.cycle_group === cycleGroup);
   const generatedAt = (options.now || new Date()).toISOString();
   const relevantUpdates = updates.filter((update) => update.meeting_date === meetingDate);
+  const cancellationsByMeeting = new Map(
+    cancellations
+      .filter((cancellation) => cancellation.meeting_date === meetingDate)
+      .map((cancellation) => [meetingKey(cancellation.meeting_date, cancellation.theme_id), cancellation]),
+  );
 
   const plan = themeMeetingPlanSchema.parse({
     meeting_date: meetingDate,
@@ -367,15 +390,17 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
     cycle_group: cycleGroup,
     generated_at: generatedAt,
     meetings: activeThemes.map((theme) => {
+      const cancellation = cancellationsByMeeting.get(meetingKey(meetingDate, theme.theme_id)) || null;
+      const cancelled = Boolean(cancellation);
       const entries = memberEntries(theme, usersByUsername);
       const updateByMember = new Map(
         relevantUpdates
           .filter((update) => update.theme_id === theme.theme_id)
           .flatMap((update) => updateLookupKeys(update).map((key) => [key, update] as const)),
       );
-      const submittedEntries = entries.filter((entry) => getUpdateForEntry(updateByMember, entry));
-      const missingEntries = entries.filter((entry) => !getUpdateForEntry(updateByMember, entry));
-      const agendaItems = entries
+      const submittedEntries = cancelled ? [] : entries.filter((entry) => getUpdateForEntry(updateByMember, entry));
+      const missingEntries = cancelled ? [] : entries.filter((entry) => !getUpdateForEntry(updateByMember, entry));
+      const agendaItems = (cancelled ? [] : entries)
         .map((entry) => getUpdateForEntry(updateByMember, entry))
         .filter((update): update is ThemeMeetingUpdate => Boolean(update))
         .map((update) => ({
@@ -408,11 +433,31 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
         agenda_items: agendaItems,
         planned_minutes: plannedMinutes,
         overbooked: plannedMinutes > theme.duration_minutes,
+        cancelled,
+        cancellation,
       };
     }),
   });
 
-  return { configPath, updatesPath, notificationsPath, config, plan, notifications };
+  return { configPath, cancellationsPath, updatesPath, notificationsPath, config, plan, notifications, cancellations };
+}
+
+export async function cancelThemeMeeting(input: CancelThemeMeetingInput): Promise<ThemeMeetingCancellation> {
+  const { config } = await readThemeMeetingConfig(input);
+  const cycleGroup = cycleGroupForDate(config, input.meetingDate);
+  if (!config.themes.some((theme) => theme.theme_id === input.themeId && theme.cycle_group === cycleGroup)) {
+    throw new Error(`Theme ${input.themeId} is not active on ${input.meetingDate}.`);
+  }
+
+  const cancellation = {
+    meeting_date: input.meetingDate,
+    theme_id: input.themeId,
+    cancelled_at: (input.now || new Date()).toISOString(),
+    cancelled_by_username: normalizeUsername(input.cancelledByUsername),
+    reason: input.reason?.trim() || '',
+  };
+  await saveThemeMeetingCancellation(cancellation, input);
+  return cancellation;
 }
 
 export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateInput): Promise<{
@@ -425,6 +470,10 @@ export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateIn
     assertConfiguredUsersActive(config, usersByUsername);
   }
   const meetingDate = input.meetingDate || upcomingWednesday(input.now, config.timezone);
+  const { cancellations } = await readThemeMeetingCancellations(input);
+  if (cancellations.some((cancellation) => meetingKey(cancellation.meeting_date, cancellation.theme_id) === meetingKey(meetingDate, input.themeId))) {
+    throw new Error(`Theme ${input.themeId} meeting on ${meetingDate} has been cancelled.`);
+  }
   const member = canonicalMember(config, input.themeId, input.member, usersByUsername);
   const questions = input.questions?.trim() || '';
   const updateTypeConfig = config.submission.update_types[input.updateType];
@@ -478,9 +527,10 @@ export async function buildThemeMeetingReminderRun(
   const { config, plan } = await buildThemeMeetingPlan(options);
   const reminderSchedule = configuredReminderSchedule(config);
   const createdAt = (options.now || new Date()).toISOString();
-  const meetings = options.themeId
+  const meetings = (options.themeId
     ? plan.meetings.filter((meeting) => meeting.theme_id === options.themeId)
-    : plan.meetings;
+    : plan.meetings
+  ).filter((meeting) => !meeting.cancelled);
 
   if (options.themeId && !meetings.length) {
     throw new Error(`Theme ${options.themeId} is not active on ${plan.meeting_date}.`);
@@ -583,7 +633,7 @@ function agendaRecipientUsernames(
     if (normalized) usernames.add(normalized);
   }
 
-  for (const meeting of plan.meetings.filter((meeting) => !options.themeId || meeting.theme_id === options.themeId)) {
+  for (const meeting of plan.meetings.filter((meeting) => !meeting.cancelled && (!options.themeId || meeting.theme_id === options.themeId))) {
     const coordinator = normalizeUsername(meeting.coordinator_username);
     if (coordinator) usernames.add(coordinator);
     for (const username of meeting.member_usernames) {
@@ -596,7 +646,8 @@ function agendaRecipientUsernames(
 }
 
 function themeScopedPlan(plan: ThemeMeetingPlan, themeId?: string): ThemeMeetingPlan {
-  return themeId ? { ...plan, meetings: plan.meetings.filter((meeting) => meeting.theme_id === themeId) } : plan;
+  const meetings = plan.meetings.filter((meeting) => !meeting.cancelled && (!themeId || meeting.theme_id === themeId));
+  return { ...plan, meetings };
 }
 
 export async function sendThemeMeetingAgendaEmails(
@@ -688,6 +739,7 @@ export async function updateThemeMeetingMember(input: UpdateThemeMeetingMemberIn
 
 export function renderThemeMeetingPlan(plan: ThemeMeetingPlan): string {
   const meetings = plan.meetings
+    .filter((meeting) => !meeting.cancelled)
     .map((meeting) => {
       const agenda = meeting.agenda_items.length
         ? meeting.agenda_items
@@ -716,7 +768,7 @@ ${agenda}`;
 - Cycle group: ${plan.cycle_group}
 - Timezone: ${plan.timezone}
 
-${meetings}
+${meetings || 'No active theme meetings are scheduled.'}
 `;
 }
 

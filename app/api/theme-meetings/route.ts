@@ -40,6 +40,7 @@ function summarizePlan(plan: ThemeMeetingPlan) {
       planned_minutes: meeting.planned_minutes,
       agenda_count: meeting.agenda_items.length,
       overbooked: meeting.overbooked,
+      cancelled: meeting.cancelled,
     })),
   };
 }
@@ -57,6 +58,7 @@ function ownSubmissionPlanForUser(plan: ThemeMeetingPlan, user: AuthUser): Theme
     ...plan,
     meetings: plan.meetings
       .map((meeting) => {
+        if (meeting.cancelled) return meeting;
         const members = meeting.members
           .map((member, index) => ({ member, username: meeting.member_usernames[index] || '' }))
           .filter(
@@ -88,7 +90,7 @@ function ownSubmissionPlanForUser(plan: ThemeMeetingPlan, user: AuthUser): Theme
           planned_minutes: agendaItems.reduce((total, item) => total + item.duration_minutes, 0),
         };
       })
-      .filter((meeting) => meeting.members.length || meeting.agenda_items.length),
+      .filter((meeting) => !meeting.cancelled && (meeting.members.length || meeting.agenda_items.length)),
   };
 }
 
@@ -121,7 +123,11 @@ export async function GET(request: Request) {
         }))
       : [];
     const currentNotifications = payload.notifications.filter(
-      (notification) => notification.meeting_date === payload.plan.meeting_date,
+      (notification) =>
+        notification.meeting_date === payload.plan.meeting_date &&
+        !payload.cancellations.some(
+          (cancellation) => cancellation.meeting_date === notification.meeting_date && cancellation.theme_id === notification.theme_id,
+        ),
     );
     const pastPlans = await Promise.all(
       [7, 14, 21].map(async (daysBack) => {
@@ -159,6 +165,7 @@ export async function GET(request: Request) {
             config: payload.configPath,
             updates: payload.updatesPath,
             notifications: payload.notificationsPath,
+            cancellations: payload.cancellationsPath,
           }
         : undefined,
     });

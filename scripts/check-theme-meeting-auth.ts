@@ -46,6 +46,7 @@ type TestUser = {
 const configPath = join(tmpdir(), 'vioscope-agent-smoke', 'theme-meeting-auth-config.yaml');
 const updatesPath = join(tmpdir(), 'vioscope-agent-smoke', 'theme-meeting-auth-updates.yaml');
 const notificationsPath = join(tmpdir(), 'vioscope-agent-smoke', 'theme-meeting-auth-notifications.yaml');
+const cancellationsPath = join(tmpdir(), 'vioscope-agent-smoke', 'theme-meeting-auth-cancellations.yaml');
 const temporaryPassword = 'ThemeCheck1!';
 
 const coordinators = [
@@ -238,6 +239,7 @@ async function main() {
   process.env.THEME_MEETING_CONFIG_PATH = configPath;
   process.env.THEME_MEETING_UPDATES_PATH = updatesPath;
   process.env.THEME_MEETING_NOTIFICATIONS_PATH = notificationsPath;
+  process.env.THEME_MEETING_CANCELLATIONS_PATH = cancellationsPath;
   process.env.EMAIL_NOTIFICATIONS_ENABLED = 'false';
 
   await copyFile(resolve('fixtures/theme-meeting-config.example.yaml'), resolve(configPath));
@@ -247,10 +249,12 @@ async function main() {
   try {
     await rm(resolve(updatesPath), { force: true });
     await rm(resolve(notificationsPath), { force: true });
+    await rm(resolve(cancellationsPath), { force: true });
     await activateTemporaryUsers(snapshots);
 
     const themeMeetingsRoute = await import('../app/api/theme-meetings/route');
     const remindersRoute = await import('../app/api/theme-meetings/reminders/route');
+    const cancellationsRoute = await import('../app/api/theme-meetings/cancellations/route');
     const membersRoute = await import('../app/api/theme-meetings/members/route');
     const configRoute = await import('../app/api/theme-meetings/config/route');
     const updatesRoute = await import('../app/api/theme-meetings/updates/route');
@@ -390,6 +394,63 @@ async function main() {
       );
     }
 
+    const coordinatorB = await activeUser('coordinator.b');
+    const cancelled = await expectJson<any>(
+      'coordinator cancel own meeting',
+      await cancellationsRoute.POST(
+        requestFor(coordinatorB, '/api/theme-meetings/cancellations', {
+          method: 'POST',
+          body: jsonBody({ themeId: 'B', meetingDate: '2026-06-24' }),
+        }),
+      ),
+    );
+    assert.equal(cancelled.plan.meetings.find((meeting: { theme_id: string }) => meeting.theme_id === 'B')?.cancelled, true);
+
+    await expectJson(
+      'cancelled meeting reminder blocked',
+      await remindersRoute.POST(
+        requestFor(coordinatorB, '/api/theme-meetings/reminders', {
+          method: 'POST',
+          body: jsonBody({ themeId: 'B', meetingDate: '2026-06-24', action: 'agenda_cutoff' }),
+        }),
+      ),
+      400,
+    );
+
+    const bob = await activeUser('bob');
+    await expectJson(
+      'cancelled meeting update blocked',
+      await updatesRoute.POST(
+        requestFor(bob, '/api/theme-meetings/updates', {
+          method: 'POST',
+          body: jsonBody({
+            themeId: 'B',
+            meetingDate: '2026-06-24',
+            member: 'bob',
+            updateType: 'milestone_check',
+            progressText: 'This cancelled meeting must not accept updates.',
+          }),
+        }),
+      ),
+      400,
+    );
+    const cancelledMemberDashboard = await expectJson<any>(
+      'cancelled meeting hidden notifications',
+      await themeMeetingsRoute.GET(requestFor(bob, '/api/theme-meetings?date=2026-06-24')),
+    );
+    assert.equal(cancelledMemberDashboard.notifications.some((notification: { theme_id: string }) => notification.theme_id === 'B'), false);
+
+    const restored = await expectJson<any>(
+      'coordinator restore own meeting',
+      await cancellationsRoute.DELETE(
+        requestFor(coordinatorB, '/api/theme-meetings/cancellations', {
+          method: 'DELETE',
+          body: jsonBody({ themeId: 'B', meetingDate: '2026-06-24' }),
+        }),
+      ),
+    );
+    assert.equal(restored.plan.meetings.find((meeting: { theme_id: string }) => meeting.theme_id === 'B')?.cancelled, false);
+
     const member = await activeUser('alice');
     const memberDashboard = await expectJson<any>(
       'member dashboard',
@@ -516,6 +577,7 @@ async function main() {
     await rm(resolve(configPath), { force: true });
     await rm(resolve(updatesPath), { force: true });
     await rm(resolve(notificationsPath), { force: true });
+    await rm(resolve(cancellationsPath), { force: true });
     await restoreUsers(snapshots);
     await cleanupAuditLogs(auditTestRunId);
     delete process.env.VIOSCOPE_AUDIT_TEST_RUN_ID;

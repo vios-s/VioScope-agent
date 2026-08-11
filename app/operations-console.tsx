@@ -328,6 +328,7 @@ type ThemeMeetingOverviewPlan = {
     planned_minutes: number;
     agenda_count: number;
     overbooked: boolean;
+    cancelled: boolean;
   }[];
 };
 
@@ -3587,6 +3588,8 @@ function ThemeMeetingPanel({
   const [formError, setFormError] = useState<string | null>(null);
   const [sourceProjectId, setSourceProjectId] = useState('');
   const [memberCandidateByTheme, setMemberCandidateByTheme] = useState<Record<string, string>>({});
+  const [meetingToCancel, setMeetingToCancel] = useState<ThemeMeetingPlan['meetings'][number] | null>(null);
+  const [cancellationBusy, setCancellationBusy] = useState(false);
 
   const plan = payload?.plan;
   const overviewPlan = payload?.overviewPlan;
@@ -3610,6 +3613,7 @@ function ThemeMeetingPanel({
       planned_minutes: meeting.planned_minutes,
       agenda_count: meeting.agenda_items.length,
       overbooked: meeting.overbooked,
+      cancelled: meeting.cancelled,
     }));
   }, [overviewPlan, plan]);
   const personalUpdateMeetings = useMemo(() => {
@@ -3789,6 +3793,28 @@ function ThemeMeetingPanel({
     await onChanged();
   }
 
+  async function changeMeetingCancellation(meeting: ThemeMeetingPlan['meetings'][number], cancelled: boolean) {
+    setFormError(null);
+    setStatus(null);
+    setCancellationBusy(true);
+    try {
+      const response = await fetch('/api/theme-meetings/cancellations', {
+        method: cancelled ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ themeId: meeting.theme_id, meetingDate: plan?.meeting_date }),
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error || 'Could not update the meeting status.');
+      setMeetingToCancel(null);
+      setStatus(cancelled ? `Theme ${meeting.theme_id} meeting restored.` : `Theme ${meeting.theme_id} meeting cancelled. No reminders or agenda will be sent.`);
+      await onChanged();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Could not update the meeting status.');
+    } finally {
+      setCancellationBusy(false);
+    }
+  }
+
   return (
     <section className="ops-panel theme-meeting-panel">
       <div className="ops-panel-head">
@@ -3808,8 +3834,8 @@ function ThemeMeetingPanel({
         </button>
       </div>
 
-      {formError && <div className="theme-meeting-message form-message error">{formError}</div>}
-      {status && <div className="theme-meeting-message form-message">{status}</div>}
+      {formError && <div className="theme-meeting-message form-message error" role="alert">{formError}</div>}
+      {status && <div className="theme-meeting-message form-message" role="status">{status}</div>}
 
       {!plan && !overviewPlan ? (
         <div className="ops-empty">
@@ -3839,13 +3865,17 @@ function ThemeMeetingPanel({
                       </div>
                       <strong>{summary.time}</strong>
                     </div>
-                    <div className="theme-stats">
-                      <span>{summary.duration_minutes} min</span>
-                      <span>{summary.submitted_count}/{summary.member_count} submitted</span>
-                      <span>{summary.planned_minutes}/{summary.duration_minutes} planned</span>
-                    </div>
+                    {summary.cancelled ? (
+                      <p className="theme-cancelled">This meeting is cancelled. No reminders or agenda will be sent.</p>
+                    ) : (
+                      <div className="theme-stats">
+                        <span>{summary.duration_minutes} min</span>
+                        <span>{summary.submitted_count}/{summary.member_count} submitted</span>
+                        <span>{summary.planned_minutes}/{summary.duration_minutes} planned</span>
+                      </div>
+                    )}
                     <p className="theme-coordinator">Coordinator: {summary.coordinator}</p>
-                    <div className="agenda-mini">
+                    {!summary.cancelled && <div className="agenda-mini">
                       {meeting?.agenda_items.length ? (
                         meeting.agenda_items.map((item) => (
                           <div key={`${item.member}-${item.submitted_at}`}>
@@ -3860,19 +3890,30 @@ function ThemeMeetingPanel({
                       ) : (
                         <div className="ops-muted-line">No planned updates yet</div>
                       )}
-                    </div>
-                    {meeting && <p className="theme-missing">Missing: {meeting.missing_members.join(', ') || 'none'}</p>}
+                    </div>}
+                    {meeting && !meeting.cancelled && <p className="theme-missing">Missing: {meeting.missing_members.join(', ') || 'none'}</p>}
                     {meeting && managedThemeIds.has(meeting.theme_id) && (
                       <div className="theme-member-manager">
-                        <button
-                          className="ops-secondary"
-                          type="button"
-                          disabled={!meeting.missing_members.length}
-                          onClick={() => sendMissingReminders(meeting.theme_id)}
-                        >
-                          <Bell aria-hidden="true" />
-                          Remind missing
-                        </button>
+                        {meeting.cancelled ? (
+                          <button className="ops-secondary" type="button" disabled={cancellationBusy} onClick={() => void changeMeetingCancellation(meeting, true)}>
+                            <RotateCcw aria-hidden="true" />
+                            Restore meeting
+                          </button>
+                        ) : <>
+                          <button
+                            className="ops-secondary"
+                            type="button"
+                            disabled={!meeting.missing_members.length}
+                            onClick={() => sendMissingReminders(meeting.theme_id)}
+                          >
+                            <Bell aria-hidden="true" />
+                            Remind missing
+                          </button>
+                          <button className="ops-secondary" type="button" onClick={() => setMeetingToCancel(meeting)}>
+                            <X aria-hidden="true" />
+                            Cancel this meeting
+                          </button>
+                        </>}
                         <div className="theme-member-list">
                           {meeting.members.map((nextMember, index) => {
                             const username = meeting.member_usernames[index] || nextMember;
@@ -4038,6 +4079,18 @@ function ThemeMeetingPanel({
           )}
         </div>
       )}
+      <ConfirmDialog
+        id="cancel-theme-meeting-confirm"
+        open={Boolean(meetingToCancel)}
+        title="Cancel this meeting?"
+        message={meetingToCancel ? `Cancel Theme ${meetingToCancel.theme_id} on ${formatDate(plan?.meeting_date || '')}? Reminders, agenda generation, and agenda emails for this meeting will stop.` : ''}
+        confirmLabel="Cancel meeting"
+        busy={cancellationBusy}
+        onCancel={() => setMeetingToCancel(null)}
+        onConfirm={() => {
+          if (meetingToCancel) void changeMeetingCancellation(meetingToCancel, false);
+        }}
+      />
     </section>
   );
 }

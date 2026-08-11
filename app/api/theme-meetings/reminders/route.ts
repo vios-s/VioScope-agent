@@ -49,6 +49,9 @@ export async function POST(request: Request) {
     if (!canManageTheme(payload.config, themeId, user)) {
       throw new AuthError('Only administrators, PIs, and the theme coordinator can send reminders.', 403, 'forbidden');
     }
+    if (payload.plan.meetings.find((meeting) => meeting.theme_id === themeId)?.cancelled) {
+      throw new Error(`Theme ${themeId} meeting on ${payload.plan.meeting_date} has been cancelled.`);
+    }
 
     const run = await buildThemeMeetingReminderRun(parsedAction.data, {
       meetingDate,
