@@ -164,6 +164,7 @@ async function login(page: any, username: string) {
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.getByText('Briefing').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.locator('.welcome-dialog').waitFor({ state: 'visible', timeout: 1_500 }).catch(() => undefined);
   await dismissWelcomeIfVisible(page);
   await page.getByRole('button', { name: 'Meeting' }).click();
   await page.getByRole('heading', { name: 'Next Theme Meeting' }).waitFor({ state: 'visible', timeout: 15_000 });
