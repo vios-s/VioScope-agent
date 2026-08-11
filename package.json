@@ -31,6 +31,7 @@
     "check:audit-coverage": "tsx scripts/check-audit-coverage.ts",
     "check:audit-log": "tsx scripts/check-audit-log.ts",
     "check:audit-retention": "tsx scripts/check-audit-retention.ts",
+    "check:feedback": "tsx scripts/check-feedback.ts",
     "check:service-restart": "tsx scripts/check-service-restart.ts",
     "check:review-runs": "tsx scripts/check-review-runs.ts",
     "check:users": "tsx scripts/check-users.ts",
