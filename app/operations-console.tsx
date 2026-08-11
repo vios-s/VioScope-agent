@@ -3883,7 +3883,7 @@ function ThemeMeetingPanel({
               {weekMeetings.map((summary) => {
                 const meeting = plan?.meetings.find((candidate) => candidate.theme_id === summary.theme_id);
                 return (
-                  <article className="theme-meeting-card" key={summary.theme_id}>
+                  <article className={`theme-meeting-card${summary.cancelled ? ' is-cancelled' : ''}`} key={summary.theme_id}>
                     <div className="theme-meeting-card-head">
                       <div>
                         <span className="track-chip">Theme {summary.theme_id}</span>
@@ -3936,7 +3936,7 @@ function ThemeMeetingPanel({
                               <Bell aria-hidden="true" />
                               Remind missing
                             </button>
-                            <button className="ops-secondary" type="button" onClick={() => setMeetingToCancel(meeting)}>
+                            <button className="ops-secondary theme-meeting-cancel-action" type="button" onClick={() => setMeetingToCancel(meeting)}>
                               <X aria-hidden="true" />
                               Cancel this meeting
                             </button>

@@ -2300,13 +2300,13 @@ html[data-theme="dark"] .briefing-hero::after {
 .theme-meeting-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(290px, 330px);
-  gap: 12px;
-  padding: 12px;
+  gap: 14px;
+  padding: 14px;
 }
 
 .theme-meeting-content {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .theme-meeting-grid.planning-only {
@@ -2315,18 +2315,23 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .theme-meeting-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(265px, 1fr));
+  gap: 12px;
 }
 
 .theme-meeting-card,
 .theme-update-form {
   display: grid;
-  gap: 8px;
-  padding: 14px;
+  gap: 9px;
+  padding: 14px 14px 14px 17px;
   border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--accent);
   border-radius: 10px;
   background: var(--surface);
+}
+
+.theme-meeting-card.is-cancelled {
+  border-left-color: var(--danger-dot);
 }
 
 .theme-meeting-card-head,
@@ -2339,12 +2344,19 @@ html[data-theme="dark"] .briefing-hero::after {
 .theme-meeting-card-head {
   justify-content: space-between;
   gap: 8px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--border-soft);
+  align-items: flex-start;
+}
+
+.theme-meeting-card-head > div {
+  min-width: 0;
 }
 
 .theme-meeting-card h3,
 .theme-update-form h3 {
-  margin: 4px 0 0;
-  font-size: 0.94rem;
+  margin: 5px 0 0;
+  font-size: 0.96rem;
   line-height: 1.25;
 }
 
@@ -2370,6 +2382,8 @@ html[data-theme="dark"] .briefing-hero::after {
   color: var(--muted);
   font-size: 0.7rem;
   font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .theme-coordinator,
@@ -2420,6 +2434,8 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .theme-update-form {
   align-content: start;
+  padding-left: 14px;
+  border-left-color: var(--border-soft);
   background: var(--surface-2);
 }
 
@@ -2498,6 +2514,8 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .theme-meeting-actions {
   grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
 }
 
 .theme-meeting-actions .ops-secondary {
@@ -2505,6 +2523,16 @@ html[data-theme="dark"] .briefing-hero::after {
   justify-content: center;
   padding: 0 9px;
   font-size: 0.76rem;
+}
+
+.theme-meeting-cancel-action {
+  color: var(--danger-fg);
+}
+
+.theme-meeting-cancel-action:hover:not(:disabled) {
+  border-color: var(--danger-bd);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
 }
 
 .theme-member-list {
@@ -2521,7 +2549,7 @@ html[data-theme="dark"] .briefing-hero::after {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel-muted);
-  color: #3c454a;
+  color: var(--ink-3);
   font-size: 0.78rem;
   font-weight: 800;
 }
@@ -2534,7 +2562,7 @@ html[data-theme="dark"] .briefing-hero::after {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: #7a838a;
+  color: var(--muted);
 }
 
 .theme-member-list button:hover {
@@ -2556,7 +2584,7 @@ html[data-theme="dark"] .briefing-hero::after {
   min-width: 0;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
-  background: #fff;
+  background: var(--field);
   color: var(--text);
   padding: 0 9px;
 }
@@ -6171,6 +6199,18 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 @media (max-width: 720px) {
+  .theme-meeting-grid {
+    padding: 12px;
+  }
+
+  .theme-meeting-list {
+    grid-template-columns: 1fr;
+  }
+
+  .theme-meeting-actions {
+    grid-template-columns: 1fr;
+  }
+
   .briefing-hero {
     min-height: 240px;
   }
