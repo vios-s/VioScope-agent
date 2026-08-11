@@ -14,6 +14,7 @@ const runtimeDir = resolve('.local/checks');
 const configPath = resolve(runtimeDir, `theme-meeting-ui-${stamp}.yaml`);
 const updatesPath = resolve(runtimeDir, `theme-meeting-ui-${stamp}-updates.yaml`);
 const notificationsPath = resolve(runtimeDir, `theme-meeting-ui-${stamp}-notifications.yaml`);
+const cancellationsPath = resolve(runtimeDir, `theme-meeting-ui-${stamp}-cancellations.yaml`);
 const runtimeCachePath = resolve(runtimeDir, `theme-meeting-ui-${stamp}-runtime.json`);
 
 const users = {
@@ -151,6 +152,7 @@ function startServer() {
       THEME_MEETING_CONFIG_PATH: configPath,
       THEME_MEETING_UPDATES_PATH: updatesPath,
       THEME_MEETING_NOTIFICATIONS_PATH: notificationsPath,
+      THEME_MEETING_CANCELLATIONS_PATH: cancellationsPath,
       VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH: runtimeCachePath,
     },
   });
@@ -210,11 +212,17 @@ async function checkCoordinator(browser: any) {
 async function checkPlanningOnly(browser: any, username: string) {
   const page = await browser.newPage();
   await login(page, username);
-  await expectVisible(page, 'Theme A');
-  await expectVisible(page, 'Theme B');
   await expectVisible(page, 'Past meetings');
+  assert.equal(await page.locator('.theme-meeting-card').count(), 2, 'PI should see both active theme meeting cards.');
   assert.equal(await page.locator('.theme-update-form').count(), 0);
   assert.ok(await page.getByText('Remind missing').count() > 0, 'PI/admin planning view should expose theme management actions.');
+  await page.getByRole('button', { name: 'Cancel this meeting' }).first().click();
+  await page.getByRole('dialog', { name: 'Cancel this meeting?' }).waitFor({ state: 'visible', timeout: 10_000 });
+  await page.getByRole('button', { name: 'Cancel meeting' }).click();
+  await expectVisible(page, 'meeting cancelled.');
+  await expectVisible(page, 'This meeting is cancelled.');
+  await page.getByRole('button', { name: 'Restore meeting' }).click();
+  await expectVisible(page, 'meeting restored.');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting' }).click();
   await expectVisible(page, 'Meeting configuration');
@@ -225,8 +233,8 @@ async function checkPlanningOnly(browser: any, username: string) {
 async function checkAdminMember(browser: any) {
   const page = await browser.newPage();
   await login(page, users.admin);
-  await expectVisible(page, 'Theme A');
-  await expectVisible(page, 'Theme B');
+  await expectVisible(page, 'Past meetings');
+  assert.equal(await page.locator('.theme-meeting-card').count(), 2, 'Admin should see both active theme meeting cards.');
   await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
   await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
@@ -248,7 +256,7 @@ async function cleanup() {
   } finally {
     await postgres.disconnect();
   }
-  await Promise.all([configPath, updatesPath, notificationsPath, runtimeCachePath].map((path) => rm(path, { force: true })));
+  await Promise.all([configPath, updatesPath, notificationsPath, cancellationsPath, runtimeCachePath].map((path) => rm(path, { force: true })));
 }
 
 async function main() {

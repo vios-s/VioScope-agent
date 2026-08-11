@@ -5,10 +5,12 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { runtimeEnv } from '../runtime-config';
 import {
   themeMeetingConfigSchema,
+  themeMeetingCancellationsFileSchema,
   themeMeetingEmailDeliveriesFileSchema,
   themeMeetingNotificationsFileSchema,
   themeMeetingUpdatesFileSchema,
   type ThemeMeetingConfig,
+  type ThemeMeetingCancellation,
   type ThemeMeetingEmailDelivery,
   type ThemeMeetingNotification,
   type ThemeMeetingUpdate,
@@ -16,6 +18,7 @@ import {
 } from './schema';
 
 export type ThemeMeetingStoreOptions = {
+  cancellationsPath?: string;
   configPath?: string;
   emailDeliveriesPath?: string;
   updatesPath?: string;
@@ -102,6 +105,18 @@ export function resolveThemeMeetingUpdatesPath(updatesPath?: string): string {
   return fallbackRuntimePath('theme-meeting-updates.yaml');
 }
 
+export function resolveThemeMeetingCancellationsPath(cancellationsPath?: string): string {
+  if (cancellationsPath) return resolveFromCwd(cancellationsPath);
+
+  const configuredPath = runtimeEnv('THEME_MEETING_CANCELLATIONS_PATH').trim();
+  if (configuredPath) return resolveFromCwd(configuredPath);
+
+  const datastoreDir = runtimeEnv('DATASTORE_DIR').trim();
+  if (datastoreDir) return resolveFromCwd(join(datastoreDir, 'theme-meeting-cancellations.yaml'));
+
+  return fallbackRuntimePath('theme-meeting-cancellations.yaml');
+}
+
 export function resolveThemeMeetingNotificationsPath(notificationsPath?: string): string {
   if (notificationsPath) {
     return resolveFromCwd(notificationsPath);
@@ -173,6 +188,16 @@ export async function readThemeMeetingUpdates(
 
   const file = themeMeetingUpdatesFileSchema.parse(parseYaml(await readFile(/*turbopackIgnore: true*/ path, 'utf8')) || {});
   return { path, updates: file.updates };
+}
+
+export async function readThemeMeetingCancellations(
+  options: ThemeMeetingStoreOptions = {},
+): Promise<{ path: string; cancellations: ThemeMeetingCancellation[] }> {
+  const path = resolveThemeMeetingCancellationsPath(options.cancellationsPath);
+  if (!(await pathExists(path))) return { path, cancellations: [] };
+
+  const file = themeMeetingCancellationsFileSchema.parse(parseYaml(await readFile(/*turbopackIgnore: true*/ path, 'utf8')) || {});
+  return { path, cancellations: file.cancellations };
 }
 
 export async function readThemeMeetingNotifications(
@@ -250,6 +275,35 @@ export async function saveThemeMeetingUpdate(
   const file = themeMeetingUpdatesFileSchema.parse({ updates: nextUpdates });
   await writeYaml(path, file);
   return file;
+}
+
+function sameMeeting(left: Pick<ThemeMeetingCancellation, 'meeting_date' | 'theme_id'>, right: Pick<ThemeMeetingCancellation, 'meeting_date' | 'theme_id'>) {
+  return left.meeting_date === right.meeting_date && normalizeUpdatePart(left.theme_id) === normalizeUpdatePart(right.theme_id);
+}
+
+export async function saveThemeMeetingCancellation(
+  cancellation: ThemeMeetingCancellation,
+  options: ThemeMeetingStoreOptions = {},
+): Promise<ThemeMeetingCancellation[]> {
+  const path = resolveThemeMeetingCancellationsPath(options.cancellationsPath);
+  const { cancellations } = await readThemeMeetingCancellations(options);
+  const next = [...cancellations.filter((current) => !sameMeeting(current, cancellation)), cancellation].sort((left, right) =>
+    `${left.meeting_date}:${left.theme_id}`.localeCompare(`${right.meeting_date}:${right.theme_id}`),
+  );
+  await writeYaml(path, themeMeetingCancellationsFileSchema.parse({ cancellations: next }));
+  return next;
+}
+
+export async function removeThemeMeetingCancellation(
+  meetingDate: string,
+  themeId: string,
+  options: ThemeMeetingStoreOptions = {},
+): Promise<ThemeMeetingCancellation[]> {
+  const path = resolveThemeMeetingCancellationsPath(options.cancellationsPath);
+  const { cancellations } = await readThemeMeetingCancellations(options);
+  const next = cancellations.filter((current) => !sameMeeting(current, { meeting_date: meetingDate, theme_id: themeId }));
+  await writeYaml(path, themeMeetingCancellationsFileSchema.parse({ cancellations: next }));
+  return next;
 }
 
 export async function saveThemeMeetingNotifications(

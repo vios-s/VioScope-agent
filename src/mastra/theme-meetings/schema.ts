@@ -99,6 +99,18 @@ export const themeMeetingUpdatesFileSchema = z.object({
   updates: z.array(themeMeetingUpdateSchema).default([]),
 });
 
+export const themeMeetingCancellationSchema = z.object({
+  meeting_date: dateStringSchema,
+  theme_id: z.string().trim().min(1),
+  cancelled_at: z.string().datetime(),
+  cancelled_by_username: z.string().trim().min(1),
+  reason: z.string().trim().max(1_000).default(''),
+});
+
+export const themeMeetingCancellationsFileSchema = z.object({
+  cancellations: z.array(themeMeetingCancellationSchema).default([]),
+});
+
 export const themeMeetingAgendaItemSchema = z.object({
   meeting_date: dateStringSchema,
   theme_id: z.string(),
@@ -134,6 +146,8 @@ export const themeMeetingPlanSchema = z.object({
       agenda_items: z.array(themeMeetingAgendaItemSchema),
       planned_minutes: z.number().int().nonnegative(),
       overbooked: z.boolean(),
+      cancelled: z.boolean().default(false),
+      cancellation: themeMeetingCancellationSchema.nullable().default(null),
     }),
   ),
 });
@@ -168,6 +182,7 @@ export const themeMeetingEmailDeliveriesFileSchema = z.object({
 export type ThemeMeetingConfig = z.infer<typeof themeMeetingConfigSchema>;
 export type ThemeMeetingUpdate = z.infer<typeof themeMeetingUpdateSchema>;
 export type ThemeMeetingUpdatesFile = z.infer<typeof themeMeetingUpdatesFileSchema>;
+export type ThemeMeetingCancellation = z.infer<typeof themeMeetingCancellationSchema>;
 export type ThemeMeetingPlan = z.infer<typeof themeMeetingPlanSchema>;
 export type ThemeMeetingAgendaItem = z.infer<typeof themeMeetingAgendaItemSchema>;
 export type ThemeMeetingNotification = z.infer<typeof themeMeetingNotificationSchema>;
