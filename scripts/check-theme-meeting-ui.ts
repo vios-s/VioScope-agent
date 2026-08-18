@@ -189,9 +189,21 @@ async function checkMember(browser: any) {
   await slotSelect.selectOption('nothing_to_report');
   await page.locator('.theme-update-form textarea').nth(0).fill('Finished a mock UI smoke test update for the next meeting.');
   await page.locator('.theme-update-form textarea').nth(1).fill('Can the UI save this member update?');
-  await page.getByRole('button', { name: 'Update' }).click();
-  await expectVisible(page, 'Update saved.');
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Submit update' }).click();
+  await expectVisible(page, 'Update submitted.');
+  await expectVisible(page, 'Your submitted update');
+  assert.equal(await page.locator('.theme-update-form textarea').nth(0).inputValue(), 'Finished a mock UI smoke test update for the next meeting.');
+  assert.equal(await page.locator('.theme-update-form textarea').nth(1).inputValue(), 'Can the UI save this member update?');
+  await page.locator('.theme-update-form textarea').nth(0).fill('Edited the submitted mock UI update.');
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expectVisible(page, 'Changes saved.');
+  await page.reload();
+  await page.locator('.welcome-dialog').waitFor({ state: 'visible', timeout: 1_500 }).catch(() => undefined);
+  await dismissWelcomeIfVisible(page);
+  await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
+  assert.equal(await page.locator('.theme-update-form textarea').nth(0).inputValue(), 'Edited the submitted mock UI update.');
+  await expectVisible(page, 'Your submitted update');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   assert.equal(await page.getByRole('button', { name: 'Theme meeting' }).count(), 0, 'Member should not see theme meeting settings.');
   await page.close();
 }

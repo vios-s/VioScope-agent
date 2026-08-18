@@ -3670,6 +3670,9 @@ function ThemeMeetingPanel({
         (nextMember) => normalizedName(nextMember.username) === normalizedName(viewer.username) || isViewerName(nextMember.displayName, viewer),
       );
   }, [selectedMeeting, viewer]);
+  const submittedUpdate = selectedMeeting?.agenda_items.find(
+    (item) => normalizedName(item.member_username || '') === normalizedName(viewer.username) || isViewerName(item.member, viewer),
+  ) || null;
   const showPersonalUpdateForm = submitMembers.length > 0;
   const planLabel = overviewPlan || plan || updatePlan;
   const sourceProjects = useMemo(
@@ -3694,6 +3697,12 @@ function ThemeMeetingPanel({
       setMember(submitMembers[0].username);
     }
   }, [member, submitMembers]);
+
+  useEffect(() => {
+    setUpdateType(submittedUpdate?.update_type || 'nothing_to_report');
+    setProgressText(submittedUpdate?.progress_text || '');
+    setQuestions(submittedUpdate?.questions || '');
+  }, [selectedThemeId, submittedUpdate?.submitted_at]);
 
   useEffect(() => {
     if (sourceProject && sourceProject.id !== sourceProjectId) {
@@ -3739,9 +3748,7 @@ function ThemeMeetingPanel({
       return;
     }
 
-    setStatus('Update saved.');
-    setProgressText('');
-    setQuestions('');
+    setStatus(submittedUpdate ? 'Changes saved.' : 'Update submitted.');
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('Theme update saved', { body: `${member} / Theme ${selectedThemeId}` });
     }
@@ -4005,8 +4012,13 @@ function ThemeMeetingPanel({
 
             {showPersonalUpdateForm && (
               <form className="theme-update-form" onSubmit={submitUpdate}>
-                <h3>Update</h3>
-                {updatePlan && <p>For {formatDate(updatePlan.meeting_date)}</p>}
+                <h3>{submittedUpdate ? 'Your submitted update' : 'Submit update'}</h3>
+                {updatePlan && (
+                  <p>
+                    For {formatDate(updatePlan.meeting_date)}
+                    {submittedUpdate ? ' · Review or edit the fields below.' : ''}
+                  </p>
+                )}
                 <label>
                   <span>Theme</span>
                   <select value={themeId} onChange={(event) => setThemeId(event.target.value)}>
@@ -4082,8 +4094,8 @@ function ThemeMeetingPanel({
                   />
                 </div>
                 <button className="ops-primary" type="submit">
-                  <Check aria-hidden="true" />
-                  Update
+                  {submittedUpdate ? <Save aria-hidden="true" /> : <Check aria-hidden="true" />}
+                  {submittedUpdate ? 'Save changes' : 'Submit update'}
                 </button>
               </form>
             )}
