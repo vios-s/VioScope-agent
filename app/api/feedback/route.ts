@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
+import { requireSessionUser } from '../../../src/mastra/auth/session';
+import { errorResponse } from '../../../src/mastra/http/error-response';
 import { createFeedbackQuery, listFeedbackQueries } from '../../../src/mastra/db/feedback';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { saveFeedbackAttachment, validateFeedbackAttachment } from '../../../src/mastra/feedback/attachments';
@@ -20,10 +21,6 @@ function assertText(value: string, label: string, maximum: number): string {
   return value;
 }
 
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
-
 export async function GET(request: Request) {
   try {
     const user = await requireSessionUser(request);
@@ -32,7 +29,7 @@ export async function GET(request: Request) {
       canManage: user.role === 'administrator',
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }
 
@@ -79,6 +76,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ query, adminEmailNotified: email.delivered > 0 });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

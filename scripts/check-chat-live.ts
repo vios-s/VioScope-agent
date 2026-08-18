@@ -6,6 +6,7 @@ import { getUserByUsername, upsertLocalUser, type AuthUser } from '../src/mastra
 
 const username = `chat.live.member.${Date.now()}`;
 const sessionId = `chat-live-smoke-${Date.now()}`;
+const appBaseUrl = (process.env.VIOSCOPE_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
 function email(value: string): string {
   return `${value}@example.test`;
@@ -63,7 +64,7 @@ async function main() {
   const user = await seedUser();
 
   try {
-    const response = await fetch('http://localhost:3000/api/chat', {
+    const response = await fetch(`${appBaseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

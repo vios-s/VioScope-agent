@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, requireSessionUser } from '../../../../../src/mastra/auth/session';
+import { requireSessionUser } from '../../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../../src/mastra/db/audit-log';
 import { addProjectUpdate, getProjectForUser, type AddProjectUpdateInput } from '../../../../../src/mastra/db/projects';
 import { saveProjectArtifactUpload, type ProjectArtifactUploadDigest } from '../../../../../src/mastra/projects/artifacts';
@@ -99,10 +100,6 @@ async function updateInputFromForm(
   };
 }
 
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
-
 export async function POST(request: Request, context: { params: Promise<{ projectId: string }> }) {
   try {
     const actor = await requireSessionUser(request);
@@ -150,6 +147,6 @@ export async function POST(request: Request, context: { params: Promise<{ projec
         : null,
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
+import { requireSessionUser } from '../../../src/mastra/auth/session';
+import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { listChatNotificationsForUser, markChatNotificationsRead } from '../../../src/mastra/db/chat';
 
@@ -10,16 +11,12 @@ function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
-
 export async function GET(request: Request) {
   try {
     const user = await requireSessionUser(request);
     return NextResponse.json({ notifications: await listChatNotificationsForUser(user.id) });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }
 
@@ -46,6 +43,6 @@ export async function PATCH(request: Request) {
       notifications,
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

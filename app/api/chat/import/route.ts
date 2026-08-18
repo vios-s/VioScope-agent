@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { requireSessionUser } from '../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { importLocalChatSessions, type ChatSourceRecord, type ImportedChatSession } from '../../../../src/mastra/db/chat';
 
@@ -8,10 +9,6 @@ export const runtime = 'nodejs';
 
 function text(value: unknown, max = 4000): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim().slice(0, max) : undefined;
-}
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
 
 function cleanSources(value: unknown): ChatSourceRecord[] {
@@ -82,6 +79,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ imported });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
+import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import {
   isUserPosition,
@@ -24,10 +25,6 @@ function textArray(value: unknown): string[] {
   }
 
   return value.map((item) => text(item)).filter((item): item is string => Boolean(item));
-}
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
 
 function validateEmail(email: string | undefined) {
@@ -73,7 +70,7 @@ export async function GET(request: Request) {
     await requireUserManager(request);
     return NextResponse.json({ users: await listUsersForAdmin() });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }
 
@@ -119,6 +116,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ users: await listUsersForAdmin() });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

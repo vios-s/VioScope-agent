@@ -2,7 +2,8 @@ import 'dotenv/config';
 import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { NextResponse } from 'next/server';
-import { AuthError, requireSessionUser } from '../../../../../src/mastra/auth/session';
+import { requireSessionUser } from '../../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../../src/mastra/db/audit-log';
 import { getProjectArtifactForUser } from '../../../../../src/mastra/db/projects';
 import { assertStoredProjectArtifactPath } from '../../../../../src/mastra/projects/artifacts';
@@ -17,10 +18,6 @@ function contentType(fileName: string): string {
   if (ext === '.zip') return 'application/zip';
   if (['.md', '.markdown', '.txt', '.tex', '.rst', '.csv', '.json', '.yaml', '.yml'].includes(ext)) return 'text/plain; charset=utf-8';
   return 'application/octet-stream';
-}
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
 
 export async function GET(request: Request, context: { params: Promise<{ artifactId: string }> }) {
@@ -53,6 +50,6 @@ export async function GET(request: Request, context: { params: Promise<{ artifac
       },
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 404);
+    return errorResponse(error, 404);
   }
 }

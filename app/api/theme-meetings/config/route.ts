@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { listUsersForAdmin, type AuthUser } from '../../../../src/mastra/db/users';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
@@ -10,10 +11,6 @@ import { readThemeMeetingConfig, writeThemeMeetingConfig } from '../../../../src
 export const runtime = 'nodejs';
 
 type ThemeSettingsUser = Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role' | 'provisioningStatus'>;
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
 
 function normalizeUsername(value: string | null | undefined): string {
   return value ? value.trim().toLowerCase() : '';
@@ -112,7 +109,7 @@ export async function GET(request: Request) {
     const user = await requireSessionUser(request);
     return NextResponse.json(await payloadFor(user));
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }
 
@@ -171,6 +168,6 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json(await payloadFor(user));
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

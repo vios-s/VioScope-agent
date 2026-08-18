@@ -7,7 +7,8 @@ export { chromium };
 
 export async function dismissWelcomeIfVisible(page: any) {
   const dialog = page.locator('.welcome-dialog');
-  if (!(await dialog.isVisible().catch(() => false))) return;
+  const visible = await dialog.waitFor({ state: 'visible', timeout: 1_500 }).then(() => true).catch(() => false);
+  if (!visible) return;
   await dialog.getByLabel('Close welcome message').click();
   await dialog.waitFor({ state: 'hidden', timeout: 5_000 });
 }

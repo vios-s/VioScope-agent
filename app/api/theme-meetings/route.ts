@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
+import { canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
+import { errorResponse } from '../../../src/mastra/http/error-response';
 import { listUsersForAdmin, type AuthUser } from '../../../src/mastra/db/users';
 import {
   managedThemeIdsForUser,
@@ -94,10 +95,6 @@ function ownSubmissionPlanForUser(plan: ThemeMeetingPlan, user: AuthUser): Theme
   };
 }
 
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
-
 function notificationAllowed(notification: ThemeMeetingNotification, user: AuthUser): boolean {
   if (notification.action === 'agenda_cutoff') {
     return user.notificationPreferences.theme_meeting_reminders.web;
@@ -170,6 +167,6 @@ export async function GET(request: Request) {
         : undefined,
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }

@@ -14,6 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { ReviewResult, ReviewRunRecord, ReviewRunSummary, ReviewSignoffStatus, ReviewVerdict } from './review-types';
+import { requestJson } from './client-request';
 import styles from './review-form.module.css';
 
 type SkillId = 'vios-skeleton-lock' | 'vios-pdra-meta-review' | 'vios-internal-red-team' | 'vios-revision-lock';
@@ -163,11 +164,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
   async function loadHistory() {
     try {
       setHistoryError(null);
-      const response = await fetch('/api/review-runs?limit=8');
-      const payload = (await response.json()) as { runs?: ReviewRunSummary[]; error?: string };
-      if (!response.ok) {
-        throw new Error(payload.error || 'Could not load review history.');
-      }
+      const payload = await requestJson<{ runs?: ReviewRunSummary[] }>('/api/review-runs?limit=8', 'Could not load review history.');
       setHistory(payload.runs || []);
     } catch (caught) {
       setHistoryError(caught instanceof Error ? caught.message : 'Could not load review history.');
@@ -187,17 +184,10 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
     formData.delete('skills');
     formData.append('skills', skillId);
 
-    const response = await fetch('/api/submission-review', {
+    return requestJson<ReviewResult>('/api/submission-review', 'Review failed.', {
       method: 'POST',
       body: formData,
     });
-    const payload = (await response.json()) as ReviewResult | { error?: string };
-
-    if (!response.ok) {
-      throw new Error('error' in payload && payload.error ? payload.error : 'Review failed.');
-    }
-
-    return payload as ReviewResult;
   }
 
   async function runSkill(skillId: SkillId) {
@@ -346,15 +336,12 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
     setStatusMessage(null);
 
     try {
-      const response = await fetch('/api/review-runs', {
+      const payload = await requestJson<{ run?: ReviewRunRecord }>('/api/review-runs', 'Could not save review run.', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(buildSavePayload()),
       });
-      const payload = (await response.json()) as { run?: ReviewRunRecord; error?: string };
-      if (!response.ok || !payload.run) {
-        throw new Error(payload.error || 'Could not save review run.');
-      }
+      if (!payload.run) throw new Error('Could not save review run.');
 
       applyPersistedRun(payload.run);
       await loadHistory();
@@ -371,11 +358,8 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
     setStatusMessage(null);
 
     try {
-      const response = await fetch(`/api/review-runs/${runId}`);
-      const payload = (await response.json()) as { run?: ReviewRunRecord; error?: string };
-      if (!response.ok || !payload.run) {
-        throw new Error(payload.error || 'Could not open review run.');
-      }
+      const payload = await requestJson<{ run?: ReviewRunRecord }>(`/api/review-runs/${runId}`, 'Could not open review run.');
+      if (!payload.run) throw new Error('Could not open review run.');
 
       applyPersistedRun(payload.run);
       setStatusMessage(`Opened review run ${payload.run.id.slice(0, 8)}.`);
@@ -396,7 +380,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
     setStatusMessage(null);
 
     try {
-      const response = await fetch(`/api/review-runs/${currentRunId}/signoff`, {
+      const payload = await requestJson<{ run?: ReviewRunRecord }>(`/api/review-runs/${currentRunId}/signoff`, 'Could not save sign-off.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -404,10 +388,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
           ...activeSignoff,
         }),
       });
-      const payload = (await response.json()) as { run?: ReviewRunRecord; error?: string };
-      if (!response.ok || !payload.run) {
-        throw new Error(payload.error || 'Could not save sign-off.');
-      }
+      if (!payload.run) throw new Error('Could not save sign-off.');
 
       applyPersistedRun(payload.run);
       await loadHistory();

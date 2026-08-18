@@ -1,14 +1,11 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, requireAdministrator } from '../../../../src/mastra/auth/session';
+import { requireAdministrator } from '../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { feedbackStatuses, updateFeedbackQuery, type FeedbackStatus } from '../../../../src/mastra/db/feedback';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 
 export const runtime = 'nodejs';
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
 
 export async function PATCH(request: Request, context: { params: Promise<{ feedbackId: string }> }) {
   try {
@@ -31,6 +28,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ feedb
     });
     return NextResponse.json({ query });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

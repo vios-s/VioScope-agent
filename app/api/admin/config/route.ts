@@ -2,7 +2,8 @@ import 'dotenv/config';
 import { access } from 'node:fs/promises';
 import { delimiter } from 'node:path';
 import { NextResponse } from 'next/server';
-import { AuthError, requireAdministrator } from '../../../../src/mastra/auth/session';
+import { requireAdministrator } from '../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../src/mastra/http/error-response';
 import {
   listAdminAppSettings,
   restartCommandConfigured,
@@ -17,10 +18,6 @@ type PathStatus = {
   state: 'ok' | 'missing' | 'not_configured';
   detail: string;
 };
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
 
 async function pathStatus(setting: AdminAppSetting): Promise<PathStatus | undefined> {
   if (setting.valueType !== 'path') return undefined;
@@ -64,7 +61,7 @@ export async function GET(request: Request) {
     await requireAdministrator(request);
     return NextResponse.json(await configPayload());
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }
 
@@ -95,6 +92,6 @@ export async function PATCH(request: Request) {
 
     return NextResponse.json(await configPayload());
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

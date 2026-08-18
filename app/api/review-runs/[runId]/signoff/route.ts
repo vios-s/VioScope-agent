@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, requireSessionUser } from '../../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../../src/mastra/db/audit-log';
 import {
   updateReviewCheckSignoff,
@@ -13,10 +14,6 @@ const signoffStatuses = new Set<ReviewSignoffStatus>(['pending', 'accepted', 'ne
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ runId: string }> }) {
@@ -61,6 +58,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ runId
     });
     return NextResponse.json({ run });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import {
   isUserProvisioningStatus,
@@ -83,10 +84,6 @@ function validateAvatarUrl(avatarUrl: string | null | undefined) {
   }
 }
 
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
-
 async function requireUserManager(request: Request): Promise<AuthUser> {
   const user = await requireSessionUser(request);
   if (user.role !== 'administrator' && user.role !== 'pi') {
@@ -157,6 +154,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
     });
     return NextResponse.json({ user });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

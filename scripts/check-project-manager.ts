@@ -21,6 +21,18 @@ const themeConfigPath = resolve('.local/checks', `project-manager-theme-${stamp}
 const runtimeCachePath = resolve('.local/checks', `project-manager-runtime-${stamp}.json`);
 process.env.VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH = runtimeCachePath;
 
+function dateFromToday(days: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+const stageSinceDate = dateFromToday(-30);
+const firstUpdateDate = dateFromToday(-2);
+const secondUpdateDate = dateFromToday(-1);
+const todoDueDate = dateFromToday(7);
+const submissionDeadline = dateFromToday(14);
+
 function email(username: string): string {
   return `${username}@example.test`;
 }
@@ -256,10 +268,10 @@ async function main() {
       stageProgress: 20,
       status: 'on_track',
       lifecycle: 'active',
-      stageSince: '2026-06-10',
+      stageSince: stageSinceDate,
       target: 'finish ablation study',
       venue: 'ToyConf',
-      submissionDeadline: '2026-09-15',
+      submissionDeadline,
       notes: 'Project manager check note.',
     }, owner));
     const createBody = await bodyOf<{ project?: any }>(createResponse);
@@ -341,7 +353,7 @@ async function main() {
       jsonRequest(`/api/projects/${project.id}`, {
         project: renamedSlug,
         watchPath: `project://${owner.username}/${renamedSlug}`,
-        todos: [{ text: 'Draft reviewer response plan', dueDate: '2026-07-01', done: false }],
+        todos: [{ text: 'Draft reviewer response plan', dueDate: todoDueDate, done: false }],
       }, owner, 'PATCH'),
       projectContext(project.id),
     );
@@ -350,7 +362,7 @@ async function main() {
     assert.equal(slugTodoBody.project?.project, renamedSlug, 'Project slug should be editable.');
     assert.equal(slugTodoBody.project?.watchPath, `project://${owner.username}/${renamedSlug}`, 'Watch path should follow edited slug.');
     assert.equal(slugTodoBody.project?.todos?.[0]?.text, 'Draft reviewer response plan', 'TODO text should be saved.');
-    assert.equal(slugTodoBody.project?.todos?.[0]?.dueDate, '2026-07-01', 'TODO deadline should be saved.');
+    assert.equal(slugTodoBody.project?.todos?.[0]?.dueDate, todoDueDate, 'TODO deadline should be saved.');
 
     const renamedLookupResponse = await projectRoute.GET(getRequest(`/api/projects/${renamedSlug}`, owner), projectContext(renamedSlug));
     const renamedLookupBody = await bodyOf<{ project?: any }>(renamedLookupResponse);
@@ -372,6 +384,12 @@ async function main() {
     );
     assert.equal(trackNameCoordinatorDetailResponse.status, 404, 'Theme A coordinator should not see Track A project detail by track name.');
 
+    const ambiguousTodoResponse = await projectRoute.PATCH(
+      jsonRequest(`/api/projects/${project.id}`, { todos: [{ text: 'Ambiguous state', done: 'false' }] }, owner, 'PATCH'),
+      projectContext(project.id),
+    );
+    assert.equal(ambiguousTodoResponse.status, 400, 'Non-boolean TODO state should be rejected instead of coerced.');
+
     const coordinatorEditResponse = await projectRoute.PATCH(
       jsonRequest(`/api/projects/${project.id}`, { status: 'blocked' }, ownerThemeCoordinator, 'PATCH'),
       projectContext(project.id),
@@ -388,7 +406,7 @@ async function main() {
 
     const firstUpdateResponse = await updatesRoute.POST(
       jsonRequest(`/api/projects/${project.id}/updates`, {
-        date: '2026-06-20',
+        date: firstUpdateDate,
         type: 'progress',
         text: 'Finished first artifact summary.',
         stage: 3,
@@ -426,7 +444,7 @@ async function main() {
 
     const longProgressResponse = await updatesRoute.POST(
       jsonRequest(`/api/projects/${project.id}/updates`, {
-        date: '2026-06-20',
+        date: firstUpdateDate,
         type: 'progress',
         text: Array.from({ length: 51 }, (_, index) => `word${index}`).join(' '),
       }, owner),
@@ -436,7 +454,7 @@ async function main() {
 
     const secondUpdateResponse = await updatesRoute.POST(
       jsonRequest(`/api/projects/${project.id}/updates`, {
-        date: '2026-06-21',
+        date: secondUpdateDate,
         type: 'artifact',
         text: 'Uploaded revised design note.',
         stage: 3,

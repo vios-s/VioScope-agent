@@ -1,15 +1,12 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../src/mastra/http/error-response';
 import type { AuthUser } from '../../../../src/mastra/db/users';
 import { getReviewRun } from '../../../../src/mastra/db/review-runs';
 import type { ReviewRunRecord } from '../../../../src/mastra/db/review-runs';
 
 export const runtime = 'nodejs';
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
 
 function canAccessRun(run: Pick<ReviewRunRecord, 'initiator' | 'cooperators' | 'reviewer'>, user: AuthUser): boolean {
   return (
@@ -30,6 +27,6 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
     }
     return NextResponse.json({ run });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 404);
+    return errorResponse(error, 404);
   }
 }

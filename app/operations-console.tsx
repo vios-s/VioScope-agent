@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { DotMatrixIcon } from './dot-matrix-icon';
 import { ReviewForm } from './review-form';
+import { ApiRequestError, requestJson } from './client-request';
 import type {
   ProjectStatus,
 } from '../src/mastra/db/projects';
@@ -1069,15 +1070,11 @@ async function importLocalChatSessionsOnce(userId: string): Promise<number> {
     return 0;
   }
 
-  const response = await fetch('/api/chat/import', {
+  const body = await requestJson<{ imported?: number }>('/api/chat/import', 'Could not import local chat history.', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ sessions }),
   });
-  const body = (await response.json()) as { imported?: number; error?: string };
-  if (!response.ok) {
-    throw new Error(body.error || 'Could not import local chat history.');
-  }
   window.localStorage.setItem(importKey, new Date().toISOString());
   return body.imported || 0;
 }
@@ -1914,15 +1911,12 @@ function LoginView({ onLogin, initialError }: { onLogin: (user: CurrentUser) => 
     setError(null);
 
     try {
-      const response = await fetch('/api/auth/login', {
+      const body = await requestJson<AuthPayload>('/api/auth/login', 'Login failed.', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const body = (await response.json()) as AuthPayload;
-      if (!response.ok || !body.user) {
-        throw new Error(body.error || 'Login failed.');
-      }
+      if (!body.user) throw new Error('Login failed.');
       onLogin(body.user);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Login failed.');
@@ -1938,13 +1932,11 @@ function LoginView({ onLogin, initialError }: { onLogin: (user: CurrentUser) => 
     setRecoveryMessage(null);
 
     try {
-      const response = await fetch('/api/auth/forgot-password', {
+      const body = await requestJson<{ message?: string }>('/api/auth/forgot-password', 'Could not request a temporary password.', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ identifier }),
       });
-      const body = (await response.json()) as { message?: string; error?: string };
-      if (!response.ok) throw new Error(body.error || 'Could not request a temporary password.');
       setRecoveryMessage(body.message || 'If an active account matches these details, a temporary password has been sent to its registered email address.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not request a temporary password.');
@@ -2054,15 +2046,12 @@ function ChangePasswordView({
 
     setBusy(true);
     try {
-      const response = await fetch('/api/auth/change-password', {
+      const body = await requestJson<AuthPayload>('/api/auth/change-password', 'Could not change password.', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ currentPassword, newPassword, email }),
       });
-      const body = (await response.json()) as AuthPayload;
-      if (!response.ok || !body.user) {
-        throw new Error(body.error || 'Could not change password.');
-      }
+      if (!body.user) throw new Error('Could not change password.');
       onChanged(body.user);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not change password.');
@@ -2194,7 +2183,7 @@ function AccountDetailsPanel({
     setProfileMessage(null);
 
     try {
-      const response = await fetch('/api/account', {
+      const body = await requestJson<AuthPayload>('/api/account', 'Could not update account.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2204,10 +2193,7 @@ function AccountDetailsPanel({
           avatarUrl: profileDraft.avatarUrl,
         }),
       });
-      const body = (await response.json()) as AuthPayload;
-      if (!response.ok || !body.user) {
-        throw new Error(body.error || 'Could not update account.');
-      }
+      if (!body.user) throw new Error('Could not update account.');
       onUserChanged(body.user);
       setProfileMessage('Account details saved.');
     } catch (caught) {
@@ -2232,7 +2218,7 @@ function AccountDetailsPanel({
 
     setBusyPassword(true);
     try {
-      const response = await fetch('/api/auth/change-password', {
+      const body = await requestJson<AuthPayload>('/api/auth/change-password', 'Could not change password.', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2240,10 +2226,7 @@ function AccountDetailsPanel({
           newPassword: passwordDraft.newPassword,
         }),
       });
-      const body = (await response.json()) as AuthPayload;
-      if (!response.ok || !body.user) {
-        throw new Error(body.error || 'Could not change password.');
-      }
+      if (!body.user) throw new Error('Could not change password.');
       onUserChanged(body.user);
       setPasswordDraft({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setPasswordMessage('Password changed.');
@@ -2534,15 +2517,16 @@ function ProjectEditorModal({
             : 'This owner already has a project with the same full project name.',
         );
       }
-      const response = await fetch(isNew ? '/api/projects' : `/api/projects/${project.id}`, {
-        method: isNew ? 'POST' : 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(projectRequestBody(draft)),
-      });
-      const body = (await response.json()) as ProjectsPayload;
-      if (!response.ok || !body.project) {
-        throw new Error(body.error || 'Could not save project.');
-      }
+      const body = await requestJson<ProjectsPayload>(
+        isNew ? '/api/projects' : `/api/projects/${project.id}`,
+        'Could not save project.',
+        {
+          method: isNew ? 'POST' : 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(projectRequestBody(draft)),
+        },
+      );
+      if (!body.project) throw new Error('Could not save project.');
       await onSaved(body.project);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save project.');
@@ -2829,15 +2813,12 @@ function ProjectDetailModal({
             : 'This owner already has a project with the same full project name.',
         );
       }
-      const response = await fetch(`/api/projects/${project.id}`, {
+      const body = await requestJson<ProjectsPayload>(`/api/projects/${project.id}`, 'Could not save project.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(projectRequestBody(editDraft)),
       });
-      const body = (await response.json()) as ProjectsPayload;
-      if (!response.ok || !body.project) {
-        throw new Error(body.error || 'Could not save project.');
-      }
+      if (!body.project) throw new Error('Could not save project.');
       await onSaved(body.project);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save project.');
@@ -2870,7 +2851,7 @@ function ProjectDetailModal({
             formData.set('artifactFile', draft.artifactFile);
             return formData;
           })())
-        : (await fetch(`/api/projects/${project.id}/updates`, {
+        : await requestJson<ProjectsPayload>(`/api/projects/${project.id}/updates`, 'Could not add project update.', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -2885,12 +2866,8 @@ function ProjectDetailModal({
               milestone: draft.milestone,
               artifact: null,
             }),
-          }).then(async (response) => {
-            const responseBody = (await response.json()) as ProjectsPayload;
-            if (!response.ok) throw new Error(responseBody.error || 'Could not add project update.');
-            return responseBody;
-      }));
-      if (!body.project) throw new Error(body.error || 'Could not add project update.');
+          });
+      if (!body.project) throw new Error('Could not add project update.');
       setDraft(defaultTimelineDraft(body.project));
       setUploadProgress(null);
       await onChanged(body.project);
@@ -2906,11 +2883,12 @@ function ProjectDetailModal({
     setBusy(`digest:${artifact.id}`);
     setError(null);
     try {
-      const response = await fetch(`/api/project-artifacts/${artifact.id}/digest`, { method: 'POST' });
-      const body = (await response.json()) as ProjectsPayload;
-      if (!response.ok || !body.project) {
-        throw new Error(body.error || 'Could not regenerate artifact digest.');
-      }
+      const body = await requestJson<ProjectsPayload>(
+        `/api/project-artifacts/${artifact.id}/digest`,
+        'Could not regenerate artifact digest.',
+        { method: 'POST' },
+      );
+      if (!body.project) throw new Error('Could not regenerate artifact digest.');
       await onChanged(body.project);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not regenerate artifact digest.');
@@ -2923,11 +2901,12 @@ function ProjectDetailModal({
     setBusy(`remove:${artifact.id}`);
     setError(null);
     try {
-      const response = await fetch(`/api/project-artifacts/${artifact.id}`, { method: 'DELETE' });
-      const body = (await response.json()) as ProjectsPayload;
-      if (!response.ok || !body.project) {
-        throw new Error(body.error || 'Could not remove artifact.');
-      }
+      const body = await requestJson<ProjectsPayload>(
+        `/api/project-artifacts/${artifact.id}`,
+        'Could not remove artifact.',
+        { method: 'DELETE' },
+      );
+      if (!body.project) throw new Error('Could not remove artifact.');
       setArtifactToRemove(null);
       await onChanged(body.project);
     } catch (caught) {
@@ -2950,15 +2929,12 @@ function ProjectDetailModal({
         throw new Error('TODO item text is required.');
       }
       setTodoDrafts(todos);
-      const response = await fetch(`/api/projects/${project.id}`, {
+      const body = await requestJson<ProjectsPayload>(`/api/projects/${project.id}`, 'Could not save TODO list.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ todos }),
       });
-      const body = (await response.json()) as ProjectsPayload;
-      if (!response.ok || !body.project) {
-        throw new Error(body.error || 'Could not save TODO list.');
-      }
+      if (!body.project) throw new Error('Could not save TODO list.');
       setTodoDrafts(body.project.todos || []);
       await onChanged(body.project);
     } catch (caught) {
@@ -3002,15 +2978,12 @@ function ProjectDetailModal({
     setBusy(updateId);
     setError(null);
     try {
-      const response = await fetch(`/api/project-updates/${updateId}/comments`, {
+      const body = await requestJson<ProjectsPayload>(`/api/project-updates/${updateId}/comments`, 'Could not add comment.', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
-      const body = (await response.json()) as ProjectsPayload;
-      if (!response.ok || !body.project) {
-        throw new Error(body.error || 'Could not add comment.');
-      }
+      if (!body.project) throw new Error('Could not add comment.');
       setCommentDrafts((current) => ({ ...current, [updateId]: '' }));
       await onChanged(body.project);
     } catch (caught) {
@@ -3730,29 +3703,27 @@ function ThemeMeetingPanel({
       return;
     }
 
-    const response = await fetch('/api/theme-meetings/updates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        meetingDate: updatePlan?.meeting_date,
-        themeId: selectedThemeId,
-        member,
-        updateType,
-        progressText,
-        questions,
-      }),
-    });
-    const body = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setFormError(body.error || 'Could not save update.');
-      return;
+    try {
+      await requestJson('/api/theme-meetings/updates', 'Could not save update.', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meetingDate: updatePlan?.meeting_date,
+          themeId: selectedThemeId,
+          member,
+          updateType,
+          progressText,
+          questions,
+        }),
+      });
+      setStatus(submittedUpdate ? 'Changes saved.' : 'Update submitted.');
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification('Theme update saved', { body: `${member} / Theme ${selectedThemeId}` });
+      }
+      await onChanged();
+    } catch (caught) {
+      setFormError(caught instanceof Error ? caught.message : 'Could not save update.');
     }
-
-    setStatus(submittedUpdate ? 'Changes saved.' : 'Update submitted.');
-    if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification('Theme update saved', { body: `${member} / Theme ${selectedThemeId}` });
-    }
-    await onChanged();
   }
 
   function prefillFromProject() {
@@ -3778,52 +3749,47 @@ function ThemeMeetingPanel({
   async function sendMissingReminders(nextThemeId: string) {
     setFormError(null);
     setStatus(null);
-    const response = await fetch('/api/theme-meetings/reminders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'manual_missing_update_reminder',
-        meetingDate: plan?.meeting_date,
-        themeId: nextThemeId,
-      }),
-    });
-    const body = (await response.json()) as {
-      notifications?: unknown[];
-      emails?: { sent: number; skipped: number; failed: number };
-      error?: string;
-    };
-    if (!response.ok) {
-      setFormError(body.error || 'Could not send reminders.');
-      return;
+    try {
+      const body = await requestJson<{
+        notifications?: unknown[];
+        emails?: { sent: number; skipped: number; failed: number };
+      }>('/api/theme-meetings/reminders', 'Could not send reminders.', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'manual_missing_update_reminder',
+          meetingDate: plan?.meeting_date,
+          themeId: nextThemeId,
+        }),
+      });
+      const emails = body.emails;
+      const emailStatus = emails ? ` Email: ${emails.sent} sent, ${emails.skipped} skipped, ${emails.failed} failed.` : '';
+      setStatus(`Sent ${body.notifications?.length || 0} missing-update reminders.${emailStatus}`);
+      await onChanged();
+    } catch (caught) {
+      setFormError(caught instanceof Error ? caught.message : 'Could not send reminders.');
     }
-
-    const emails = body.emails;
-    const emailStatus = emails ? ` Email: ${emails.sent} sent, ${emails.skipped} skipped, ${emails.failed} failed.` : '';
-    setStatus(`Sent ${body.notifications?.length || 0} missing-update reminders.${emailStatus}`);
-    await onChanged();
   }
 
   async function changeThemeMember(nextThemeId: string, action: 'add' | 'remove', username: string) {
     setFormError(null);
     setStatus(null);
-    const response = await fetch('/api/theme-meetings/members', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        meetingDate: plan?.meeting_date,
-        themeId: nextThemeId,
-        action,
-        username,
-      }),
-    });
-    const body = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setFormError(body.error || 'Could not update theme members.');
-      return;
+    try {
+      await requestJson('/api/theme-meetings/members', 'Could not update theme members.', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          meetingDate: plan?.meeting_date,
+          themeId: nextThemeId,
+          action,
+          username,
+        }),
+      });
+      setStatus(action === 'add' ? 'Member added.' : 'Member removed.');
+      await onChanged();
+    } catch (caught) {
+      setFormError(caught instanceof Error ? caught.message : 'Could not update theme members.');
     }
-
-    setStatus(action === 'add' ? 'Member added.' : 'Member removed.');
-    await onChanged();
   }
 
   async function changeMeetingCancellation(meeting: ThemeMeetingPlan['meetings'][number], cancelled: boolean) {
@@ -3831,13 +3797,11 @@ function ThemeMeetingPanel({
     setStatus(null);
     setCancellationBusy(true);
     try {
-      const response = await fetch('/api/theme-meetings/cancellations', {
+      await requestJson('/api/theme-meetings/cancellations', 'Could not update the meeting status.', {
         method: cancelled ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ themeId: meeting.theme_id, meetingDate: plan?.meeting_date }),
       });
-      const body = (await response.json()) as { error?: string };
-      if (!response.ok) throw new Error(body.error || 'Could not update the meeting status.');
       setMeetingToCancel(null);
       setStatus(cancelled ? `Theme ${meeting.theme_id} meeting restored.` : `Theme ${meeting.theme_id} meeting cancelled. No reminders or agenda will be sent.`);
       await onChanged();
@@ -4439,11 +4403,10 @@ function ProjectsView({
     setArchiveBusy(true);
     setActionError(null);
     try {
-      const response = await fetch(`/api/projects/${project.id}`, { method: 'DELETE' });
-      const body = (await response.json()) as ProjectsPayload;
-      if (!response.ok || !body.project) {
-        throw new Error(body.error || 'Could not archive project.');
-      }
+      const body = await requestJson<ProjectsPayload>(`/api/projects/${project.id}`, 'Could not archive project.', {
+        method: 'DELETE',
+      });
+      if (!body.project) throw new Error('Could not archive project.');
       setProjectToArchive(null);
       setDetailProject((current) => (current?.id === project.id ? null : current));
       await onProjectsChanged();
@@ -4457,15 +4420,12 @@ function ProjectsView({
   async function unarchiveProject(project: ManagedProject) {
     setActionError(null);
     try {
-      const response = await fetch(`/api/projects/${project.id}`, {
+      const body = await requestJson<ProjectsPayload>(`/api/projects/${project.id}`, 'Could not unarchive project.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ lifecycle: 'active' }),
       });
-      const body = (await response.json()) as ProjectsPayload;
-      if (!response.ok || !body.project) {
-        throw new Error(body.error || 'Could not unarchive project.');
-      }
+      if (!body.project) throw new Error('Could not unarchive project.');
       setDetailProject(body.project);
       await onProjectsChanged();
     } catch (caught) {
@@ -4477,11 +4437,10 @@ function ProjectsView({
     setPlanningBusy(true);
     setActionError(null);
     try {
-      const response = await fetch('/api/projects/planning', { method: 'POST' });
-      const body = (await response.json()) as ProjectPlanningPayload;
-      if (!response.ok || !body.report) {
-        throw new Error(body.error || 'Could not run project planning scan.');
-      }
+      const body = await requestJson<ProjectPlanningPayload>('/api/projects/planning', 'Could not run project planning scan.', {
+        method: 'POST',
+      });
+      if (!body.report) throw new Error('Could not run project planning scan.');
       setPlanningReport(body.report);
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : 'Could not run project planning scan.');
@@ -4948,11 +4907,7 @@ function ChatView({
   const [sessionToDelete, setSessionToDelete] = useState<ChatSession | null>(null);
 
   const loadServerSessions = useCallback(async () => {
-    const response = await fetch('/api/chat/sessions');
-    const body = (await response.json()) as ChatSessionsPayload;
-    if (!response.ok) {
-      throw new Error(body.error || 'Could not load chat sessions.');
-    }
+    const body = await requestJson<ChatSessionsPayload>('/api/chat/sessions', 'Could not load chat sessions.');
     setSessions(body.sessions || []);
   }, []);
 
@@ -4989,11 +4944,7 @@ function ChatView({
     let cancelled = false;
 
     async function loadMentionUsers() {
-      const response = await fetch('/api/chat/users');
-      const body = (await response.json()) as MentionUsersPayload;
-      if (!response.ok) {
-        throw new Error(body.error || 'Could not load users.');
-      }
+      const body = await requestJson<MentionUsersPayload>('/api/chat/users', 'Could not load users.');
       if (!cancelled) {
         setMentionUsers((body.users || []).filter((user) => user.id !== viewer.id));
       }
@@ -5068,15 +5019,11 @@ function ChatView({
 
   async function deleteSession(session: ChatSession) {
     try {
-      const response = await fetch('/api/chat/sessions', {
+      const body = await requestJson<{ result?: 'deleted' | 'removed' }>('/api/chat/sessions', 'Could not delete chat session.', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ threadId: session.threadId }),
       });
-      const body = (await response.json()) as { result?: 'deleted' | 'removed'; error?: string };
-      if (!response.ok) {
-        throw new Error(body.error || 'Could not delete chat session.');
-      }
 
       setSessionToDelete(null);
       setSessions((current) => current.filter((candidate) => candidate.threadId !== session.threadId));
@@ -5097,15 +5044,12 @@ function ChatView({
     if (title === null) return;
 
     try {
-      const response = await fetch('/api/chat/sessions', {
+      const body = await requestJson<{ session?: ChatSession }>('/api/chat/sessions', 'Could not rename chat session.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ threadId: session.threadId, title }),
       });
-      const body = (await response.json()) as { session?: ChatSession; error?: string };
-      if (!response.ok || !body.session) {
-        throw new Error(body.error || 'Could not rename chat session.');
-      }
+      if (!body.session) throw new Error('Could not rename chat session.');
 
       setSessions((current) => current.map((candidate) => (candidate.threadId === session.threadId ? body.session! : candidate)));
       setSendStatus('Renamed chat session.');
@@ -5177,21 +5121,16 @@ function ChatView({
     ]);
 
     try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: trimmed, threadId }),
-      });
-      const body = (await response.json()) as {
+      const body = await requestJson<{
         text?: string;
         threadId?: string;
         sources?: ChatSource[];
         mentions?: ChatMentionResult;
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(body.error || 'Could not reach VioScope.');
-      }
+      }>('/api/chat', 'Could not reach VioScope.', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: trimmed, threadId }),
+      });
       if (body.threadId) {
         setThreadId(body.threadId);
       }
@@ -5841,11 +5780,8 @@ function AdminConfigurationPanel() {
   const loadConfig = useCallback(async () => {
     setError(null);
     try {
-      const response = await fetch('/api/admin/config');
-      const body = (await response.json()) as AdminConfigPayload;
-      if (!response.ok || !body.settings) {
-        throw new Error(body.error || 'Could not load configuration.');
-      }
+      const body = await requestJson<AdminConfigPayload>('/api/admin/config', 'Could not load configuration.');
+      if (!body.settings) throw new Error('Could not load configuration.');
       applyPayload(body);
       setLoaded(true);
     } catch (caught) {
@@ -5876,15 +5812,12 @@ function AdminConfigurationPanel() {
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch('/api/admin/config', {
+      const body = await requestJson<AdminConfigPayload>('/api/admin/config', 'Could not save configuration.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings: settingsPatch }),
       });
-      const body = (await response.json()) as AdminConfigPayload;
-      if (!response.ok || !body.settings) {
-        throw new Error(body.error || 'Could not save configuration.');
-      }
+      if (!body.settings) throw new Error('Could not save configuration.');
       applyPayload(body);
       setMessage('Configuration saved. Restart required for runtime changes.');
     } catch (caught) {
@@ -5899,15 +5832,12 @@ function AdminConfigurationPanel() {
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch('/api/admin/config', {
+      const body = await requestJson<AdminConfigPayload>('/api/admin/config', 'Could not reset configuration.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ settings: { [key]: null } }),
       });
-      const body = (await response.json()) as AdminConfigPayload;
-      if (!response.ok || !body.settings) {
-        throw new Error(body.error || 'Could not reset configuration.');
-      }
+      if (!body.settings) throw new Error('Could not reset configuration.');
       applyPayload(body);
       setMessage('Configuration reset. Restart required for runtime changes.');
     } catch (caught) {
@@ -5922,11 +5852,10 @@ function AdminConfigurationPanel() {
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch('/api/admin/config/restart', { method: 'POST' });
-      const body = (await response.json()) as { ok?: boolean; error?: string };
-      if (!response.ok || !body.ok) {
-        throw new Error(body.error || 'Could not request restart.');
-      }
+      const body = await requestJson<{ ok?: boolean }>('/api/admin/config/restart', 'Could not request restart.', {
+        method: 'POST',
+      });
+      if (!body.ok) throw new Error('Could not request restart.');
       setRestartConfirmOpen(false);
       setMessage('Restart requested.');
     } catch (caught) {
@@ -6088,11 +6017,8 @@ function ThemeMeetingSettingsPanel() {
   const loadSettings = useCallback(async () => {
     setError(null);
     try {
-      const response = await fetch('/api/theme-meetings/config');
-      const body = (await response.json()) as ThemeMeetingSettingsPayload;
-      if (!response.ok || !body.config) {
-        throw new Error(body.error || 'Could not load theme meeting settings.');
-      }
+      const body = await requestJson<ThemeMeetingSettingsPayload>('/api/theme-meetings/config', 'Could not load theme meeting settings.');
+      if (!body.config) throw new Error('Could not load theme meeting settings.');
       applyPayload(body);
       setLoaded(true);
     } catch (caught) {
@@ -6174,15 +6100,16 @@ function ThemeMeetingSettingsPanel() {
     setError(null);
     setMessage(null);
     try {
-      const response = await fetch('/api/theme-meetings/config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: draft }),
-      });
-      const body = (await response.json()) as ThemeMeetingSettingsPayload;
-      if (!response.ok || !body.config) {
-        throw new Error(body.error || 'Could not save theme meeting settings.');
-      }
+      const body = await requestJson<ThemeMeetingSettingsPayload>(
+        '/api/theme-meetings/config',
+        'Could not save theme meeting settings.',
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: draft }),
+        },
+      );
+      if (!body.config) throw new Error('Could not save theme meeting settings.');
       applyPayload(body);
       setMessage('Theme meeting settings saved.');
     } catch (caught) {
@@ -6460,11 +6387,11 @@ function AuditLogSettingsPanel() {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`/api/audit-log?day=${encodeURIComponent(day)}`);
-      const body = (await response.json()) as AuditLogPayload;
-      if (!response.ok || !body.logs) {
-        throw new Error(body.error || 'Could not load audit log.');
-      }
+      const body = await requestJson<AuditLogPayload>(
+        `/api/audit-log?day=${encodeURIComponent(day)}`,
+        'Could not load audit log.',
+      );
+      if (!body.logs) throw new Error('Could not load audit log.');
       setLogs(body.logs);
       setDays(body.days || []);
       setFileName(body.fileName || `audit-${day}.jsonl`);
@@ -6678,11 +6605,8 @@ function MarkdownEditorPanel({
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(endpoint);
-      const body = (await response.json()) as MarkdownFilePayload;
-      if (!response.ok || typeof body.markdown !== 'string') {
-        throw new Error(body.error || 'Could not load markdown.');
-      }
+      const body = await requestJson<MarkdownFilePayload>(endpoint, 'Could not load markdown.');
+      if (typeof body.markdown !== 'string') throw new Error('Could not load markdown.');
       setMarkdown(body.markdown);
       setPath(body.path || '');
       setDirty(false);
@@ -6708,15 +6632,12 @@ function MarkdownEditorPanel({
       if (importAfterSave && importFlag) {
         payload[importFlag] = true;
       }
-      const response = await fetch(endpoint, {
+      const body = await requestJson<MarkdownFilePayload>(endpoint, 'Could not save markdown.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const body = (await response.json()) as MarkdownFilePayload;
-      if (!response.ok || typeof body.markdown !== 'string') {
-        throw new Error(body.error || 'Could not save markdown.');
-      }
+      if (typeof body.markdown !== 'string') throw new Error('Could not save markdown.');
       setMarkdown(body.markdown);
       setPath(body.path || path);
       setDirty(false);
@@ -6926,11 +6847,8 @@ function UsersView({
     async function loadUsers() {
       try {
         setError(null);
-        const response = await fetch('/api/users');
-        const body = (await response.json()) as UsersPayload;
-        if (!response.ok || !body.users) {
-          throw new Error(body.error || 'Could not load users.');
-        }
+        const body = await requestJson<UsersPayload>('/api/users', 'Could not load users.');
+        if (!body.users) throw new Error('Could not load users.');
         if (!cancelled) {
           applyUsers(body.users);
           setUsersLoaded(true);
@@ -7044,7 +6962,7 @@ function UsersView({
     setError(null);
 
     try {
-      const response = await fetch(`/api/users/${user.id}`, {
+      const body = await requestJson<UsersPayload>(`/api/users/${user.id}`, 'Could not save user.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -7058,10 +6976,7 @@ function UsersView({
           temporaryPassword: draft.temporaryPassword,
         }),
       });
-      const body = (await response.json()) as UsersPayload;
-      if (!response.ok || !body.user) {
-        throw new Error(body.error || 'Could not save user.');
-      }
+      if (!body.user) throw new Error('Could not save user.');
       setUsers((current) => current.map((nextUser) => (nextUser.id === body.user?.id ? body.user : nextUser)));
       setDrafts((current) => ({ ...current, [body.user!.id]: draftFromUser(body.user!) }));
       setMessage(`Saved ${body.user.displayName}.`);
@@ -7081,7 +6996,7 @@ function UsersView({
     setError(null);
 
     try {
-      const response = await fetch('/api/users', {
+      const body = await requestJson<UsersPayload>('/api/users', 'Could not create user.', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -7094,10 +7009,7 @@ function UsersView({
           temporaryPassword: createDraft.temporaryPassword,
         }),
       });
-      const body = (await response.json()) as UsersPayload;
-      if (!response.ok || !body.users) {
-        throw new Error(body.error || 'Could not create user.');
-      }
+      if (!body.users) throw new Error('Could not create user.');
       applyUsers(body.users);
       setCreateDraft({ username: '', displayName: '', email: '', position: 'student', role: 'member', aliasesText: '', temporaryPassword: '' });
       setCreateOpen(false);
@@ -7141,15 +7053,12 @@ function UsersView({
     setNotificationError(null);
     setNotificationMessage(null);
     try {
-      const response = await fetch('/api/account', {
+      const body = await requestJson<AuthPayload>('/api/account', 'Could not save notification preferences.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notificationPreferences: notificationPrefs }),
       });
-      const body = (await response.json()) as AuthPayload;
-      if (!response.ok || !body.user) {
-        throw new Error(body.error || 'Could not save notification preferences.');
-      }
+      if (!body.user) throw new Error('Could not save notification preferences.');
       onUserChanged(body.user);
       setNotificationPrefs(normalizedNotificationPreferences(body.user.notificationPreferences));
       setNotificationMessage('Notification preferences saved.');
@@ -7894,9 +7803,7 @@ function FeedbackView() {
   const loadQueries = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/feedback');
-      const body = (await response.json()) as FeedbackPayload;
-      if (!response.ok) throw new Error(body.error || 'Could not load feedback requests.');
+      const body = await requestJson<FeedbackPayload>('/api/feedback', 'Could not load feedback requests.');
       applyQueries(body.queries || []);
       setCanManage(Boolean(body.canManage));
     } finally {
@@ -7925,9 +7832,11 @@ function FeedbackView() {
       form.set('title', title.trim());
       form.set('description', description.trim());
       if (attachment) form.set('attachment', attachment);
-      const response = await fetch('/api/feedback', { method: 'POST', body: form });
-      const body = (await response.json()) as FeedbackPayload;
-      if (!response.ok || !body.query) throw new Error(body.error || 'Could not submit feedback.');
+      const body = await requestJson<FeedbackPayload>('/api/feedback', 'Could not submit feedback.', {
+        method: 'POST',
+        body: form,
+      });
+      if (!body.query) throw new Error('Could not submit feedback.');
       applyQueries([body.query, ...queries]);
       setTitle('');
       setDescription('');
@@ -7950,13 +7859,12 @@ function FeedbackView() {
     setSavingId(query.id);
     setError(null);
     try {
-      const response = await fetch(`/api/feedback/${query.id}`, {
+      const body = await requestJson<FeedbackPayload>(`/api/feedback/${query.id}`, 'Could not update feedback.', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draft),
       });
-      const body = (await response.json()) as FeedbackPayload;
-      if (!response.ok || !body.query) throw new Error(body.error || 'Could not update feedback.');
+      if (!body.query) throw new Error('Could not update feedback.');
       applyQueries(queries.map((item) => (item.id === body.query?.id ? body.query : item)));
       setMessage('Feedback request updated.');
     } catch (caught) {
@@ -8227,20 +8135,12 @@ export function OperationsConsole() {
 
     async function loadSession() {
       try {
-        const response = await fetch('/api/auth/me');
-        const body = (await response.json()) as AuthPayload;
-        if (!response.ok) {
-          if (response.status !== 401) {
-            setAuthError(body.error || 'Could not read session.');
-          }
-          return;
-        }
-
+        const body = await requestJson<AuthPayload>('/api/auth/me', 'Could not read session.');
         if (!cancelled) {
           setUser(body.user || null);
         }
       } catch (caught) {
-        if (!cancelled) {
+        if (!cancelled && (!(caught instanceof ApiRequestError) || caught.status !== 401)) {
           setAuthError(caught instanceof Error ? caught.message : 'Could not read session.');
         }
       } finally {
@@ -8272,12 +8172,8 @@ export function OperationsConsole() {
   const loadThemeMeetings = useCallback(async () => {
     setThemeMeetingsLoading(true);
     try {
-      const response = await fetch('/api/theme-meetings');
-      const nextPayload = (await response.json()) as ThemeMeetingPayload | { error?: string };
-      if (!response.ok) {
-        throw new Error('error' in nextPayload && nextPayload.error ? nextPayload.error : 'Could not load theme meetings.');
-      }
-      setThemePayload(nextPayload as ThemeMeetingPayload);
+      const nextPayload = await requestJson<ThemeMeetingPayload>('/api/theme-meetings', 'Could not load theme meetings.');
+      setThemePayload(nextPayload);
     } finally {
       setThemeMeetingsLoading(false);
     }
@@ -8286,11 +8182,7 @@ export function OperationsConsole() {
   const loadProjects = useCallback(async () => {
     setProjectsLoading(true);
     try {
-      const response = await fetch('/api/projects?includeArchived=true');
-      const nextPayload = (await response.json()) as ProjectsPayload;
-      if (!response.ok) {
-        throw new Error(nextPayload.error || 'Could not load projects.');
-      }
+      const nextPayload = await requestJson<ProjectsPayload>('/api/projects?includeArchived=true', 'Could not load projects.');
       setProjectsPayload(nextPayload);
     } finally {
       setProjectsLoading(false);
@@ -8298,29 +8190,18 @@ export function OperationsConsole() {
   }, []);
 
   const loadCollaboratorUsers = useCallback(async () => {
-    const response = await fetch('/api/chat/users');
-    const body = (await response.json()) as MentionUsersPayload;
-    if (!response.ok) {
-      throw new Error(body.error || 'Could not load collaborator hints.');
-    }
+    const body = await requestJson<MentionUsersPayload>('/api/chat/users', 'Could not load collaborator hints.');
     setCollaboratorUsers(body.users || []);
   }, []);
 
   const loadChatNotifications = useCallback(async () => {
-    const response = await fetch('/api/notifications');
-    const nextPayload = (await response.json()) as NotificationsPayload;
-    if (!response.ok) {
-      throw new Error(nextPayload.error || 'Could not load notifications.');
-    }
+    const nextPayload = await requestJson<NotificationsPayload>('/api/notifications', 'Could not load notifications.');
     setChatNotifications(nextPayload.notifications || []);
   }, []);
 
   const loadUiCopyPrompts = useCallback(async () => {
-    const response = await fetch('/api/prompts/ui-copy');
-    const nextPayload = (await response.json()) as UiCopyPromptsPayload;
-    if (!response.ok || !nextPayload.prompts) {
-      throw new Error(nextPayload.error || 'Could not load prompt templates.');
-    }
+    const nextPayload = await requestJson<UiCopyPromptsPayload>('/api/prompts/ui-copy', 'Could not load prompt templates.');
+    if (!nextPayload.prompts) throw new Error('Could not load prompt templates.');
     setUiCopyPrompts(nextPayload.prompts);
   }, []);
 
@@ -8371,28 +8252,20 @@ export function OperationsConsole() {
   }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, loadUiCopyPrompts, user]);
 
   async function markChatNotificationRead(notificationId: string) {
-    const response = await fetch('/api/notifications', {
+    const body = await requestJson<NotificationsPayload>('/api/notifications', 'Could not mark notification as read.', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notificationId }),
     });
-    const body = (await response.json()) as NotificationsPayload;
-    if (!response.ok) {
-      throw new Error(body.error || 'Could not mark notification as read.');
-    }
     setChatNotifications(body.notifications || []);
   }
 
   async function markAllChatNotificationsRead() {
-    const response = await fetch('/api/notifications', {
+    const body = await requestJson<NotificationsPayload>('/api/notifications', 'Could not mark notifications as read.', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ all: true }),
     });
-    const body = (await response.json()) as NotificationsPayload;
-    if (!response.ok) {
-      throw new Error(body.error || 'Could not mark notifications as read.');
-    }
     setChatNotifications(body.notifications || []);
   }
 

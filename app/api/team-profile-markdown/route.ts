@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, requireSessionUser } from '../../../src/mastra/auth/session';
+import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { ensureUsersTable, upsertPublicTeamProfiles } from '../../../src/mastra/db/users';
 import { parsePublicTeamProfilesMarkdown } from '../../../src/mastra/team/public-profiles';
@@ -16,10 +17,6 @@ async function requireTeamProfileEditor(request: Request) {
   return user;
 }
 
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
-
 function sourceUrlFromMarkdown(markdown: string): string {
   const match = markdown.match(/^Source:\s*(.+)$/m);
   return match?.[1]?.trim() || 'https://vios.science/team/';
@@ -30,7 +27,7 @@ export async function GET(request: Request) {
     await requireTeamProfileEditor(request);
     return NextResponse.json(await readTeamProfileMarkdown());
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }
 
@@ -69,6 +66,6 @@ export async function PATCH(request: Request) {
     });
     return NextResponse.json({ ...result, importedCount });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

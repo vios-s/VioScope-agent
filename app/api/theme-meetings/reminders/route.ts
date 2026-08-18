@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import {
@@ -16,10 +17,6 @@ export const runtime = 'nodejs';
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
 
 function planForTheme<T extends { meetings: Array<{ theme_id: string }> }>(plan: T, themeId: string): T {
@@ -99,6 +96,6 @@ ${renderThemeMeetingPlan(scopedPlan)}`,
       agendaEmails,
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

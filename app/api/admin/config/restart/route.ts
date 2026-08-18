@@ -1,14 +1,11 @@
 import 'dotenv/config';
 import { exec } from 'node:child_process';
 import { NextResponse } from 'next/server';
-import { AuthError, requireAdministrator } from '../../../../../src/mastra/auth/session';
+import { requireAdministrator } from '../../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../../src/mastra/db/audit-log';
 
 export const runtime = 'nodejs';
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
 
 export async function POST(request: Request) {
   try {
@@ -39,6 +36,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }

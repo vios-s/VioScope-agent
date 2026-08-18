@@ -39,6 +39,7 @@
     "check:chat-zdr": "tsx scripts/check-chat-zdr.ts",
     "check:chat-collaboration": "tsx scripts/check-chat-collaboration.ts",
     "check:chat-live": "tsx scripts/check-chat-live.ts",
+    "check:client-request": "tsx scripts/check-client-request.ts",
     "check:release-hardening": "tsx scripts/check-release-hardening.ts",
     "check:release-ui": "npm run web:build && tsx scripts/check-release-ui.ts",
     "check:vioscope": "tsx scripts/check-vioscope-agent.ts",

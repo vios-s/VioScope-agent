@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import { RequestContext } from '@mastra/core/request-context';
 import { NextResponse } from 'next/server';
-import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
+import { requireSessionUser } from '../../../src/mastra/auth/session';
+import { errorResponse } from '../../../src/mastra/http/error-response';
 import { mastra } from '../../../src/mastra';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import type { AuthUser } from '../../../src/mastra/db/users';
@@ -40,10 +41,6 @@ function positionLabel(position: AuthUser['position']): string | null {
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
 
 const openAIProviderOptions = {
@@ -241,7 +238,7 @@ export async function POST(request: Request) {
       toolResults: response.toolResults || [],
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }
 

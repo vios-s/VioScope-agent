@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
+import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import type { AuthUser } from '../../../src/mastra/db/users';
 import {
@@ -29,10 +30,6 @@ function textArray(value: unknown): string[] {
   return value.map((item) => text(item)).filter((item): item is string => Boolean(item));
 }
 
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
-
 function canAccessRun(run: Pick<ReviewRunSummary, 'initiator' | 'cooperators' | 'reviewer'>, user: AuthUser): boolean {
   return (
     canSeeAll(user) ||
@@ -50,7 +47,7 @@ export async function GET(request: Request) {
     const runs = await listReviewRuns(Number.isFinite(limit) ? limit : 20);
     return NextResponse.json({ runs: runs.filter((run) => canAccessRun(run, user)) });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 500);
+    return errorResponse(error, 500);
   }
 }
 
@@ -137,6 +134,6 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ run });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

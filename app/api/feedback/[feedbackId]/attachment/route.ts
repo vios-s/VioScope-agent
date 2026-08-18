@@ -1,14 +1,11 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, requireSessionUser } from '../../../../../src/mastra/auth/session';
+import { requireSessionUser } from '../../../../../src/mastra/auth/session';
+import { errorResponse } from '../../../../../src/mastra/http/error-response';
 import { getFeedbackAttachmentForUser } from '../../../../../src/mastra/db/feedback';
 import { readFeedbackAttachment } from '../../../../../src/mastra/feedback/attachments';
 
 export const runtime = 'nodejs';
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
-}
 
 export async function GET(request: Request, context: { params: Promise<{ feedbackId: string }> }) {
   try {
@@ -26,6 +23,6 @@ export async function GET(request: Request, context: { params: Promise<{ feedbac
       },
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 404);
+    return errorResponse(error, 404);
   }
 }

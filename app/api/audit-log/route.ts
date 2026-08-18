@@ -1,16 +1,13 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, requireAdministrator } from '../../../src/mastra/auth/session';
+import { requireAdministrator } from '../../../src/mastra/auth/session';
+import { errorResponse } from '../../../src/mastra/http/error-response';
 import { auditLogDateKey, auditLogFileName, listAuditLogDays, listAuditLogs } from '../../../src/mastra/db/audit-log';
 
 export const runtime = 'nodejs';
 
 function today(): string {
   return auditLogDateKey();
-}
-
-function errorResponse(error: unknown, status = 500) {
-  return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status });
 }
 
 export async function GET(request: Request) {
@@ -26,6 +23,6 @@ export async function GET(request: Request) {
       days,
     });
   } catch (error) {
-    return errorResponse(error, error instanceof AuthError ? error.status : 400);
+    return errorResponse(error, 400);
   }
 }

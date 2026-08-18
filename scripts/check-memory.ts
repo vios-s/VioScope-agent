@@ -19,6 +19,7 @@ const shareThread = `m3-share-${stamp}`;
 const memoryThreadAlice = `m3-memory-alice-${stamp}`;
 const memoryThreadBob = `m3-memory-bob-${stamp}`;
 const threadIds = [sessionThread, shareThread, memoryThreadAlice, memoryThreadBob];
+const appBaseUrl = (process.env.VIOSCOPE_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
 function includesCode(text: string | undefined, code: string): boolean {
   return (text || '').toUpperCase().replace(/[^A-Z0-9]/g, '').includes(code);
@@ -55,7 +56,7 @@ async function writePrivateMemory(user: AuthUser, code: string): Promise<string>
 }
 
 async function chat(user: AuthUser, threadId: string, message: string): Promise<string> {
-  const response = await fetch('http://localhost:3000/api/chat', {
+  const response = await fetch(`${appBaseUrl}/api/chat`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
