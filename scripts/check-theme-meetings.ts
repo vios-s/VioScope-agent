@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import assert from 'node:assert/strict';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -325,8 +326,8 @@ async function main() {
   );
   const legacyUpdate = await buildThemeMeetingPlan({ ...storePaths, meetingDate: checkMeetingDate });
   const legacyThemeA = legacyUpdate.plan.meetings.find((meeting) => meeting.theme_id === 'A');
-  if (!legacyThemeA?.agenda_items.some((item) => item.member === 'Alice' && item.update_type === 'milestone_check')) {
-    throw new Error('Expected legacy short_update to load as milestone_check.');
+  if (!legacyThemeA?.agenda_items.some((item) => item.member === 'Alice' && item.update_type === 'short_update' && item.duration_minutes === 5)) {
+    throw new Error('Expected stored short_update to remain a distinct five-minute slot.');
   }
 
   await submitThemeMeetingUpdate({
@@ -339,6 +340,25 @@ async function main() {
     submittedVia: 'api',
     now: new Date('2026-06-22T08:00:00.000Z'),
   });
+  for (const wordCount of [50, 51, 75, 76]) {
+    const submit = () => submitThemeMeetingUpdate({
+      ...storePaths,
+      meetingDate: checkMeetingDate,
+      themeId: 'A',
+      member: 'Alice',
+      updateType: 'milestone_check',
+      progressText: `  ${Array(wordCount).fill('progress').join(' \n ')}  `,
+      submittedVia: 'api',
+      now: new Date('2026-06-22T08:00:00.000Z'),
+    });
+    if (wordCount > 75) {
+      await assert.rejects(submit, /75 words or fewer/);
+      const stored = (await readThemeMeetingUpdates(storePaths)).updates;
+      assert.equal(stored.find((update) => update.member_username === themeUsers.alice)?.progress_text.split(/\s+/).length, 75);
+    } else {
+      assert.equal((await submit()).update.progress_text.split(/\s+/).length, wordCount);
+    }
+  }
   const agentCheck = await runAgentThemeMeetingCheck();
   if (
     agentCheck.submittedVia !== 'chat' ||

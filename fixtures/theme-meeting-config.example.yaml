@@ -82,6 +82,9 @@ submission:
     deep_dive:
       duration_minutes: 30
       questions_required: false
+    short_update:
+      duration_minutes: 5
+      questions_required: false
     milestone_check:
       duration_minutes: 10
       questions_required: false

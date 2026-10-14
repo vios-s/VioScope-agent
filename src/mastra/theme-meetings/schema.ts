@@ -13,11 +13,7 @@ const dateStringSchema = z
 
 const timeStringSchema = z.string().regex(/^\d{2}:\d{2}$/, 'Expected HH:MM.');
 
-export const themeUpdateTypeSchema = z.enum(['nothing_to_report', 'deep_dive', 'milestone_check', 'strategic_slot']);
-const storedThemeUpdateTypeSchema = z.preprocess(
-  (value) => (value === 'short_update' ? 'milestone_check' : value),
-  themeUpdateTypeSchema,
-);
+export const themeUpdateTypeSchema = z.enum(['deep_dive', 'short_update', 'milestone_check', 'strategic_slot', 'nothing_to_report']);
 export const themeReminderActionSchema = z.enum([
   'first_reminder',
   'gentle_missing_update_reminder',
@@ -31,6 +27,7 @@ const themeUpdateTypeConfigSchema = z.object({
 const defaultThemeUpdateTypes = {
   nothing_to_report: { duration_minutes: 0, questions_required: false },
   deep_dive: { duration_minutes: 30, questions_required: false },
+  short_update: { duration_minutes: 5, questions_required: false },
   milestone_check: { duration_minutes: 10, questions_required: false },
   strategic_slot: { duration_minutes: 10, questions_required: false },
 };
@@ -87,7 +84,7 @@ export const themeMeetingUpdateSchema = z.object({
   meeting_date: dateStringSchema,
   theme_id: z.string().trim().min(1),
   member: z.string().trim().min(1),
-  update_type: storedThemeUpdateTypeSchema,
+  update_type: themeUpdateTypeSchema,
   progress_text: z.string().trim().min(1),
   questions: z.string().trim().default(''),
   submitted_at: z.string().datetime(),
@@ -164,6 +161,7 @@ export const themeMeetingNotificationSchema = z.object({
   body: z.string(),
   created_at: z.string().datetime(),
   read: z.boolean().default(false),
+  completed: z.boolean().optional(),
 });
 
 export const themeMeetingNotificationsFileSchema = z.object({

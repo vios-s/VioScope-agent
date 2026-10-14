@@ -3,6 +3,8 @@ import { NextResponse } from 'next/server';
 import { canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { listUsersForAdmin, type AuthUser } from '../../../src/mastra/db/users';
+import { readThemeNotificationIds } from '../../../src/mastra/db/theme-notifications';
+import { notificationStateForUser } from '../../../src/mastra/theme-meetings/notification-state';
 import {
   managedThemeIdsForUser,
   visibleNotificationsForUser,
@@ -149,8 +151,9 @@ export async function GET(request: Request) {
       overviewPlan: summarizePlan(payload.plan),
       submissionPlan,
       pastPlans,
-      notifications: visibleNotificationsForUser(currentNotifications, payload.config, user).filter((notification) =>
-        notificationAllowed(notification, user),
+      notifications: notificationStateForUser(
+        visibleNotificationsForUser(currentNotifications, payload.config, user).filter((notification) => notificationAllowed(notification, user)),
+        payload.plan, user, await readThemeNotificationIds(user.id),
       ),
       access: {
         canManageThemeIds: managedThemeIds,

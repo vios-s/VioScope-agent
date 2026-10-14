@@ -149,7 +149,7 @@ type UiCopyPromptsPayload = {
 
 type ProjectLifecycle = 'active' | 'paused' | 'finished' | 'archived';
 type ProjectUpdateType = 'progress' | 'note' | 'decision' | 'blocker' | 'artifact';
-type ProjectAccessReason = 'owner' | 'coordinator' | 'pi_admin';
+type ProjectAccessReason = 'owner' | 'collaborator' | 'coordinator' | 'pi_admin';
 type ProjectTrack = 'A' | 'B';
 type ProjectSlotRecommendation = 'deep_dive' | 'milestone_check' | 'strategic_slot' | 'none';
 type UserPosition = 'pi' | 'student' | 'postdoc' | 'software_engineer' | 'visitor';
@@ -663,8 +663,9 @@ const projectSlotLabels: Record<ProjectSlotRecommendation, string> = {
 };
 
 const updateTypeLabels: Record<ThemeUpdateType, string> = {
-  nothing_to_report: 'Nothing to report',
   deep_dive: 'Deep dive',
+  short_update: 'Short update',
+  nothing_to_report: 'Nothing to report',
   milestone_check: 'Milestone check',
   strategic_slot: 'Strategic slot',
 };
@@ -672,15 +673,16 @@ const updateTypeLabels: Record<ThemeUpdateType, string> = {
 const updateTypeOptionLabels: Record<ThemeUpdateType, string> = {
   nothing_to_report: 'Nothing to report (0 min)',
   deep_dive: 'Deep dive (20-30 min)',
+  short_update: 'Short update (5 min)',
   milestone_check: 'Milestone check (10 min)',
   strategic_slot: 'Strategic slot (paper or idea)',
 };
 
-const themeMeetingSlotTypes: ThemeUpdateType[] = ['nothing_to_report', 'deep_dive', 'milestone_check', 'strategic_slot'];
+const themeMeetingSlotTypes: ThemeUpdateType[] = ['deep_dive', 'short_update', 'milestone_check', 'strategic_slot', 'nothing_to_report'];
 const themeMeetingReminderRows = [
-  { name: 'first_reminder', label: 'First reminder' },
-  { name: 'gentle_missing_update_reminder', label: 'Missing-only reminder' },
-  { name: 'agenda_cutoff', label: 'Agenda cutoff' },
+  { name: 'first_reminder', label: 'Update reminder' },
+  { name: 'gentle_missing_update_reminder', label: 'Missing-update reminder' },
+  { name: 'agenda_cutoff', label: 'Submission deadline and agenda' },
 ];
 
 const checklistTemplates: ChecklistTemplate[] = [
@@ -969,6 +971,7 @@ function themeQuestionsPrompt(prompts: UiCopyPrompts | null, project?: ManagedPr
 function inferArtifactKind(fileName: string) {
   const ext = fileName.split('.').pop()?.toLowerCase();
   if (!ext) return 'other';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return 'image';
   if (['ppt', 'pptx', 'key'].includes(ext)) return 'slides';
   if (['tex', 'bib'].includes(ext)) return 'latex';
   if (['zip', 'tar', 'gz'].includes(ext)) return 'zip';
@@ -2737,6 +2740,7 @@ function ProjectDetailModal({
   const [todoDrafts, setTodoDrafts] = useState<ManagedProjectTodo[]>(() => project.todos || []);
   const [newTodo, setNewTodo] = useState({ text: '', dueDate: '' });
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2757,6 +2761,7 @@ function ProjectDetailModal({
     setTodoDrafts(project.todos || []);
     setNewTodo({ text: '', dueDate: '' });
     setDraft(defaultTimelineDraft(project));
+    setEditingUpdateId(null);
     setError(null);
   }, [project, viewer]);
 
@@ -2769,10 +2774,10 @@ function ProjectDetailModal({
     setTodoToRemove(null);
   }, [project.id]);
 
-  function postUpdateWithProgress(formData: FormData): Promise<ProjectsPayload> {
+  function postUpdateWithProgress(formData: FormData, method: 'POST' | 'PATCH', url: string): Promise<ProjectsPayload> {
     return new Promise((resolvePromise, rejectPromise) => {
       const request = new XMLHttpRequest();
-      request.open('POST', `/api/projects/${project.id}/updates`);
+      request.open(method, url);
       request.upload.onprogress = (event) => {
         if (event.lengthComputable) {
           setUploadProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
@@ -2783,7 +2788,7 @@ function ProjectDetailModal({
         if (request.status >= 200 && request.status < 300) {
           resolvePromise(body);
         } else {
-          rejectPromise(new Error(body.error || 'Could not add project update.'));
+          rejectPromise(new Error(body.error || `Could not ${method === 'PATCH' ? 'save' : 'add'} project update.`));
         }
       };
       request.onerror = () => rejectPromise(new Error('Artifact upload failed.'));
@@ -2836,6 +2841,8 @@ function ProjectDetailModal({
       if (draft.type === 'progress' && countWords(draft.text) > 50) {
         throw new Error('Progress update must be 50 words or fewer.');
       }
+      const updateUrl = editingUpdateId ? `/api/project-updates/${editingUpdateId}` : `/api/projects/${project.id}/updates`;
+      const method = editingUpdateId ? 'PATCH' : 'POST';
       const body = draft.artifactFile
         ? await postUpdateWithProgress((() => {
             const formData = new FormData();
@@ -2850,9 +2857,9 @@ function ProjectDetailModal({
             if (draft.milestone) formData.set('milestone', 'true');
             formData.set('artifactFile', draft.artifactFile);
             return formData;
-          })())
-        : await requestJson<ProjectsPayload>(`/api/projects/${project.id}/updates`, 'Could not add project update.', {
-            method: 'POST',
+          })(), method, updateUrl)
+        : await requestJson<ProjectsPayload>(updateUrl, 'Could not save project update.', {
+            method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               type: draft.type,
@@ -2867,15 +2874,53 @@ function ProjectDetailModal({
               artifact: null,
             }),
           });
-      if (!body.project) throw new Error('Could not add project update.');
+      if (!body.project) throw new Error('Could not save project update.');
       setDraft(defaultTimelineDraft(body.project));
+      setEditingUpdateId(null);
       setUploadProgress(null);
       await onChanged(body.project);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not add project update.');
+      setError(caught instanceof Error ? caught.message : 'Could not save project update.');
     } finally {
       setBusy(null);
       setUploadProgress(null);
+    }
+  }
+
+  function startEditingUpdate(update: ManagedProjectUpdate) {
+    setDraft({
+      type: update.type,
+      date: update.date,
+      text: update.text,
+      stage: String(update.stage ?? project.stage),
+      stageProgress: String(update.stageProgress ?? project.stageProgress),
+      status: update.status ?? project.status,
+      blocker: update.blocker || '',
+      target: update.target || '',
+      milestone: update.milestone,
+      artifactFile: null,
+      artifactFileName: '',
+    });
+    setEditingUpdateId(update.id);
+    setError(null);
+  }
+
+  async function deleteUpdate(update: ManagedProjectUpdate) {
+    if (!window.confirm('Delete this update and its attached files? This cannot be undone.')) return;
+    setBusy(`delete:${update.id}`);
+    setError(null);
+    try {
+      const body = await requestJson<ProjectsPayload>(`/api/project-updates/${update.id}`, 'Could not delete project update.', { method: 'DELETE' });
+      if (!body.project) throw new Error('Could not delete project update.');
+      if (editingUpdateId === update.id) {
+        setEditingUpdateId(null);
+        setDraft(defaultTimelineDraft(body.project));
+      }
+      await onChanged(body.project);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not delete project update.');
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -3274,6 +3319,19 @@ function ProjectDetailModal({
                       {update.milestone ? ' / milestone' : ''}
                     </div>
                     <p className="timeline-update-text">{update.text}</p>
+                    {project.artifacts
+                      .filter((artifact) => update.artifactIds.includes(artifact.id))
+                      .map((artifact) =>
+                        artifact.kind === 'image' && artifact.path ? (
+                          <a className="timeline-image" href={`/api/project-artifacts/${artifact.id}/download`} key={artifact.id}>
+                            <img src={`/api/project-artifacts/${artifact.id}/download?inline=1`} alt={`Attachment: ${artifact.title}`} />
+                          </a>
+                        ) : (
+                          <a className="timeline-attachment" href={`/api/project-artifacts/${artifact.id}/download`} key={artifact.id}>
+                            <FileText aria-hidden="true" /> {artifact.title}
+                          </a>
+                        ),
+                      )}
                     {(update.target || update.blocker) && (
                       <p className="project-blocker">
                         {[update.target ? `Target: ${update.target}` : null, update.blocker ? `Blocker: ${update.blocker}` : null]
@@ -3305,6 +3363,16 @@ function ProjectDetailModal({
                         </button>
                       </div>
                     )}
+                    {project.access.canEdit && (
+                      <div className="timeline-actions">
+                        <button className="ops-secondary" type="button" onClick={() => startEditingUpdate(update)}>
+                          <Pencil aria-hidden="true" /> Edit
+                        </button>
+                        <button className="ops-secondary danger-action" type="button" disabled={busy === `delete:${update.id}`} onClick={() => void deleteUpdate(update)}>
+                          <Trash2 aria-hidden="true" /> {busy === `delete:${update.id}` ? 'Deleting' : 'Delete'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </article>
               ))
@@ -3316,7 +3384,7 @@ function ProjectDetailModal({
 
         {project.access.canAddUpdate && (
           <form className="project-update-form" onSubmit={submitUpdate}>
-            <h3>Progress update</h3>
+            <h3>{editingUpdateId ? 'Edit update' : 'Progress update'}</h3>
             <label>
               <span>Type</span>
               <select value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as ProjectUpdateType }))}>
@@ -3391,12 +3459,12 @@ function ProjectDetailModal({
               <textarea id={progressFieldId} rows={4} value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} />
             </div>
             <div className="full artifact-upload-field">
-              <span>New artifact</span>
+              <span>{editingUpdateId ? 'Attach file or image' : 'New artifact or image'}</span>
               <span className="artifact-upload-row">
                 <input
                   id={`artifact-upload-${project.id}`}
                   type="file"
-                  accept=".docx,.pptx,.pdf,.zip,.md,.markdown,.txt,.tex,.latex,.rst,.csv,.json,.yaml,.yml"
+                  accept="image/png,image/jpeg,image/gif,image/webp,.docx,.pptx,.pdf,.zip,.md,.markdown,.txt,.tex,.latex,.rst,.csv,.json,.yaml,.yml"
                   onChange={(event) => {
                     const file = event.currentTarget.files?.[0] || null;
                     if (file && file.size > projectArtifactMaxBytes) {
@@ -3409,7 +3477,7 @@ function ProjectDetailModal({
                     setDraft((current) => ({ ...current, artifactFile: file, artifactFileName: file?.name || '' }));
                   }}
                 />
-                <label className="ops-secondary" htmlFor={`artifact-upload-${project.id}`} title="Upload artifact">
+                <label className="ops-secondary" htmlFor={`artifact-upload-${project.id}`} aria-label="Choose artifact or image" title="Choose artifact or image">
                   <Upload aria-hidden="true" />
                 </label>
                 <strong>{draft.artifactFileName || 'No file selected'}</strong>
@@ -3423,9 +3491,14 @@ function ProjectDetailModal({
               </div>
             )}
             {error && <div className="form-message error full">{error}</div>}
+            {editingUpdateId && (
+              <button className="ops-secondary" type="button" onClick={() => { setEditingUpdateId(null); setDraft(defaultTimelineDraft(project)); }}>
+                Cancel edit
+              </button>
+            )}
             <button className="ops-primary" type="submit" disabled={busy === 'update'}>
               <Plus aria-hidden="true" />
-              {busy === 'update' ? 'Adding' : 'Add update'}
+              {busy === 'update' ? 'Saving' : editingUpdateId ? 'Save update' : 'Add update'}
             </button>
           </form>
         )}
@@ -3657,6 +3730,7 @@ function ThemeMeetingPanel({
   );
   const sourceProject = sourceProjects.find((project) => project.id === sourceProjectId) || sourceProjects[0] || null;
   const progressFieldId = 'theme-meeting-progress';
+  const progressWordCount = countWords(progressText);
   const questionsFieldId = 'theme-meeting-questions';
 
   useEffect(() => {
@@ -3704,6 +3778,13 @@ function ThemeMeetingPanel({
     }
 
     try {
+      if (!progressText.trim() && updateType !== 'nothing_to_report') {
+        document.getElementById(progressFieldId)?.focus();
+        throw new Error('Add a short progress update before submitting.');
+      }
+      if (progressWordCount > 75) {
+        throw new Error('Theme meeting progress must be 75 words or fewer. Aim for 50 words.');
+      }
       await requestJson('/api/theme-meetings/updates', 'Could not save update.', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3831,7 +3912,7 @@ function ThemeMeetingPanel({
         </button>
       </div>
 
-      {formError && <div className="theme-meeting-message form-message error" role="alert">{formError}</div>}
+      {formError && <div id="theme-update-error" className="theme-meeting-message form-message error" role="alert">{formError}</div>}
       {status && <div className="theme-meeting-message form-message" role="status">{status}</div>}
 
       {!plan && !overviewPlan ? (
@@ -4006,7 +4087,7 @@ function ThemeMeetingPanel({
                 <label>
                   <span>Slot type</span>
                   <select value={updateType} onChange={(event) => setUpdateType(event.target.value as ThemeUpdateType)}>
-                    {(Object.keys(updateTypeLabels) as ThemeUpdateType[]).map((nextType) => (
+                    {themeMeetingSlotTypes.map((nextType) => (
                       <option key={nextType} value={nextType}>
                         {updateTypeOptionLabels[nextType]}
                       </option>
@@ -4033,16 +4114,26 @@ function ThemeMeetingPanel({
                 )}
                 <div className="prompt-field">
                   <div className="prompt-field-head">
-                    <label htmlFor={progressFieldId}>Progress</label>
+                    <label htmlFor={progressFieldId}>Progress ({progressWordCount}/75 words)</label>
                     <PromptCopyButton prompt={themeProgressPrompt(uiCopyPrompts, sourceProject)} label="Copy theme progress prompt" />
                   </div>
                   <textarea
                     id={progressFieldId}
                     value={progressText}
                     onChange={(event) => setProgressText(event.target.value)}
-                    placeholder="Project progress summary, up to 50 words"
+                    placeholder="Aim for 50 words; maximum 75 words"
+                    aria-describedby={`theme-meeting-progress-hint${formError ? ' theme-update-error' : ''}`}
+                    aria-required={updateType !== 'nothing_to_report'}
+                    aria-invalid={progressWordCount > 75 || Boolean(formError && !progressText.trim() && updateType !== 'nothing_to_report')}
                     rows={4}
                   />
+                  <p id="theme-meeting-progress-hint" role="status" className={progressWordCount > 75 ? 'ops-error' : 'muted'}>
+                    {progressWordCount > 75
+                      ? 'Over the 75-word maximum. Shorten your progress before submitting.'
+                      : progressWordCount > 50
+                        ? 'Over the recommended 50 words. Consider shortening; you can still submit up to 75 words.'
+                        : 'Aim for 50 words; maximum 75 words.'}
+                  </p>
                 </div>
                 <div className="prompt-field">
                   <div className="prompt-field-head">
@@ -4140,7 +4231,7 @@ function BriefingView({
   });
   const currentArtifacts = activeProjects.reduce((count, project) => count + currentProjectArtifacts(project).length, 0);
   const unreadChatNotifications = chatNotifications.filter((notification) => !notification.readAt);
-  const themeNotifications = themePayload?.notifications || [];
+  const themeNotifications = (themePayload?.notifications || []).filter((notification) => !notification.read);
   const nextMeetingDate = themePayload?.overviewPlan?.meeting_date || themePayload?.plan.meeting_date || null;
   const meetings = themePayload?.overviewPlan?.meetings || (themePayload?.plan.meetings || []).map((meeting) => ({
     theme_id: meeting.theme_id,
@@ -5542,6 +5633,8 @@ function TopbarNotificationCenter({
   onToggle,
   onOpenChatSession,
   onMarkAllMessagesRead,
+  onOpenMeetingNotification,
+  onMarkAllEventsRead,
 }: {
   open: boolean;
   activeCount: number;
@@ -5551,11 +5644,14 @@ function TopbarNotificationCenter({
   onToggle: () => void;
   onOpenChatSession: (sessionId: string, notificationId?: string) => void;
   onMarkAllMessagesRead: () => void;
+  onOpenMeetingNotification: (notification: ThemeMeetingNotification) => void;
+  onMarkAllEventsRead: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [tab, setTab] = useState<TopbarNotificationTab>('messages');
   const unreadMessages = chatNotifications.filter((notification) => !notification.readAt);
   const visibleMessages = unreadMessages.length ? unreadMessages : chatNotifications;
+  const unreadEvents = themeNotifications.filter((notification) => !notification.read);
   const visibleEvents = themeNotifications;
   const visibleLogs = attentionProjects;
 
@@ -5601,8 +5697,8 @@ function TopbarNotificationCenter({
           <header>
             <strong>Notifications</strong>
             <div>
-              {unreadMessages.length > 0 && (
-                <button type="button" onClick={onMarkAllMessagesRead}>
+              {((tab === 'messages' && unreadMessages.length > 0) || (tab === 'events' && unreadEvents.length > 0)) && (
+                <button type="button" onClick={tab === 'events' ? onMarkAllEventsRead : onMarkAllMessagesRead}>
                   Mark read
                 </button>
               )}
@@ -5678,7 +5774,7 @@ function TopbarNotificationCenter({
             {tab === 'events' &&
               (visibleEvents.length ? (
                 visibleEvents.map((notification) => (
-                  <div className="notification-row" key={notification.id}>
+                  <button className={`notification-row${notification.read ? '' : ' unread'}`} key={notification.id} type="button" onClick={() => onOpenMeetingNotification(notification)}>
                     <span className="notification-glyph">
                       <CalendarDays aria-hidden="true" />
                     </span>
@@ -5686,7 +5782,8 @@ function TopbarNotificationCenter({
                       <strong>{notification.title}</strong>
                       <small>{notification.body}</small>
                     </span>
-                  </div>
+                    <em>{notification.completed ? 'Update submitted' : notification.read ? 'Read' : 'Unread'}</em>
+                  </button>
                 ))
               ) : (
                 <p className="notification-empty">No meeting events right now.</p>
@@ -8054,6 +8151,14 @@ export function OperationsConsole() {
   const [projectsPayload, setProjectsPayload] = useState<ProjectsPayload | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [themePayload, setThemePayload] = useState<ThemeMeetingPayload | null>(null);
+  const [openMeetingNotification, setOpenMeetingNotification] = useState<ThemeMeetingNotification | null>(null);
+  const meetingNotificationRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => { setOpenMeetingNotification(null); }, [user?.id]);
+
+  useEffect(() => {
+    if (openMeetingNotification) meetingNotificationRef.current?.focus();
+  }, [openMeetingNotification]);
   const [themeMeetingsLoading, setThemeMeetingsLoading] = useState(false);
   const [collaboratorUsers, setCollaboratorUsers] = useState<MentionableUser[]>([]);
   const [uiCopyPrompts, setUiCopyPrompts] = useState<UiCopyPrompts | null>(null);
@@ -8169,10 +8274,10 @@ export function OperationsConsole() {
     setWelcomeOpen(!welcomeDismissed(user.id));
   }, [user?.id, user?.passwordResetRequired]);
 
-  const loadThemeMeetings = useCallback(async () => {
+  const loadThemeMeetings = useCallback(async (meetingDate?: string) => {
     setThemeMeetingsLoading(true);
     try {
-      const nextPayload = await requestJson<ThemeMeetingPayload>('/api/theme-meetings', 'Could not load theme meetings.');
+      const nextPayload = await requestJson<ThemeMeetingPayload>(`/api/theme-meetings${meetingDate ? `?date=${encodeURIComponent(meetingDate)}` : ''}`, 'Could not load theme meetings.');
       setThemePayload(nextPayload);
     } finally {
       setThemeMeetingsLoading(false);
@@ -8269,6 +8374,24 @@ export function OperationsConsole() {
     setChatNotifications(body.notifications || []);
   }
 
+  async function markMeetingNotificationsRead(notification?: ThemeMeetingNotification) {
+    const meetingDate = notification?.meeting_date || themePayload?.plan.meeting_date;
+    await requestJson('/api/theme-meetings/notifications', 'Could not mark meeting notifications read.', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(notification ? { notificationId: notification.id, meetingDate } : { all: true, meetingDate }),
+    });
+    await loadThemeMeetings(meetingDate);
+  }
+
+  function openMeetingFromNotification(notification: ThemeMeetingNotification) {
+    setNotificationsOpen(false);
+    setOpenMeetingNotification(notification);
+    selectView('meeting');
+    void (notification.read ? loadThemeMeetings(notification.meeting_date) : markMeetingNotificationsRead(notification)).catch((caught) => {
+      setError(caught instanceof Error ? caught.message : 'Could not open meeting notification.');
+    });
+  }
+
   const handleChatThreadOpened = useCallback(() => {
     setOpenChatThreadId(null);
   }, []);
@@ -8297,6 +8420,7 @@ export function OperationsConsole() {
   );
 
   const unreadChatNotificationCount = chatNotifications.filter((notification) => !notification.readAt).length;
+  const unreadMeetingNotificationCount = (themePayload?.notifications || []).filter((notification) => !notification.read).length;
   const attentionProjectNotifications =
     projectsPayload?.projects?.filter((project) => project.lifecycle !== 'archived' && projectNeedsAttention(project)) || [];
   const canManageThemeSettings = user
@@ -8372,9 +8496,11 @@ export function OperationsConsole() {
         <div className="account-block" ref={accountBlockRef}>
           <TopbarNotificationCenter
             open={notificationsOpen}
-            activeCount={unreadChatNotificationCount}
+            activeCount={unreadChatNotificationCount + unreadMeetingNotificationCount}
             chatNotifications={chatNotifications}
             themeNotifications={themePayload?.notifications || []}
+            onOpenMeetingNotification={openMeetingFromNotification}
+            onMarkAllEventsRead={() => { void markMeetingNotificationsRead().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not mark meeting notifications read.')); }}
             attentionProjects={attentionProjectNotifications}
             onToggle={() => {
               setAccountMenuOpen(false);
@@ -8524,14 +8650,24 @@ export function OperationsConsole() {
             />
           )}
           {activeView === 'meeting' && (
+            <>
+            {openMeetingNotification && (
+              <section className="theme-meeting-message" aria-label="Meeting notification details" tabIndex={-1} ref={meetingNotificationRef}>
+                <h2>{openMeetingNotification.title}</h2>
+                <p>{formatDate(openMeetingNotification.meeting_date)} / Theme {openMeetingNotification.theme_id}</p>
+                <p style={{ whiteSpace: 'pre-wrap' }}>{openMeetingNotification.body}</p>
+                <button type="button" className="ops-secondary" onClick={() => { setOpenMeetingNotification(null); void loadThemeMeetings().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not load theme meetings.')); }}>Close details</button>
+              </section>
+            )}
             <MeetingView
               payload={themePayload}
               loading={themeMeetingsLoading}
-              onThemeMeetingChanged={loadThemeMeetings}
+              onThemeMeetingChanged={() => loadThemeMeetings(openMeetingNotification?.meeting_date)}
               viewer={user}
               projects={projectsPayload?.projects || []}
               uiCopyPrompts={uiCopyPrompts}
             />
+            </>
           )}
           {activeView === 'checklists' && <ChecklistsView canSignOff={canSeeAllRole(user.role)} />}
           {activeView === 'feedback' && <FeedbackView />}

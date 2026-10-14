@@ -183,6 +183,7 @@ async function checkMember(browser: any) {
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
   const slotSelect = page.locator('.theme-update-form select').nth(2);
   assert.equal(await slotSelect.locator('option[value="deep_dive"]').textContent(), 'Deep dive (20-30 min)');
+  assert.equal(await slotSelect.locator('option[value="short_update"]').textContent(), 'Short update (5 min)');
   assert.equal(await slotSelect.locator('option[value="milestone_check"]').textContent(), 'Milestone check (10 min)');
   assert.equal(await slotSelect.locator('option[value="strategic_slot"]').textContent(), 'Strategic slot (paper or idea)');
   assert.equal(await slotSelect.locator('option[value="nothing_to_report"]').textContent(), 'Nothing to report (0 min)');

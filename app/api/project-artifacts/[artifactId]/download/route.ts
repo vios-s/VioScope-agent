@@ -16,6 +16,10 @@ function contentType(fileName: string): string {
   if (ext === '.docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
   if (ext === '.pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
   if (ext === '.zip') return 'application/zip';
+  if (ext === '.png') return 'image/png';
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.gif') return 'image/gif';
+  if (ext === '.webp') return 'image/webp';
   if (['.md', '.markdown', '.txt', '.tex', '.rst', '.csv', '.json', '.yaml', '.yml'].includes(ext)) return 'text/plain; charset=utf-8';
   return 'application/octet-stream';
 }
@@ -29,6 +33,7 @@ export async function GET(request: Request, context: { params: Promise<{ artifac
 
     const buffer = await readFile(/* turbopackIgnore: true */ storedPath);
     const fileName = artifact.title || basename(storedPath);
+    const inline = new URL(request.url).searchParams.get('inline') === '1';
     await recordAuditLog({
       actor,
       action: 'project.artifact_download',
@@ -46,7 +51,7 @@ export async function GET(request: Request, context: { params: Promise<{ artifac
     return new Response(buffer, {
       headers: {
         'content-type': contentType(fileName),
-        'content-disposition': `attachment; filename="${encodeURIComponent(fileName)}"`,
+        'content-disposition': `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(fileName)}"`,
       },
     });
   } catch (error) {

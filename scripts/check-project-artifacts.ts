@@ -266,8 +266,16 @@ async function main() {
       'memory-agent-evaluation.pdf',
       makePdf('Educational Agent with Memory PDF reports learner memory evaluation and tutor feedback metrics.'),
     );
+    const image = await uploadArtifact(
+      updatesRoute,
+      projectId,
+      user,
+      'memory-agent-preview.png',
+      Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL1xQAAAABJRU5ErkJggg==', 'base64'),
+    );
 
-    createdPaths.push(docx.artifact.path, pptx.artifact.path, zip.artifact.path, pdf.artifact.path);
+    createdPaths.push(docx.artifact.path, pptx.artifact.path, zip.artifact.path, pdf.artifact.path, image.artifact.path);
+    assert.equal(image.artifact.kind, 'image', 'PNG uploads should be recorded as images.');
     assert.ok(existsSync(`${zip.artifact.path}.extracted/notes.md`), 'Zip upload should be extracted.');
     assert.ok(existsSync(`${zip.artifact.path}.extracted/proposal.txt`), 'Zip upload should extract every safe file.');
 
@@ -277,6 +285,13 @@ async function main() {
     );
     assert.equal(downloadResponse.status, 200, 'Artifact download should succeed.');
     assert.ok((await downloadResponse.arrayBuffer()).byteLength > 100, 'Downloaded artifact should contain bytes.');
+
+    const inlineImageResponse = await downloadRoute.GET(
+      getRequest(`/api/project-artifacts/${image.artifact.id}/download?inline=1`, user),
+      artifactContext(image.artifact.id),
+    );
+    assert.equal(inlineImageResponse.headers.get('content-type'), 'image/png', 'Image preview should have an image content type.');
+    assert.match(inlineImageResponse.headers.get('content-disposition') || '', /^inline;/, 'Image preview should render inline.');
 
     const digestResponse = await digestRoute.POST(
       emptyRequest(`/api/project-artifacts/${docx.artifact.id}/digest`, user, 'POST'),
@@ -321,7 +336,7 @@ async function main() {
         `,
         [username],
       );
-      assert.equal(Number(uploadAuditResult.rows[0]?.count || 0), 4, 'Artifact uploads should write digest audit metadata.');
+      assert.equal(Number(uploadAuditResult.rows[0]?.count || 0), 5, 'Artifact uploads should write digest audit metadata.');
       const actionResult = await postgres.pool.query<{ action: string }>(
         `
           SELECT DISTINCT action

@@ -21,11 +21,11 @@ export async function POST(request: Request) {
     const progressText = text(body.progressText);
     const parsedUpdateType = themeUpdateTypeSchema.safeParse(body.updateType);
 
-    if (!themeId || !member || !parsedUpdateType.success) {
-      throw new Error('themeId, member, updateType, and progressText are required.');
-    }
+    if (!themeId) throw new Error('Choose a theme before submitting.');
+    if (!member) throw new Error('Choose a member before submitting.');
+    if (!parsedUpdateType.success) throw new Error('Choose a valid slot type before submitting.');
     if (!progressText && parsedUpdateType.data !== 'nothing_to_report') {
-      throw new Error('themeId, member, updateType, and progressText are required.');
+      throw new Error('Add a short progress update before submitting.');
     }
 
     if (!canSeeAll(user) && !isUserName(member, user)) {

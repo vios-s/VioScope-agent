@@ -61,7 +61,7 @@ export const readThemeMeetingPlanTool = createTool({
 export const submitThemeMeetingUpdateTool = createTool({
   id: 'submit-theme-meeting-update',
   description:
-    'Submit or replace one advisory theme-meeting slot after the user explicitly asks to save it. Slot types are nothing_to_report, deep_dive, milestone_check, and strategic_slot.',
+    'Submit or replace one advisory theme-meeting slot after the user explicitly asks to save it. Slot types are deep_dive (20-30 min), short_update (5 min), milestone_check (10 min), strategic_slot (10 min), and nothing_to_report (0 min).',
   inputSchema: z.object({
     meetingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     themeId: z.string().trim().min(1),

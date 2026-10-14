@@ -14,6 +14,7 @@ import {
 } from './store';
 import { getUserById, getUserByUsername, listUsersForAdmin, type AuthUser } from '../db/users';
 import { registeredNotificationEmail, sendNotificationEmail } from '../email';
+import { renderThemeMeetingAgendaEmail } from './agenda-email';
 import {
   themeMeetingNotificationSchema,
   themeMeetingPlanSchema,
@@ -94,7 +95,7 @@ function meetingKey(meetingDate: string, themeId: string): string {
 
 async function sendClaimedThemeMeetingEmail(
   deliveryId: string,
-  email: { to: string | null | undefined; subject: string; text: string },
+  email: { to: string | null | undefined; subject: string; text: string; html?: string },
   options: ThemeMeetingStoreOptions,
 ): Promise<boolean> {
   if (!(await claimThemeMeetingEmailDelivery(deliveryId, options))) return false;
@@ -485,6 +486,9 @@ export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateIn
   if (!progressText) {
     throw new Error('Progress text is required for this theme meeting slot.');
   }
+  if (progressText.split(/\s+/).length > 75) {
+    throw new Error('Theme meeting progress must be 75 words or fewer. Aim for 50 words.');
+  }
 
   const update = themeMeetingUpdateSchema.parse({
     meeting_date: meetingDate,
@@ -656,7 +660,7 @@ export async function sendThemeMeetingAgendaEmails(
   options: ThemeMeetingAgendaEmailOptions = {},
 ): Promise<ThemeMeetingReminderEmailResult> {
   const result: ThemeMeetingReminderEmailResult = { sent: 0, skipped: 0, failed: 0 };
-  const markdown = renderThemeMeetingPlan(themeScopedPlan(plan, options.themeId));
+  const agendaEmail = renderThemeMeetingAgendaEmail(themeScopedPlan(plan, options.themeId));
   const subject = `VioScope advisory theme meeting agenda ${plan.meeting_date}${
     options.themeId ? ` Theme ${options.themeId}` : ''
   }`;
@@ -676,7 +680,7 @@ export async function sendThemeMeetingAgendaEmails(
         {
           to: email,
           subject,
-          text: `${markdown}\n\nThis agenda is advisory until confirmed by a coordinator, PI, or administrator.`,
+          ...agendaEmail,
         },
         options,
       );

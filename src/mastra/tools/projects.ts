@@ -61,7 +61,7 @@ const projectContextSchema = z.object({
   overdue: z.boolean(),
   attentionReason: z.string().nullable(),
   recommendation: projectRecommendationSchema,
-  accessReason: z.enum(['owner', 'coordinator', 'pi_admin']),
+  accessReason: z.enum(['owner', 'collaborator', 'coordinator', 'pi_admin']),
 });
 
 const planningItemSchema = z.object({

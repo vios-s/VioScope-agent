@@ -4,6 +4,7 @@ export type NotificationEmail = {
   to: string | null | undefined;
   subject: string;
   text: string;
+  html?: string;
 };
 
 function enabled(value: string | undefined): boolean {
@@ -58,6 +59,7 @@ export async function sendNotificationEmail(input: NotificationEmail): Promise<b
     to,
     subject: input.subject,
     text: input.text,
+    html: input.html,
     envelope: {
       from: process.env.SMTP_ENVELOPE_FROM || addressFromHeader(from),
       to,

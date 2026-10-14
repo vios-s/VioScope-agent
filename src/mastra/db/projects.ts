@@ -79,6 +79,8 @@ export type AddProjectUpdateInput = {
   artifact?: ProjectArtifactInput | null;
 };
 
+export type EditProjectUpdateInput = AddProjectUpdateInput;
+
 export type ProjectArtifactRecord = {
   id: string;
   title: string;
@@ -151,7 +153,7 @@ export type ProjectRecord = {
     canArchive: boolean;
     canAddUpdate: boolean;
     canComment: boolean;
-    reason: 'owner' | 'coordinator' | 'pi_admin';
+    reason: 'owner' | 'collaborator' | 'coordinator' | 'pi_admin';
   };
 };
 
@@ -425,6 +427,7 @@ function accessReason(row: ProjectRow, user: AuthUser, managedOwnerUsernames: Se
   const username = cleanUsername(user.username);
   if (canSeeAll(user)) return 'pi_admin';
   if (cleanUsername(row.owner_username) === username || isUserName(row.owner_username, user)) return 'owner';
+  if (user.provisioningStatus === 'active' && (row.collaborator_usernames || []).some((name) => cleanUsername(name) === username)) return 'collaborator';
   if (managedOwnerUsernames.has(cleanUsername(row.owner_username))) return 'coordinator';
   return null;
 }
@@ -818,6 +821,19 @@ export async function getProjectForUser(projectId: string, user: AuthUser): Prom
   return project;
 }
 
+export async function getProjectForUpdate(updateId: string, user: AuthUser): Promise<ProjectRecord> {
+  await ensureProjectTables();
+  const postgres = createPostgresClient('vioscope-projects');
+  try {
+    const result = await postgres.pool.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id = $1', [updateId]);
+    const projectId = result.rows[0]?.project_id;
+    if (!projectId) throw new Error('Project update not found.');
+    return getProjectForUser(projectId, user);
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
 export async function createProject(input: ProjectCreateInput, actor: AuthUser): Promise<ProjectRecord> {
   await ensureProjectTables();
   const slug = cleanSlug(input.project || input.title || '');
@@ -1077,6 +1093,86 @@ export async function addProjectUpdate(projectId: string, input: AddProjectUpdat
     await postgres.pool.query('ROLLBACK').catch(() => undefined);
     throw error;
   } finally {
+    await postgres.disconnect();
+  }
+}
+
+export async function editProjectUpdate(updateId: string, input: EditProjectUpdateInput, actor: AuthUser): Promise<ProjectRecord> {
+  await ensureProjectTables();
+  const postgres = createPostgresClient('vioscope-projects');
+  const client = await postgres.pool.connect();
+  try {
+    const found = await client.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id = $1', [updateId]);
+    const projectId = found.rows[0]?.project_id;
+    if (!projectId) throw new Error('Project update not found.');
+    const project = await getProjectForUser(projectId, actor);
+    if (!project.access.canEdit) throw new Error('You do not have permission to edit project updates.');
+
+    const text = cleanText(input.text);
+    if (!text) throw new Error('Update text is required.');
+    const updateType = input.type || 'progress';
+    if (!isProjectUpdateType(updateType)) throw new Error('Unsupported update type.');
+    if (updateType === 'progress' && wordCount(text) > 50) throw new Error('Progress updates must be 50 words or fewer.');
+    const updateDate = cleanDate(input.date) || new Date().toISOString().slice(0, 10);
+    const stage = cleanStage(input.stage ?? project.stage);
+    const stageProgress = cleanStageProgress(input.stageProgress ?? project.stageProgress);
+    const status = input.status || project.status;
+    if (!isProjectStatus(status)) throw new Error('Unsupported project status.');
+    const blocker = input.blocker === undefined ? project.blocker : cleanText(input.blocker);
+    const target = input.target === undefined ? project.target : cleanText(input.target);
+
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE project_updates
+       SET update_date = $2::date, update_type = $3, text = $4, stage = $5, stage_progress = $6,
+           status = $7, blocker = $8, target = $9, milestone = $10
+       WHERE id = $1`,
+      [updateId, updateDate, updateType, text, stage, stageProgress, status, blocker, target, Boolean(input.milestone)],
+    );
+
+    const artifact = input.artifact;
+    if (artifact && (cleanText(artifact.title) || cleanText(artifact.path))) {
+      const title = cleanText(artifact.title) || cleanText(artifact.path)?.split('/').pop() || 'Artifact';
+      const artifactKey = cleanText(artifact.artifactKey) || cleanText(artifact.path) || title;
+      await client.query('UPDATE project_artifacts SET is_current = false WHERE project_id = $1 AND artifact_key = $2 AND deleted_at IS NULL', [project.id, artifactKey]);
+      const created = await client.query<{ id: string }>(
+        `INSERT INTO project_artifacts (project_id, title, kind, path, summary, artifact_key, is_current, source_update_id, uploaded_by_username)
+         VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8) RETURNING id::text`,
+        [project.id, title, cleanText(artifact.kind) || 'other', cleanText(artifact.path), cleanText(artifact.summary) || '', artifactKey, updateId, actor.username],
+      );
+      await client.query('UPDATE project_updates SET artifact_ids = array_append(artifact_ids, $2::uuid) WHERE id = $1', [updateId, created.rows[0]!.id]);
+    }
+    await client.query('COMMIT');
+    return getProjectForUser(project.id, actor);
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+    await postgres.disconnect();
+  }
+}
+
+export async function deleteProjectUpdate(updateId: string, actor: AuthUser): Promise<ProjectRecord> {
+  await ensureProjectTables();
+  const postgres = createPostgresClient('vioscope-projects');
+  const client = await postgres.pool.connect();
+  try {
+    const found = await client.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id = $1', [updateId]);
+    const projectId = found.rows[0]?.project_id;
+    if (!projectId) throw new Error('Project update not found.');
+    const project = await getProjectForUser(projectId, actor);
+    if (!project.access.canEdit) throw new Error('You do not have permission to delete project updates.');
+    await client.query('BEGIN');
+    await client.query('UPDATE project_artifacts SET deleted_at = now(), is_current = false WHERE source_update_id = $1 AND deleted_at IS NULL', [updateId]);
+    await client.query('DELETE FROM project_updates WHERE id = $1', [updateId]);
+    await client.query('COMMIT');
+    return getProjectForUser(project.id, actor);
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
     await postgres.disconnect();
   }
 }

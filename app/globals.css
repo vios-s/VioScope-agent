@@ -4801,6 +4801,36 @@ html[data-theme="dark"] .briefing-hero::after {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.timeline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timeline-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  color: var(--teal-ink);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.timeline-image {
+  display: block;
+  width: fit-content;
+}
+
+.timeline-image img {
+  display: block;
+  max-width: min(100%, 480px);
+  max-height: 320px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  object-fit: contain;
+}
+
 .project-todo-panel {
   display: grid;
   gap: 0;

@@ -254,6 +254,7 @@ async function main() {
   const projectsRoute = await import('../app/api/projects/route');
   const projectRoute = await import('../app/api/projects/[projectId]/route');
   const updatesRoute = await import('../app/api/projects/[projectId]/updates/route');
+  const updateRoute = await import('../app/api/project-updates/[updateId]/route');
   const commentsRoute = await import('../app/api/project-updates/[updateId]/comments/route');
   const planningRoute = await import('../app/api/projects/planning/route');
 
@@ -334,7 +335,7 @@ async function main() {
       await projectsRoute.GET(getRequest('/api/projects?includeArchived=true', pi)),
     );
     assert.ok(ownerList.projects?.some((nextProject) => nextProject.id === project.id), 'Owner should see project.');
-    assert.equal(collaboratorList.projects?.some((nextProject) => nextProject.id === project.id), false, 'Collaborator metadata should not grant project access.');
+    assert.ok(collaboratorList.projects?.some((nextProject) => nextProject.id === project.id), 'An active named collaborator should see project.');
     assert.equal(outsiderList.projects?.some((nextProject) => nextProject.id === project.id), false, 'Outsider should not see project.');
     assert.ok(ownerThemeCoordinatorList.projects?.some((nextProject) => nextProject.id === project.id), 'Owner theme coordinator should see project.');
     assert.equal(
@@ -376,7 +377,7 @@ async function main() {
     assert.equal(forbiddenOwnerChange.status, 400, 'Owner must not be allowed to transfer ownership.');
 
     const collaboratorDetailResponse = await projectRoute.GET(getRequest(`/api/projects/${project.id}`, collaborator), projectContext(project.id));
-    assert.equal(collaboratorDetailResponse.status, 404, 'Collaborator metadata should not grant project detail access.');
+    assert.equal(collaboratorDetailResponse.status, 200, 'An active named collaborator should see project detail.');
 
     const trackNameCoordinatorDetailResponse = await projectRoute.GET(
       getRequest(`/api/projects/${project.id}`, trackNameCoordinator),
@@ -489,6 +490,29 @@ async function main() {
       'PI comment should be attached to the timeline update.',
     );
 
+    const editUpdateResponse = await updateRoute.PATCH(
+      jsonRequest(`/api/project-updates/${updateId}`, {
+        date: secondUpdateDate,
+        type: 'artifact',
+        text: 'Edited revised design note.',
+        stage: 3,
+        stageProgress: 70,
+        status: 'on_track',
+        blocker: null,
+        target: 'Complete evaluation.',
+        milestone: false,
+      }, owner, 'PATCH'),
+      updateContext(updateId),
+    );
+    const editUpdateBody = await bodyOf<{ project?: any }>(editUpdateResponse);
+    assert.equal(editUpdateResponse.status, 200, editUpdateBody.error || 'Project update edit failed.');
+    assert.equal(editUpdateBody.project?.updates?.[0]?.text, 'Edited revised design note.', 'Edited update text should persist.');
+
+    const deleteUpdateResponse = await updateRoute.DELETE(emptyRequest(`/api/project-updates/${updateId}`, owner, 'DELETE'), updateContext(updateId));
+    const deleteUpdateBody = await bodyOf<{ project?: any }>(deleteUpdateResponse);
+    assert.equal(deleteUpdateResponse.status, 200, deleteUpdateBody.error || 'Project update deletion failed.');
+    assert.equal(deleteUpdateBody.project?.updates?.some((update: any) => update.id === updateId), false, 'Deleted update should be absent.');
+
     const archiveResponse = await projectRoute.DELETE(
       emptyRequest(`/api/projects/${project.id}`, pi, 'DELETE'),
       projectContext(project.id),
@@ -516,7 +540,7 @@ async function main() {
     assert.equal(unarchiveBody.project?.archivedAt, null, 'Unarchive should clear archivedAt.');
 
     const actions = await auditActionsForProject(project.id);
-    for (const action of ['project.create', 'project.update', 'project.update_add', 'project.update_comment', 'project.archive']) {
+    for (const action of ['project.create', 'project.update', 'project.update_add', 'project.update_comment', 'project.update_edit', 'project.update_remove', 'project.archive']) {
       assert.ok(actions.includes(action), `Expected audit action ${action}. Saw ${actions.join(', ')}`);
     }
     assert.equal(await auditActionExistsForActor(pi.username, 'project.planning_scan'), true, 'Planning scan should be audited.');
@@ -528,7 +552,7 @@ async function main() {
           projectVisibility: 'passed',
           ownerThemeCoordinatorVisibility: 'passed',
           trackNameCoordinatorDenied: 'passed',
-          collaboratorVisibilityDenied: 'passed',
+          collaboratorReadCommentAccess: 'passed',
           piEdit: 'passed',
           archiveRank: 'passed',
           unarchive: 'passed',

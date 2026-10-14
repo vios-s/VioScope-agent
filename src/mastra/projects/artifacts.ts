@@ -18,7 +18,8 @@ const maxZipEntries = 80;
 const maxZipEntryBytes = maxProjectArtifactUploadBytes;
 const maxZipExtractedBytes = 60 * 1024 * 1024;
 const textExtensions = new Set(['.md', '.markdown', '.txt', '.tex', '.latex', '.rst', '.csv', '.json', '.yaml', '.yml']);
-const uploadExtensions = new Set([...textExtensions, '.docx', '.pptx', '.pdf', '.zip']);
+const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp']);
+const uploadExtensions = new Set([...textExtensions, '.docx', '.pptx', '.pdf', '.zip', ...imageExtensions]);
 
 export type ProjectArtifactUploadDigest = {
   artifact: ProjectArtifactInput;
@@ -104,6 +105,7 @@ export async function assertStoredProjectArtifactPath(
 
 export function projectArtifactKind(fileName: string): string {
   const ext = extname(fileName).toLowerCase();
+  if (imageExtensions.has(ext)) return 'image';
   if (['.pptx', '.ppt', '.key'].includes(ext)) return 'slides';
   if (['.tex', '.bib'].includes(ext)) return 'latex';
   if (ext === '.zip') return 'zip';
