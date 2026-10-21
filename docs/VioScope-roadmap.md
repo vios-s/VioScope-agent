@@ -23,7 +23,12 @@ private lab material stay outside this repository under `DATASTORE_DIR`, `/Publi
 - Development service: separate branch or worktree on port `3030`.
 - Default model provider: ELM through an OpenAI-compatible API.
 - Project Manager Postgres records are the operational state source of truth.
-- Theme meeting identity uses `users.username`; display names are labels only.
+- Theme meeting identity uses `users.username`; display names and self-editable aliases never grant
+  project, meeting or review access. New review records store account usernames.
+- Relational queries use one native PostgreSQL pool per database/process, capped at eight connections.
+  Transactions pin one client and nested helpers join it; vector retrieval keeps its separate Mastra
+  vector store. Shared datastore writers use transaction advisory locks and atomic file replacement;
+  test teardown explicitly drains shared connections before dropping disposable databases.
 - Theme meeting times use `Europe/London`.
 - Agent output is advisory and evidence-backed; humans confirm writes and verdicts.
 

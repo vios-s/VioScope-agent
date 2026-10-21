@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { runtimeConfigCachePath } from '../runtime-config';
-import { createPostgresClient } from './postgres';
+import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { ensureUsersTable } from './users';
 
 export type AppSettingValueType = 'string' | 'number' | 'path' | 'time' | 'weekday';
@@ -379,8 +379,7 @@ export async function updateAppSettings(input: {
   const changedKeys: string[] = [];
   const resetKeys: string[] = [];
 
-  try {
-    await postgres.pool.query('BEGIN');
+  await withDatabaseTransaction(async () => {
     for (const [key, value] of Object.entries(input.settings)) {
       const definition = settingDefinition(key);
       if (!definition) {
@@ -407,13 +406,7 @@ export async function updateAppSettings(input: {
       );
       changedKeys.push(key);
     }
-    await postgres.pool.query('COMMIT');
-  } catch (error) {
-    await postgres.pool.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  } finally {
-    await postgres.disconnect();
-  }
+  });
 
   await syncAppSettingsRuntimeCache();
 

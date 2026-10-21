@@ -8,7 +8,7 @@ import { runtimeEnvNumber } from '../runtime-config';
 import { createWikiVectorStore } from '../vector';
 import { matchesChatPolicyTerms, vioscopeChatPolicyConfig } from '../agents/vioscope.chat-policy.config';
 
-const wikiVectorStore = createWikiVectorStore();
+let wikiVectorStore: ReturnType<typeof createWikiVectorStore> | undefined;
 
 const wikiSearchInputSchema = z.object({
   queryText: z.string().trim().min(1).max(4000),
@@ -88,11 +88,12 @@ export async function searchWiki(queryText: string, topK = 10): Promise<WikiSear
     model: elmEmbeddingModel,
     values: queries,
   });
+  const store = wikiVectorStore ||= createWikiVectorStore();
   const minScore = runtimeEnvNumber('WIKI_MIN_SCORE', 0.35);
   const results: QueryResult[] = [];
 
   for (const embedding of embeddings) {
-    const nextResults = await wikiVectorStore.query({
+    const nextResults = await store.query({
       indexName: wikiVectorIndexName,
       queryVector: embedding,
       topK,
@@ -144,5 +145,7 @@ export const wikiSearchTool = createTool({
 });
 
 export async function disconnectWikiSearchTool() {
-  await wikiVectorStore.disconnect();
+  const store = wikiVectorStore;
+  wikiVectorStore = undefined;
+  await store?.disconnect();
 }

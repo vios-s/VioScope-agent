@@ -1,4 +1,4 @@
-import { canSeeAll, isUserName } from '../auth/session';
+import { canSeeAll } from '../auth/session';
 import type { AuthUser } from '../db/users';
 import type { ThemeMeetingConfig, ThemeMeetingNotification, ThemeMeetingPlan } from './schema';
 
@@ -16,11 +16,7 @@ export function canManageTheme(config: ThemeMeetingConfig, themeId: string, user
   }
 
   const theme = themeById(config, themeId);
-  return Boolean(
-    theme &&
-      (normalizeUsername(theme.coordinator_user) === normalizeUsername(user.username) ||
-        [theme.coordinator, ...theme.coordinator_aliases].some((name) => isUserName(name, user))),
-  );
+  return Boolean(theme && normalizeUsername(theme.coordinator_user) === normalizeUsername(user.username));
 }
 
 export function managedThemeIdsForUser(plan: ThemeMeetingPlan, config: ThemeMeetingConfig, user: AuthUser): string[] {
@@ -44,35 +40,32 @@ export function visiblePlanForUser(plan: ThemeMeetingPlan, config: ThemeMeetingC
 
         const members = meeting.members.filter(
           (member, index) =>
-            normalizeUsername(meeting.member_usernames[index]) === normalizeUsername(user.username) || isUserName(member, user),
+            normalizeUsername(meeting.member_usernames[index]) === normalizeUsername(user.username),
         );
         const agendaItems = meeting.agenda_items.filter(
-          (item) => normalizeUsername(item.member_username) === normalizeUsername(user.username) || isUserName(item.member, user),
+          (item) => normalizeUsername(item.member_username) === normalizeUsername(user.username),
         );
         return {
           ...meeting,
           members,
           member_usernames: meeting.member_usernames.filter(
-            (username, index) => normalizeUsername(username) === normalizeUsername(user.username) || isUserName(meeting.members[index], user),
+            (username, index) => normalizeUsername(username) === normalizeUsername(user.username),
           ),
           submitted_members: meeting.submitted_members.filter(
             (member, index) =>
-              normalizeUsername(meeting.submitted_member_usernames[index]) === normalizeUsername(user.username) ||
-              isUserName(member, user),
+              normalizeUsername(meeting.submitted_member_usernames[index]) === normalizeUsername(user.username),
           ),
           submitted_member_usernames: meeting.submitted_member_usernames.filter(
             (username, index) =>
-              normalizeUsername(username) === normalizeUsername(user.username) ||
-              isUserName(meeting.submitted_members[index], user),
+              normalizeUsername(username) === normalizeUsername(user.username),
           ),
           missing_members: meeting.missing_members.filter(
             (member, index) =>
-              normalizeUsername(meeting.missing_member_usernames[index]) === normalizeUsername(user.username) ||
-              isUserName(member, user),
+              normalizeUsername(meeting.missing_member_usernames[index]) === normalizeUsername(user.username),
           ),
           missing_member_usernames: meeting.missing_member_usernames.filter(
             (username, index) =>
-              normalizeUsername(username) === normalizeUsername(user.username) || isUserName(meeting.missing_members[index], user),
+              normalizeUsername(username) === normalizeUsername(user.username),
           ),
           agenda_items: agendaItems,
           planned_minutes: agendaItems.reduce((total, item) => total + item.duration_minutes, 0),
@@ -92,7 +85,6 @@ export function visibleNotificationsForUser(
     : notifications.filter(
         (notification) =>
           canManageTheme(config, notification.theme_id, user) ||
-          normalizeUsername(notification.member_username) === normalizeUsername(user.username) ||
-          isUserName(notification.member, user),
+          normalizeUsername(notification.member_username) === normalizeUsername(user.username),
       );
 }

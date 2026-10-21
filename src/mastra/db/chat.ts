@@ -1,4 +1,4 @@
-import { createPostgresClient } from './postgres';
+import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { ensureUsersTable, normalizeNotificationPreferences, type AuthUser, type NotificationPreferences } from './users';
 
 export type ChatSourceRecord = {
@@ -305,8 +305,7 @@ export async function saveChatTurn(input: {
   const postgres = createPostgresClient('vioscope-chat');
   const title = titleFromMessage(input.userText);
 
-  try {
-    await postgres.pool.query('BEGIN');
+  return withDatabaseTransaction(async () => {
     const sessionResult = await postgres.pool.query<{ owner_user_id: string }>(
       'SELECT owner_user_id::text FROM chat_sessions WHERE id = $1',
       [input.sessionId],
@@ -359,13 +358,7 @@ export async function saveChatTurn(input: {
       [input.sessionId, input.assistantText, input.assistantStatus, JSON.stringify(input.sources)],
     );
     await postgres.pool.query('UPDATE chat_sessions SET updated_at = now() WHERE id = $1', [input.sessionId]);
-    await postgres.pool.query('COMMIT');
-  } catch (error) {
-    await postgres.pool.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  } finally {
-    await postgres.disconnect();
-  }
+  });
 }
 
 export async function importLocalChatSessions(input: {
@@ -380,9 +373,7 @@ export async function importLocalChatSessions(input: {
   const postgres = createPostgresClient('vioscope-chat');
   let imported = 0;
 
-  try {
-    await postgres.pool.query('BEGIN');
-
+  return withDatabaseTransaction(async () => {
     for (const session of input.sessions.slice(0, 20)) {
       const sessionId = `legacy-${input.actor.id}-${session.threadId}`;
       const messages = session.messages.slice(0, 200);
@@ -428,14 +419,8 @@ export async function importLocalChatSessions(input: {
       }
     }
 
-    await postgres.pool.query('COMMIT');
     return imported;
-  } catch (error) {
-    await postgres.pool.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  } finally {
-    await postgres.disconnect();
-  }
+  });
 }
 
 export async function shareChatSessionWithMentions(input: {
@@ -451,7 +436,7 @@ export async function shareChatSessionWithMentions(input: {
   await ensureChatTables();
   const postgres = createPostgresClient('vioscope-chat');
 
-  try {
+  return withDatabaseTransaction(async () => {
     const userResult = await postgres.pool.query<UserRow>(
       `
         SELECT id::text, username, display_name, role, metadata
@@ -477,7 +462,6 @@ export async function shareChatSessionWithMentions(input: {
       return { shared: [], unknown };
     }
 
-    await postgres.pool.query('BEGIN');
     const sessionResult = await postgres.pool.query<{ title: string }>(
       `
         SELECT s.title
@@ -514,14 +498,8 @@ export async function shareChatSessionWithMentions(input: {
       }
     }
 
-    await postgres.pool.query('COMMIT');
     return { shared: recipients, unknown };
-  } catch (error) {
-    await postgres.pool.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  } finally {
-    await postgres.disconnect();
-  }
+  });
 }
 
 export async function listChatSessionsForUser(userId: string): Promise<ChatSessionRecord[]> {
@@ -608,8 +586,7 @@ export async function deleteChatSessionForUser(input: { sessionId: string; userI
   await ensureChatTables();
   const postgres = createPostgresClient('vioscope-chat');
 
-  try {
-    await postgres.pool.query('BEGIN');
+  return withDatabaseTransaction(async () => {
     const sessionResult = await postgres.pool.query<{ owner_user_id: string; membership_kind: 'owner' | 'shared' }>(
       `
         SELECT s.owner_user_id::text, m.membership_kind
@@ -626,20 +603,15 @@ export async function deleteChatSessionForUser(input: { sessionId: string; userI
 
     if (session.owner_user_id === input.userId || session.membership_kind === 'owner') {
       await postgres.pool.query('DELETE FROM chat_sessions WHERE id = $1 AND owner_user_id = $2', [input.sessionId, input.userId]);
-      await postgres.pool.query('COMMIT');
+
       return 'deleted';
     }
 
     await postgres.pool.query('DELETE FROM chat_session_members WHERE session_id = $1 AND user_id = $2', [input.sessionId, input.userId]);
     await postgres.pool.query('DELETE FROM chat_notifications WHERE session_id = $1 AND recipient_user_id = $2', [input.sessionId, input.userId]);
-    await postgres.pool.query('COMMIT');
+
     return 'removed';
-  } catch (error) {
-    await postgres.pool.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  } finally {
-    await postgres.disconnect();
-  }
+  });
 }
 
 export async function renameChatSessionForUser(input: { sessionId: string; userId: string; title: string }): Promise<ChatSessionRecord> {

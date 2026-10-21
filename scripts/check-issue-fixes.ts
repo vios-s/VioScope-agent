@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { stringify } from 'yaml';
-import { createPostgresClient } from '../src/mastra/db/postgres';
+import { closePostgresPools, createPostgresClient } from '../src/mastra/db/postgres';
 import { getFreePort, startNextServer, stopServer, waitForServer } from './lib/playwright-smoke';
 
 const originalURL = process.env.DATABASE_URL!;
@@ -153,6 +153,7 @@ try {
   for (const [file, original] of generatedFiles) {
     if ((await readFile(file, 'utf8')).includes(distDir)) await writeFile(file, original);
   }
+  await closePostgresPools(process.env.DATABASE_URL);
   if (created) await source.pool.query(`DROP DATABASE "${name}" WITH (FORCE)`);
   await source.disconnect();
   await rm(dir, { recursive: true, force: true });

@@ -50,9 +50,15 @@ const checkMeetingDate = '2026-06-24';
 const latestAliceProgress = 'Changed plan: use the slot to decide which result table should anchor the next experiment.';
 
 function fakeUser(displayName: string, role: AuthUser['role'] = 'member'): AuthUser {
+  const accounts: Record<string, string> = {
+    Alice: themeUsers.alice, Bob: themeUsers.bob, Carla: themeUsers.carla, Dan: themeUsers.dan,
+    Erin: themeUsers.erin, Farah: themeUsers.farah, Gabe: themeUsers.gabe, Hana: themeUsers.hana,
+    'Coordinator A': themeUsers.coordA, 'Coordinator B': themeUsers.coordB,
+    'Coordinator C': themeUsers.coordC, 'Coordinator D': themeUsers.coordD,
+  };
   return {
     id: `check-${displayName.toLowerCase().replace(/\s+/g, '-')}`,
-    username: displayName.toLowerCase().replace(/\s+/g, '.'),
+    username: accounts[displayName] || displayName.toLowerCase().replace(/\s+/g, '.'),
     displayName,
     email: `${displayName.toLowerCase().replace(/\s+/g, '.')}@example.test`,
     role,
@@ -273,7 +279,7 @@ async function runAgentThemeMeetingCheck(): Promise<{ submittedVia: unknown; upd
         {
           meetingDate: checkMeetingDate,
           themeId: 'A',
-          member: 'alice',
+          member: themeUsers.alice,
           updateType: 'strategic_slot',
           progressText: latestAliceProgress,
         },

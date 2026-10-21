@@ -1,8 +1,9 @@
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { runtimeEnv } from '../runtime-config';
+import { atomicWrite, contentHash, withFileLock } from '../atomic-file';
 import {
   themeMeetingConfigSchema,
   themeMeetingCancellationsFileSchema,
@@ -226,7 +227,7 @@ export async function readThemeMeetingEmailDeliveries(
 
 async function writeYaml(path: string, value: unknown) {
   await mkdir(/*turbopackIgnore: true*/ dirname(path), { recursive: true });
-  await writeFile(/*turbopackIgnore: true*/ path, stringifyYaml(value), 'utf8');
+  await withFileLock(path, () => atomicWrite(path, stringifyYaml(value)));
 }
 
 function normalizeUpdatePart(value: string | null | undefined): string {
@@ -265,16 +266,22 @@ function sameUpdateSlot(
 export async function saveThemeMeetingUpdate(
   update: ThemeMeetingUpdate,
   options: ThemeMeetingStoreOptions = {},
+  expectedHash?: string,
 ): Promise<ThemeMeetingUpdatesFile> {
   const path = resolveThemeMeetingUpdatesPath(options.updatesPath);
-  const { updates } = await readThemeMeetingUpdates(options);
-  const nextUpdates = updates.filter((current) => !sameUpdateSlot(current, update));
-  nextUpdates.push(update);
-  nextUpdates.sort((a, b) => updateKey(a).localeCompare(updateKey(b)));
+  return withFileLock(path, async () => {
+    const { updates } = await readThemeMeetingUpdates(options);
+    const current = updates.find((item) => sameUpdateSlot(item, update)) || null;
+    if (contentHash(current) === contentHash(update)) return { updates };
+    if (expectedHash && contentHash(current) !== expectedHash) throw new Error('Theme update changed after the preview. Send a fresh request.');
+    const nextUpdates = updates.filter((current) => !sameUpdateSlot(current, update));
+    nextUpdates.push(update);
+    nextUpdates.sort((a, b) => updateKey(a).localeCompare(updateKey(b)));
 
-  const file = themeMeetingUpdatesFileSchema.parse({ updates: nextUpdates });
-  await writeYaml(path, file);
-  return file;
+    const file = themeMeetingUpdatesFileSchema.parse({ updates: nextUpdates });
+    await atomicWrite(path, stringifyYaml(file));
+    return file;
+  });
 }
 
 function sameMeeting(left: Pick<ThemeMeetingCancellation, 'meeting_date' | 'theme_id'>, right: Pick<ThemeMeetingCancellation, 'meeting_date' | 'theme_id'>) {
@@ -284,26 +291,38 @@ function sameMeeting(left: Pick<ThemeMeetingCancellation, 'meeting_date' | 'them
 export async function saveThemeMeetingCancellation(
   cancellation: ThemeMeetingCancellation,
   options: ThemeMeetingStoreOptions = {},
+  expectedHash?: string,
 ): Promise<ThemeMeetingCancellation[]> {
   const path = resolveThemeMeetingCancellationsPath(options.cancellationsPath);
-  const { cancellations } = await readThemeMeetingCancellations(options);
-  const next = [...cancellations.filter((current) => !sameMeeting(current, cancellation)), cancellation].sort((left, right) =>
-    `${left.meeting_date}:${left.theme_id}`.localeCompare(`${right.meeting_date}:${right.theme_id}`),
-  );
-  await writeYaml(path, themeMeetingCancellationsFileSchema.parse({ cancellations: next }));
-  return next;
+  return withFileLock(path, async () => {
+    const { cancellations } = await readThemeMeetingCancellations(options);
+    const current = cancellations.find(item => sameMeeting(item, cancellation)) || null;
+    if (contentHash(current) === contentHash(cancellation)) return cancellations;
+    if (expectedHash && contentHash(current) !== expectedHash) throw new Error('Meeting cancellation changed after the preview.');
+    const next = [...cancellations.filter((current) => !sameMeeting(current, cancellation)), cancellation].sort((left, right) =>
+      `${left.meeting_date}:${left.theme_id}`.localeCompare(`${right.meeting_date}:${right.theme_id}`),
+    );
+    await atomicWrite(path, stringifyYaml(themeMeetingCancellationsFileSchema.parse({ cancellations: next })));
+    return next;
+  });
 }
 
 export async function removeThemeMeetingCancellation(
   meetingDate: string,
   themeId: string,
   options: ThemeMeetingStoreOptions = {},
+  expectedHash?: string,
 ): Promise<ThemeMeetingCancellation[]> {
   const path = resolveThemeMeetingCancellationsPath(options.cancellationsPath);
-  const { cancellations } = await readThemeMeetingCancellations(options);
-  const next = cancellations.filter((current) => !sameMeeting(current, { meeting_date: meetingDate, theme_id: themeId }));
-  await writeYaml(path, themeMeetingCancellationsFileSchema.parse({ cancellations: next }));
-  return next;
+  return withFileLock(path, async () => {
+    const { cancellations } = await readThemeMeetingCancellations(options);
+    const current = cancellations.find(item => sameMeeting(item, { meeting_date: meetingDate, theme_id: themeId })) || null;
+    if (!current) return cancellations;
+    if (expectedHash && contentHash(current) !== expectedHash) throw new Error('Meeting cancellation changed after the preview.');
+    const next = cancellations.filter((current) => !sameMeeting(current, { meeting_date: meetingDate, theme_id: themeId }));
+    await atomicWrite(path, stringifyYaml(themeMeetingCancellationsFileSchema.parse({ cancellations: next })));
+    return next;
+  });
 }
 
 export async function saveThemeMeetingNotifications(
@@ -311,16 +330,18 @@ export async function saveThemeMeetingNotifications(
   options: ThemeMeetingStoreOptions = {},
 ): Promise<ThemeMeetingNotification[]> {
   const path = resolveThemeMeetingNotificationsPath(options.notificationsPath);
-  const existing = (await readThemeMeetingNotifications(options)).notifications;
-  const byId = new Map(existing.map((notification) => [notification.id, notification]));
+  return withFileLock(path, async () => {
+    const existing = (await readThemeMeetingNotifications(options)).notifications;
+    const byId = new Map(existing.map((notification) => [notification.id, notification]));
 
-  for (const notification of notifications) {
-    byId.set(notification.id, notification);
-  }
+    for (const notification of notifications) {
+      byId.set(notification.id, notification);
+    }
 
-  const nextNotifications = [...byId.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
-  await writeYaml(path, { notifications: nextNotifications });
-  return nextNotifications;
+    const nextNotifications = [...byId.values()].sort((a, b) => b.created_at.localeCompare(a.created_at));
+    await atomicWrite(path, stringifyYaml({ notifications: nextNotifications }));
+    return nextNotifications;
+  });
 }
 
 export async function hasThemeMeetingEmailDelivery(
@@ -336,13 +357,15 @@ export async function saveThemeMeetingEmailDelivery(
   options: ThemeMeetingStoreOptions = {},
 ): Promise<ThemeMeetingEmailDelivery[]> {
   const path = resolveThemeMeetingEmailDeliveriesPath(options.emailDeliveriesPath);
-  const existing = (await readThemeMeetingEmailDeliveries(options)).deliveries;
-  const byId = new Map(existing.map((current) => [current.id, current]));
-  byId.set(delivery.id, delivery);
+  return withFileLock(path, async () => {
+    const existing = (await readThemeMeetingEmailDeliveries(options)).deliveries;
+    const byId = new Map(existing.map((current) => [current.id, current]));
+    byId.set(delivery.id, delivery);
 
-  const deliveries = [...byId.values()].sort((a, b) => b.sent_at.localeCompare(a.sent_at));
-  await writeYaml(path, { deliveries });
-  return deliveries;
+    const deliveries = [...byId.values()].sort((a, b) => b.sent_at.localeCompare(a.sent_at));
+    await atomicWrite(path, stringifyYaml({ deliveries }));
+    return deliveries;
+  });
 }
 
 export async function claimThemeMeetingEmailDelivery(

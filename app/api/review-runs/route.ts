@@ -110,10 +110,10 @@ export async function POST(request: Request) {
       draftName,
       targetVenue: text(body.targetVenue),
       deadline: text(body.deadline),
-      initiator: canSeeAll(user) ? text(body.initiator) : user.displayName,
+      initiator: canSeeAll(user) ? text(body.initiator) : user.username,
       piOrSeniorReviewer: text(body.piOrSeniorReviewer),
       cooperators: textArray(body.cooperators),
-      reviewer: canSeeAll(user) ? text(body.reviewer) : user.displayName,
+      reviewer: canSeeAll(user) ? text(body.reviewer) : user.username,
       metadata: typeof body.metadata === 'object' && body.metadata !== null ? (body.metadata as Record<string, unknown>) : {},
       checks: parsedChecks,
     });

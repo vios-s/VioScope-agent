@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import nodemailer from 'nodemailer';
 import { stringify } from 'yaml';
-import { createPostgresClient } from '../src/mastra/db/postgres';
+import { closePostgresPools, createPostgresClient } from '../src/mastra/db/postgres';
 
 const originalURL = process.env.DATABASE_URL!;
 assert.ok(originalURL, 'DATABASE_URL is required.');
@@ -140,6 +140,7 @@ try {
 } finally {
   nodemailer.createTransport = originalTransport;
   await db?.disconnect();
+  await closePostgresPools(process.env.DATABASE_URL);
   if (created) await source.pool.query(`DROP DATABASE "${database}" WITH (FORCE)`);
   await source.disconnect();
   await rm(directory, { recursive: true, force: true });

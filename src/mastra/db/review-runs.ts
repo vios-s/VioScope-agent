@@ -1,4 +1,4 @@
-import { createPostgresClient } from './postgres';
+import { createPostgresClient, withDatabaseTransaction } from './postgres';
 
 export type ReviewSignoffStatus = 'pending' | 'accepted' | 'needs_revision' | 'rejected';
 export type ReviewVerdict = 'CLEARED' | 'CONDITIONAL' | 'SLIDE';
@@ -232,12 +232,10 @@ export async function saveReviewRun(input: SaveReviewRunInput): Promise<ReviewRu
 
   await ensureReviewRunTables();
   const postgres = createPostgresClient('vioscope-review-runs');
-  let client: Awaited<ReturnType<typeof postgres.pool.connect>> | undefined;
   let savedRunId: string | undefined;
 
-  try {
-    client = await postgres.pool.connect();
-    await client.query('BEGIN');
+  await withDatabaseTransaction(async () => {
+    const client = await postgres.pool.connect();
 
     const runResult = await client.query<ReviewRunRow>(
       `
@@ -347,14 +345,7 @@ export async function saveReviewRun(input: SaveReviewRunInput): Promise<ReviewRu
     }
 
     savedRunId = run.id;
-    await client.query('COMMIT');
-  } catch (error) {
-    await client?.query('ROLLBACK').catch(() => undefined);
-    throw error;
-  } finally {
-    client?.release();
-    await postgres.disconnect();
-  }
+  });
 
   if (!savedRunId) {
     throw new Error('Review run save did not return an id.');

@@ -146,17 +146,8 @@ function normalizeName(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-export function userAliases(user: AuthUser): string[] {
-  const displayName = normalizeName(user.displayName);
-  return [
-    normalizeName(user.username),
-    displayName,
-    displayName.split(' ')[0],
-    ...user.aliases.map(normalizeName),
-  ].filter(Boolean);
-}
-
 export function isUserName(value: string | null | undefined, user: AuthUser): boolean {
   const normalized = value ? normalizeName(value) : '';
-  return Boolean(normalized && userAliases(user).includes(normalized));
+  // Display names and self-editable aliases never establish account identity.
+  return Boolean(normalized && normalized === normalizeName(user.username));
 }

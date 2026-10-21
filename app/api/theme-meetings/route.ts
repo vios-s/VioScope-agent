@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/auth/session';
+import { canSeeAll, requireSessionUser } from '../../../src/mastra/auth/session';
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { listUsersForAdmin, type AuthUser } from '../../../src/mastra/db/users';
 import { readThemeNotificationIds } from '../../../src/mastra/db/theme-notifications';
@@ -53,7 +53,7 @@ function summarizePlan(plan: ThemeMeetingPlan) {
 function hasOwnMemberRow(plan: ThemeMeetingPlan, user: AuthUser): boolean {
   return plan.meetings.some((meeting) =>
     meeting.members.some(
-      (member, index) => normalizeUsername(meeting.member_usernames[index]) === normalizeUsername(user.username) || isUserName(member, user),
+      (member, index) => normalizeUsername(meeting.member_usernames[index]) === normalizeUsername(user.username),
     ),
   );
 }
@@ -67,20 +67,20 @@ function ownSubmissionPlanForUser(plan: ThemeMeetingPlan, user: AuthUser): Theme
         const members = meeting.members
           .map((member, index) => ({ member, username: meeting.member_usernames[index] || '' }))
           .filter(
-            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username) || isUserName(member, user),
+            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username),
           );
         const submittedMembers = meeting.submitted_members
           .map((member, index) => ({ member, username: meeting.submitted_member_usernames[index] || '' }))
           .filter(
-            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username) || isUserName(member, user),
+            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username),
           );
         const missingMembers = meeting.missing_members
           .map((member, index) => ({ member, username: meeting.missing_member_usernames[index] || '' }))
           .filter(
-            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username) || isUserName(member, user),
+            ({ member, username }) => normalizeUsername(username) === normalizeUsername(user.username),
           );
         const agendaItems = meeting.agenda_items.filter(
-          (item) => normalizeUsername(item.member_username) === normalizeUsername(user.username) || isUserName(item.member, user),
+          (item) => normalizeUsername(item.member_username) === normalizeUsername(user.username),
         );
 
         return {

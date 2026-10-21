@@ -62,7 +62,8 @@
     "db:up": "docker compose up -d postgres",
     "mail:up": "docker compose up -d mailpit",
     "mail:down": "docker compose stop mailpit",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "check:access-database-hardening": "tsx scripts/check-access-database-hardening.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.73",
@@ -79,6 +80,7 @@
     "lucide-react": "^1.21.0",
     "next": "^16.2.9",
     "nodemailer": "^9.0.1",
+    "pg": "^8.22.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "yaml": "^2.9.0",
@@ -87,6 +89,7 @@
   "devDependencies": {
     "@types/node": "^26.0.0",
     "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "mastra": "^1.15.0",
