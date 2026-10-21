@@ -61,6 +61,12 @@ the stable service back to the previous tag.
 - Finish scheduled browser/web reminders for first reminder, missing-only reminder, and cutoff.
 - Generate cutoff agendas from submitted updates and mark missing updates as `not_submitted`.
 - Add coordinator/PI/admin agenda confirmation.
+- Agenda subscriptions are separate from membership: controls live in the upper right of each
+  current-week theme card. Members/coordinators and configured PIs/admin are automatically subscribed;
+  other active accounts may opt in/out without submission duties or project access. Agenda emails
+  include only the recipient's themes, with all active themes included for PIs/admin.
+- Keep the weekly two-card layout and Europe/London scheduling; production agenda cutoff is Wednesday
+  08:00. Respect email preferences and per-recipient delivery deduplication.
 - Keep email delivery optional until browser notification flow is reliable.
 
 Done when: a real weekly cycle can run without developer intervention.

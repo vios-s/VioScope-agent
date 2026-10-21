@@ -4,6 +4,8 @@ import { canSeeAll, isUserName, requireSessionUser } from '../../../src/mastra/a
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { listUsersForAdmin, type AuthUser } from '../../../src/mastra/db/users';
 import { readThemeNotificationIds } from '../../../src/mastra/db/theme-notifications';
+import { listThemeAgendaSubscriptions } from '../../../src/mastra/db/theme-agenda-subscriptions';
+import { isThemeAgendaSubscriptionRequired } from '../../../src/mastra/theme-meetings/agenda-recipients';
 import { notificationStateForUser } from '../../../src/mastra/theme-meetings/notification-state';
 import {
   managedThemeIdsForUser,
@@ -110,6 +112,7 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const meetingDate = url.searchParams.get('date') || undefined;
     const payload = await buildThemeMeetingPlan({ meetingDate, validateUsers: true });
+    const subscriptions = await listThemeAgendaSubscriptions(user.id);
     const visiblePlan = visiblePlanForUser(payload.plan, payload.config, user);
     const managedThemeIds = managedThemeIdsForUser(payload.plan, payload.config, user);
     const users = managedThemeIds.length
@@ -151,6 +154,15 @@ export async function GET(request: Request) {
       overviewPlan: summarizePlan(payload.plan),
       submissionPlan,
       pastPlans,
+      agendaSubscriptions: payload.config.themes.map((theme) => {
+        const required = isThemeAgendaSubscriptionRequired(payload.config, theme.theme_id, user.username);
+        return {
+          theme_id: theme.theme_id,
+          title: theme.title,
+          required,
+          subscribed: required || subscriptions.some((subscription) => subscription.themeId === theme.theme_id),
+        };
+      }),
       notifications: notificationStateForUser(
         visibleNotificationsForUser(currentNotifications, payload.config, user).filter((notification) => notificationAllowed(notification, user)),
         payload.plan, user, await readThemeNotificationIds(user.id),

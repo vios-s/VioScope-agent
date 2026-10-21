@@ -2308,6 +2308,24 @@ html[data-theme="dark"] .briefing-hero::after {
   gap: 0;
 }
 
+.theme-agenda-subscription {
+  display: grid;
+  justify-items: end;
+  flex-shrink: 0;
+  gap: 4px;
+}
+
+.theme-agenda-subscription span {
+  color: var(--ink-2);
+  font-size: 0.72rem;
+}
+
+.theme-agenda-subscription .ops-secondary {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.76rem;
+}
+
 .theme-meeting-grid.planning-only {
   grid-template-columns: 1fr;
 }
@@ -2334,7 +2352,7 @@ html[data-theme="dark"] .briefing-hero::after {
   background: transparent;
 }
 
-.theme-meeting-card + .theme-meeting-card {
+.theme-meeting-card:nth-child(even) {
   border-left: 1px solid var(--border-soft);
 }
 
@@ -2350,11 +2368,14 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .theme-meeting-card-head {
-  display: block;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .theme-meeting-identity {
   display: grid;
+  min-width: 0;
   gap: 5px;
 }
 
@@ -6320,7 +6341,7 @@ html[data-theme="dark"] .briefing-hero::after {
     padding: 20px 0;
   }
 
-  .theme-meeting-card + .theme-meeting-card {
+  .theme-meeting-card:nth-child(even) {
     border-left: 0;
   }
 

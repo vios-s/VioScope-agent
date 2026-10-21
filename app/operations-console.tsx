@@ -339,6 +339,7 @@ type ThemeMeetingPayload = {
   overviewPlan?: ThemeMeetingOverviewPlan;
   submissionPlan?: ThemeMeetingPlan | null;
   pastPlans?: ThemeMeetingOverviewPlan[];
+  agendaSubscriptions?: { theme_id: string; title: string; subscribed: boolean; required: boolean }[];
   notifications: ThemeMeetingNotification[];
   access?: {
     canManageThemeIds: string[];
@@ -3662,6 +3663,7 @@ function ThemeMeetingPanel({
   const [memberCandidateByTheme, setMemberCandidateByTheme] = useState<Record<string, string>>({});
   const [meetingToCancel, setMeetingToCancel] = useState<ThemeMeetingPlan['meetings'][number] | null>(null);
   const [cancellationBusy, setCancellationBusy] = useState(false);
+  const [subscriptionBusy, setSubscriptionBusy] = useState(false);
 
   const plan = payload?.plan;
   const overviewPlan = payload?.overviewPlan;
@@ -3893,6 +3895,47 @@ function ThemeMeetingPanel({
     }
   }
 
+  async function changeAgendaSubscription(themeId: string, subscribed: boolean) {
+    setSubscriptionBusy(true);
+    setFormError(null);
+    setStatus(null);
+    try {
+      await requestJson('/api/theme-meetings/subscriptions', 'Could not update agenda subscription.', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ themeId, subscribed }),
+      });
+      await onChanged();
+      setStatus(subscribed ? `Subscribed to Theme ${themeId} agenda emails. No progress update is required by this subscription.` : `Unsubscribed from Theme ${themeId} agenda emails.`);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Could not update agenda subscription.');
+    } finally {
+      setSubscriptionBusy(false);
+    }
+  }
+
+  function agendaSubscriptionButton(themeId: string) {
+    const subscription = payload?.agendaSubscriptions?.find((candidate) => candidate.theme_id === themeId);
+    if (!subscription || viewer.role === 'service') return null;
+    const helpId = `theme-${themeId}-subscription-help`;
+    return (
+      <div className="theme-agenda-subscription">
+        <button
+          className="ops-secondary"
+          type="button"
+          aria-label={`${subscription.required ? 'Subscribed to' : subscription.subscribed ? 'Unsubscribe from' : 'Subscribe to'} Theme ${themeId} agenda emails`}
+          aria-describedby={subscription.required ? helpId : undefined}
+          aria-pressed={subscription.subscribed}
+          disabled={subscription.required || subscriptionBusy}
+          onClick={() => void changeAgendaSubscription(themeId, !subscription.subscribed)}
+        >
+          {subscription.required ? 'Subscribed' : subscription.subscribed ? 'Unsubscribe' : 'Subscribe'}
+        </button>
+        {subscription.required && <span id={helpId}>Automatic</span>}
+      </div>
+    );
+  }
+
   return (
     <section className="ops-panel theme-meeting-panel">
       <div className="ops-panel-head">
@@ -3914,6 +3957,10 @@ function ThemeMeetingPanel({
 
       {formError && <div id="theme-update-error" className="theme-meeting-message form-message error" role="alert">{formError}</div>}
       {status && <div className="theme-meeting-message form-message" role="status">{status}</div>}
+
+      {!viewer.notificationPreferences.theme_meeting_reminders.email && (
+        <p className="theme-meeting-message ops-muted-line">Email delivery is off. Enable Theme meeting reminders email in Settings to receive agendas.</p>
+      )}
 
       {!plan && !overviewPlan ? (
         <div className="ops-empty">
@@ -3942,6 +3989,7 @@ function ThemeMeetingPanel({
                         <h3>Theme {summary.theme_id}</h3>
                         <p className="theme-meeting-title">{summary.title}</p>
                       </div>
+                      {agendaSubscriptionButton(summary.theme_id)}
                     </div>
                     {summary.cancelled ? (
                       <p className="theme-cancelled">This meeting is cancelled. No reminders or agenda will be sent.</p>
