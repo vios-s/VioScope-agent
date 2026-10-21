@@ -16,7 +16,7 @@ import { getUserById, getUserByUsername, listUsersForAdmin, type AuthUser } from
 import { registeredNotificationEmail, sendNotificationEmail } from '../email';
 import { renderThemeMeetingAgendaEmail } from './agenda-email';
 import { listThemeAgendaSubscriptions } from '../db/theme-agenda-subscriptions';
-import { themeAgendaRecipients } from './agenda-recipients';
+import { themeAgendaPreviewRecipients, themeAgendaRecipients } from './agenda-recipients';
 import {
   themeMeetingNotificationSchema,
   themeMeetingPlanSchema,
@@ -82,6 +82,7 @@ export type ThemeMeetingReminderEmailResult = {
 
 export type ThemeMeetingAgendaEmailOptions = {
   themeId?: string;
+  phase?: 'preview' | 'final';
 } & ThemeMeetingStoreOptions;
 
 export type UpdateThemeMeetingMemberInput = ThemeMeetingStoreOptions & {
@@ -352,6 +353,10 @@ function configuredReminderSchedule(config: ThemeMeetingConfig) {
       weekday: configuredReminderWeekday(config, 'gentle_missing_update_reminder', 'Tuesday'),
       time: configuredReminderTime(config, 'gentle_missing_update_reminder', '04:00'),
     },
+    agendaPreview: {
+      weekday: configuredReminderWeekday(config, 'agenda_preview', 'Tuesday'),
+      time: configuredReminderTime(config, 'agenda_preview', '13:00'),
+    },
     agendaCutoff: {
       weekday: configuredReminderWeekday(config, 'agenda_cutoff', 'Wednesday'),
       time: configuredReminderTime(config, 'agenda_cutoff', '08:00'),
@@ -543,7 +548,7 @@ export async function buildThemeMeetingReminderRun(
     throw new Error(`Theme ${options.themeId} is not active on ${plan.meeting_date}.`);
   }
 
-  const notifications = meetings.flatMap((meeting) => {
+  const notifications = action === 'agenda_preview' ? [] : meetings.flatMap((meeting) => {
     const members =
       action === 'first_reminder'
         ? meeting.members.map((member, index) => ({ member, username: meeting.member_usernames[index] || undefined }))
@@ -572,7 +577,7 @@ export async function buildThemeMeetingReminderRun(
     );
   });
 
-  if (!options.previewOnly) await saveThemeMeetingNotifications(notifications, options);
+  if (!options.previewOnly && action !== 'agenda_preview') await saveThemeMeetingNotifications(notifications, options);
   return {
     action,
     config,
@@ -635,19 +640,22 @@ export async function sendThemeMeetingAgendaEmails(
   options: ThemeMeetingAgendaEmailOptions = {},
 ): Promise<ThemeMeetingReminderEmailResult> {
   const result: ThemeMeetingReminderEmailResult = { sent: 0, skipped: 0, failed: 0 };
-  const subscriptions = await listThemeAgendaSubscriptions();
-  const subject = `VioScope advisory theme meeting agenda ${plan.meeting_date}${
+  const preview = options.phase === 'preview';
+  const recipients = preview
+    ? themeAgendaPreviewRecipients(plan, options.themeId)
+    : themeAgendaRecipients(plan, config, await listThemeAgendaSubscriptions(), options.themeId);
+  const subject = `${preview ? '[DRAFT] VioScope theme meeting agenda preview' : 'VioScope advisory theme meeting agenda'} ${plan.meeting_date}${
     options.themeId ? ` Theme ${options.themeId}` : ''
   }`;
 
-  for (const [username, recipientPlan] of themeAgendaRecipients(plan, config, subscriptions, options.themeId)) {
+  for (const [username, recipientPlan] of recipients) {
     const user = await getUserByUsername(username);
     const email = registeredNotificationEmail(user?.email);
     if (!user || user.provisioningStatus !== 'active' || !email || !user.notificationPreferences.theme_meeting_reminders.email) {
       result.skipped += 1;
       continue;
     }
-    const deliveryId = `theme-agenda:${plan.meeting_date}:${options.themeId || 'all'}:${username}`;
+    const deliveryId = `${preview ? 'theme-agenda-preview' : 'theme-agenda'}:${plan.meeting_date}:${options.themeId || 'all'}:${username}`;
 
     try {
       const sent = await sendClaimedThemeMeetingEmail(
@@ -655,7 +663,7 @@ export async function sendThemeMeetingAgendaEmails(
         {
           to: email,
           subject,
-          ...renderThemeMeetingAgendaEmail(recipientPlan),
+          ...renderThemeMeetingAgendaEmail(recipientPlan, { phase: options.phase, cutoff: configuredReminderSchedule(config).agendaCutoff }),
         },
         options,
       );

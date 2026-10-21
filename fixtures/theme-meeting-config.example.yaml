@@ -102,6 +102,11 @@ reminders:
     time: "04:00"
     channel: browser
     only_if_missing_update: true
+  - name: agenda_preview
+    weekday: Tuesday
+    time: "13:00"
+    channel: email
+    audience: members_only
   - name: agenda_cutoff
     weekday: Wednesday
     time: "08:00"

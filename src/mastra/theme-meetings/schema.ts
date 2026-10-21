@@ -17,6 +17,7 @@ export const themeUpdateTypeSchema = z.enum(['deep_dive', 'short_update', 'miles
 export const themeReminderActionSchema = z.enum([
   'first_reminder',
   'gentle_missing_update_reminder',
+  'agenda_preview',
   'agenda_cutoff',
   'manual_missing_update_reminder',
 ]);

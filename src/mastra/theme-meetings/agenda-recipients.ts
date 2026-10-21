@@ -1,6 +1,18 @@
 import type { ThemeAgendaSubscription } from '../db/theme-agenda-subscriptions';
 import type { ThemeMeetingConfig, ThemeMeetingPlan } from './schema';
 
+export function themeAgendaPreviewRecipients(plan: ThemeMeetingPlan, themeId?: string): Map<string, ThemeMeetingPlan> {
+  const recipients = new Map<string, ThemeMeetingPlan>();
+  for (const meeting of plan.meetings.filter((meeting) => !meeting.cancelled && (!themeId || meeting.theme_id === themeId))) {
+    for (const username of new Set(meeting.member_usernames.map((member) => member.trim().toLowerCase()).filter(Boolean))) {
+      const recipient = recipients.get(username) || { ...plan, meetings: [] };
+      recipient.meetings.push(meeting);
+      recipients.set(username, recipient);
+    }
+  }
+  return recipients;
+}
+
 export function isThemeAgendaSubscriptionRequired(config: ThemeMeetingConfig, themeId: string, username: string): boolean {
   const theme = config.themes.find((candidate) => candidate.theme_id === themeId);
   if (!theme) return false;

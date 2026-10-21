@@ -681,9 +681,10 @@ const updateTypeOptionLabels: Record<ThemeUpdateType, string> = {
 
 const themeMeetingSlotTypes: ThemeUpdateType[] = ['deep_dive', 'short_update', 'milestone_check', 'strategic_slot', 'nothing_to_report'];
 const themeMeetingReminderRows = [
-  { name: 'first_reminder', label: 'Update reminder' },
-  { name: 'gentle_missing_update_reminder', label: 'Missing-update reminder' },
-  { name: 'agenda_cutoff', label: 'Submission deadline and agenda' },
+  { name: 'first_reminder', label: 'Update reminder', weekday: 'Monday', time: '08:00' },
+  { name: 'gentle_missing_update_reminder', label: 'Missing-update reminder', weekday: 'Tuesday', time: '04:00' },
+  { name: 'agenda_preview', label: 'Draft agenda preview (members only)', weekday: 'Tuesday', time: '13:00' },
+  { name: 'agenda_cutoff', label: 'Submission deadline and agenda', weekday: 'Wednesday', time: '08:00' },
 ];
 
 const checklistTemplates: ChecklistTemplate[] = [
@@ -6334,7 +6335,8 @@ function ThemeMeetingSettingsPanel() {
                     </div>
                     <div className="theme-settings-control split">
                       <select
-                        value={reminderValue(row.name, 'weekday', row.name === 'agenda_cutoff' ? 'Wednesday' : row.name === 'first_reminder' ? 'Monday' : 'Tuesday')}
+                        aria-label={`${row.label} weekday`}
+                        value={reminderValue(row.name, 'weekday', row.weekday)}
                         onChange={(event) => updateReminder(row.name, { weekday: event.target.value })}
                       >
                         {configWeekdays.map((weekday) => (
@@ -6345,7 +6347,8 @@ function ThemeMeetingSettingsPanel() {
                       </select>
                       <input
                         type="time"
-                        value={reminderValue(row.name, 'time', row.name === 'agenda_cutoff' ? '08:00' : row.name === 'first_reminder' ? '10:00' : '15:00')}
+                        aria-label={`${row.label} time`}
+                        value={reminderValue(row.name, 'time', row.time)}
                         onChange={(event) => updateReminder(row.name, { time: event.target.value })}
                       />
                     </div>

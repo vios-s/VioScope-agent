@@ -19,7 +19,7 @@ async function main() {
 
   if (!parsedAction.success) {
     throw new Error(
-      'Use --action=first_reminder, --action=gentle_missing_update_reminder, --action=manual_missing_update_reminder, or --action=agenda_cutoff.',
+      'Use --action=first_reminder, --action=gentle_missing_update_reminder, --action=manual_missing_update_reminder, --action=agenda_preview, or --action=agenda_cutoff.',
     );
   }
 
@@ -27,14 +27,14 @@ async function main() {
   const run = await buildThemeMeetingReminderRun(action, { meetingDate });
   const emails = await sendThemeMeetingReminderEmails(run.notifications);
   const agendaEmails =
-    action === 'agenda_cutoff'
-      ? await sendThemeMeetingAgendaEmails(run.plan, run.config)
+    action === 'agenda_cutoff' || action === 'agenda_preview'
+      ? await sendThemeMeetingAgendaEmails(run.plan, run.config, { phase: action === 'agenda_preview' ? 'preview' : 'final' })
       : { sent: 0, skipped: 0, failed: 0 };
 
   console.log(run.markdown);
   console.log(`\n# Email Notifications\n\nSent: ${emails.sent}\nSkipped: ${emails.skipped}\nFailed: ${emails.failed}`);
 
-  if (action === 'agenda_cutoff') {
+  if (action === 'agenda_cutoff' || action === 'agenda_preview') {
     console.log('\n# Agenda Message\n');
     console.log(renderThemeMeetingPlan(run.plan));
     console.log(

@@ -57,8 +57,8 @@ export async function POST(request: Request) {
     });
     const emails = await sendThemeMeetingReminderEmails(run.notifications);
     const agendaEmails =
-      run.action === 'agenda_cutoff'
-        ? await sendThemeMeetingAgendaEmails(run.plan, payload.config, { themeId })
+      run.action === 'agenda_cutoff' || run.action === 'agenda_preview'
+        ? await sendThemeMeetingAgendaEmails(run.plan, payload.config, { themeId, phase: run.action === 'agenda_preview' ? 'preview' : 'final' })
         : { sent: 0, skipped: 0, failed: 0 };
     const scopedPlan = planForTheme(run.plan, themeId);
 

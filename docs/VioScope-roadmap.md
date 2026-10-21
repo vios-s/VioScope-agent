@@ -59,6 +59,10 @@ the stable service back to the previous tag.
 ### Phase 2: Theme Meeting Automation
 
 - Finish scheduled browser/web reminders for first reminder, missing-only reminder, and cutoff.
+- Send a Tuesday 13:00 Europe/London draft agenda preview only to the active theme's members.
+  Label it provisional, show deep dives and outstanding submissions, and keep updates editable until
+  Wednesday 08:00. Keep preview/final delivery receipts separate; only the cutoff circulation includes
+  additional PIs/admin and subscribers, scoped by theme and respecting email preferences.
 - Generate cutoff agendas from submitted updates and mark missing updates as `not_submitted`.
 - Add coordinator/PI/admin agenda confirmation.
 - Agenda subscriptions are separate from membership: controls live in the upper right of each

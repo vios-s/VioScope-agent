@@ -1,0 +1,10 @@
+[Unit]
+Description=VioScope members-only draft theme meeting agenda
+
+[Timer]
+OnCalendar=Tue *-*-* 13:00:00 Europe/London
+Persistent=true
+Unit=vioscope-theme-meeting@agenda_preview.service
+
+[Install]
+WantedBy=timers.target

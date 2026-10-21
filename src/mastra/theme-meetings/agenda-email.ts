@@ -85,12 +85,25 @@ function skipSuggestion(meeting: ThemeMeetingPlan['meetings'][number]): string {
   return `Suggestion: consider skipping this meeting, as no discussion slots were requested.${meeting.missing_members.length ? ' Some updates are missing; check with those members first.' : ''} Coordinator, PI, or administrator confirmation is required; the meeting remains scheduled.`;
 }
 
-export function renderThemeMeetingAgendaEmail(plan: ThemeMeetingPlan): { text: string; html: string } {
+export function renderThemeMeetingAgendaEmail(
+  plan: ThemeMeetingPlan,
+  options: { phase?: 'preview' | 'final'; cutoff?: { weekday: string; time: string } } = {},
+): { text: string; html: string } {
+  const preview = options.phase === 'preview';
+  const title = preview ? 'Draft theme meeting agenda' : 'Theme meeting agenda';
+  const missingLabel = preview ? 'Not submitted yet' : 'Missing updates';
+  const notice = preview
+    ? `This is a draft based on updates submitted so far (${plan.generated_at}). Review who is doing a deep dive and adjust your own slot, update or presentation plans before ${options.cutoff?.weekday || 'Wednesday'} ${options.cutoff?.time || '08:00'} (${plan.timezone}). More submissions and changes may follow. The cutoff agenda will be circulated after the deadline.`
+    : advisory;
+  const emptyDiscussion = preview ? 'No discussion slots requested yet.' : 'No discussion slots requested.';
+  const noSlotsNotice = (meeting: ThemeMeetingPlan['meetings'][number]) => preview
+    ? 'Submissions are still open. This draft does not decide whether the meeting should be skipped.'
+    : skipSuggestion(meeting);
   const meetings = plan.meetings.filter((meeting) => !meeting.cancelled);
   const text = [
-    'Theme meeting agenda',
+    title,
     `Date: ${plan.meeting_date} | Cycle group: ${plan.cycle_group} | Timezone: ${plan.timezone}`,
-    advisory,
+    notice,
     ...meetings.map((meeting) => {
       const discussion = discussionItems(meeting);
       const written = meeting.agenda_items.filter((item) => item.duration_minutes === 0);
@@ -98,10 +111,10 @@ export function renderThemeMeetingAgendaEmail(plan: ThemeMeetingPlan): { text: s
       `Theme ${meeting.theme_id} — ${meeting.title}`,
       `${meeting.time} | ${meeting.duration_minutes} min | Coordinator: ${meeting.coordinator}`,
       `Submitted: ${meeting.submitted_members.length}/${meeting.members.length} | Planned: ${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}`,
-      `Missing updates: ${meeting.missing_members.join(', ') || 'None'}`,
+      `${missingLabel}: ${meeting.missing_members.join(', ') || 'None'}`,
       'Discussion agenda',
-      discussion.map((item) => `${item.member} | ${slotLabels[item.update_type]} | ${item.duration_minutes} min`).join('\n') || 'No discussion slots requested.',
-      ...(discussion.length ? [] : [skipSuggestion(meeting)]),
+      discussion.map((item) => `${item.member} | ${slotLabels[item.update_type]} | ${item.duration_minutes} min`).join('\n') || emptyDiscussion,
+      ...(discussion.length ? [] : [noSlotsNotice(meeting)]),
       ...[...discussion, ...written].map((item, index) => [
         ...(index === 0 ? [discussion.length ? 'Discussion details' : 'Updates'] : index === discussion.length ? ['Updates'] : []),
         `${item.member} — ${slotLabels[item.update_type]} (${item.duration_minutes} min)`,
@@ -132,7 +145,7 @@ export function renderThemeMeetingAgendaEmail(plan: ThemeMeetingPlan): { text: s
       <h2 style="margin:0 0 8px;font-size:21px;line-height:1.4;color:#183b4e;">Theme ${escapeHtml(meeting.theme_id)} &mdash; ${escapeHtml(meeting.title)}</h2>
       <p style="margin:0 0 12px;">${escapeHtml(meeting.time)} &middot; ${meeting.duration_minutes} min &middot; Coordinator: ${escapeHtml(meeting.coordinator)}</p>
       <p style="margin:0 0 6px;color:#52616b;">Submitted: <strong>${meeting.submitted_members.length}/${meeting.members.length}</strong> &nbsp; Planned: <strong>${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}</strong></p>
-      <p style="margin:0 0 8px;color:#52616b;">Missing updates: ${escapeHtml(meeting.missing_members.join(', ') || 'None')}</p>
+      <p style="margin:0 0 8px;color:#52616b;">${missingLabel}: ${escapeHtml(meeting.missing_members.join(', ') || 'None')}</p>
     </td></tr>
     <tr><td style="padding:8px 24px 16px;">
       <h3 style="margin:0 0 10px;font-size:18px;color:#183b4e;">Discussion agenda</h3>
@@ -145,7 +158,7 @@ export function renderThemeMeetingAgendaEmail(plan: ThemeMeetingPlan): { text: s
           <td style="padding:12px 8px;border-bottom:1px solid #dce3e9;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(item.member)}</td>
           <td style="padding:12px 8px;border-bottom:1px solid #dce3e9;overflow-wrap:anywhere;word-break:break-word;">${slotLabels[item.update_type]}</td>
           <td align="right" style="padding:12px 8px;border-bottom:1px solid #dce3e9;">${item.duration_minutes}</td>
-        </tr>`).join('')}</tbody></table>` : `<p style="margin:0 0 12px;color:#52616b;">No discussion slots requested.</p><p style="margin:0;padding:12px;background-color:#edf3f6;">${escapeHtml(skipSuggestion(meeting))}</p>`}
+        </tr>`).join('')}</tbody></table>` : `<p style="margin:0 0 12px;color:#52616b;">${emptyDiscussion}</p><p style="margin:0;padding:12px;background-color:#edf3f6;">${escapeHtml(noSlotsNotice(meeting))}</p>`}
     </td></tr>
     ${details(discussion, 'Discussion details')}
     ${details(written, 'Updates')}
@@ -154,15 +167,16 @@ export function renderThemeMeetingAgendaEmail(plan: ThemeMeetingPlan): { text: s
   }).join('');
 
   const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Theme meeting agenda</title></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>
 <body style="margin:0;padding:0;background-color:#f3f5f7;color:#24333d;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f5f7;"><tr><td align="center" style="padding:24px 8px;">
 <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="width:100%;max-width:680px;background-color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:#24333d;">
   <tr><td style="padding:24px;background-color:#183b4e;color:#ffffff;">
-    <p style="margin:0 0 8px;font-size:13px;letter-spacing:1px;">VIOSCOPE &middot; ADVISORY AGENDA</p>
-    <h1 style="margin:0 0 12px;font-size:28px;line-height:1.3;">Theme meeting agenda</h1>
+    <p style="margin:0 0 8px;font-size:13px;letter-spacing:1px;">VIOSCOPE &middot; ${preview ? 'DRAFT AGENDA PREVIEW' : 'ADVISORY AGENDA'}</p>
+    <h1 style="margin:0 0 12px;font-size:28px;line-height:1.3;">${title}</h1>
     <p style="margin:0;">${escapeHtml(plan.meeting_date)} &middot; Cycle ${escapeHtml(plan.cycle_group)}<br>${escapeHtml(plan.timezone)}</p>
   </td></tr>
+  ${preview ? `<tr><td style="padding:16px 24px;background-color:#fff3cd;">${escapeHtml(notice)}</td></tr>` : ''}
   ${sections || '<tr><td style="padding:24px;">No active theme meetings are scheduled.</td></tr>'}
   <tr><td style="padding:20px 24px;background-color:#edf3f6;color:#52616b;font-size:13px;">${advisory}</td></tr>
 </table>
