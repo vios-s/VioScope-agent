@@ -50,6 +50,7 @@ import type {
   ThemeMeetingPlan,
   ThemeUpdateType,
 } from '../src/mastra/theme-meetings/schema';
+import { suggestThemeMeetingSlot } from '../src/mastra/theme-meetings/project-advice';
 import { vioscopeChatUiConfig } from '../src/mastra/agents/vioscope.chat-ui.config';
 
 type ActiveView = 'briefing' | 'projects' | 'chat' | 'meeting' | 'checklists' | 'feedback' | 'users';
@@ -676,7 +677,7 @@ const updateTypeOptionLabels: Record<ThemeUpdateType, string> = {
   deep_dive: 'Deep dive (20-30 min)',
   short_update: 'Short update (5 min)',
   milestone_check: 'Milestone check (10 min)',
-  strategic_slot: 'Strategic slot (paper or idea)',
+  strategic_slot: 'Strategic slot (10 min, paper or idea)',
 };
 
 const themeMeetingSlotTypes: ThemeUpdateType[] = ['deep_dive', 'short_update', 'milestone_check', 'strategic_slot', 'nothing_to_report'];
@@ -824,10 +825,10 @@ function formatDate(value: string | null) {
 }
 
 function formatAge(days: number | null) {
-  if (days === null) return 'unknown';
+  if (days === null) return 'not recorded';
   if (days === 0) return 'today';
-  if (days === 1) return '1 day';
-  return `${days} days`;
+  if (days === 1) return '1 day ago';
+  return `${days} days ago`;
 }
 
 function canSeeAllRole(role: CurrentUser['role']) {
@@ -2355,6 +2356,7 @@ function ProjectCard({
 }) {
   const currentArtifacts = currentProjectArtifacts(project);
   const age = formatAge(daysSinceDate(project.lastUpdate));
+  const meetingAdvice = suggestThemeMeetingSlot(project);
   return (
     <article className="project-card">
       <div className="project-card-head">
@@ -2376,7 +2378,7 @@ function ProjectCard({
       </div>
       <div className="project-meta-row">
         <span>Last update</span>
-        <strong>{age === 'today' ? 'Today' : `${age} ago`}</strong>
+        <strong>{age === 'today' ? 'Today' : age}</strong>
       </div>
       <div className="project-meta-row">
         <span>Artifacts</span>
@@ -2384,7 +2386,7 @@ function ProjectCard({
       </div>
       <div className="project-meta-row">
         <span>Suggested slot</span>
-        <strong>{projectSlotLabels[project.recommendation]}</strong>
+        <strong>{meetingAdvice ? (meetingAdvice.slot ? updateTypeOptionLabels[meetingAdvice.slot] : 'Update progress first') : projectSlotLabels[project.recommendation]}</strong>
       </div>
       {project.blocker && <p className="project-blocker">{project.blocker}</p>}
       <div className="button-row">
@@ -3638,6 +3640,28 @@ function ProjectDetailModal({
   );
 }
 
+function ProjectMeetingSuggestion({ project, onUseSlot }: {
+  project: ManagedProject;
+  onUseSlot?: (slot: ThemeUpdateType) => void;
+}) {
+  const advice = suggestThemeMeetingSlot(project);
+  if (!advice) return null;
+  const suggestedSlot = advice.slot;
+  return (
+    <article className="theme-project-advice" aria-label={`Meeting suggestion for ${project.title}`}>
+      <strong>{project.title}</strong>
+      <p><strong>Suggested slot: {advice.slot ? updateTypeOptionLabels[advice.slot] : 'Update progress first'}</strong></p>
+      <p>{advice.evidence}</p>
+      <p>{advice.preparation}</p>
+      {onUseSlot && suggestedSlot && (
+        <button className="ops-secondary" type="button" onClick={() => onUseSlot(suggestedSlot)}>
+          Use suggested slot
+        </button>
+      )}
+    </article>
+  );
+}
+
 function ThemeMeetingPanel({
   payload,
   loading,
@@ -3824,9 +3848,8 @@ function ThemeMeetingPanel({
 
     setFormError(null);
     setProgressText(text);
-    if (sourceProject.recommendation !== 'none') {
-      setUpdateType(sourceProject.recommendation);
-    }
+    const advice = suggestThemeMeetingSlot(sourceProject);
+    if (advice?.slot) setUpdateType(advice.slot);
     setStatus(`Prefilled from ${sourceProject.title}. Review before saving.`);
   }
 
@@ -4161,6 +4184,16 @@ function ThemeMeetingPanel({
                     </button>
                   </div>
                 )}
+                {sourceProject && (
+                  <ProjectMeetingSuggestion
+                    project={sourceProject}
+                    onUseSlot={(slot) => {
+                      setUpdateType(slot);
+                      setStatus('Suggested slot selected. Review your update before submitting.');
+                    }}
+                  />
+                )}
+                <p>Suggestions reserve no agenda time. Choose Nothing to report only when you have no progress or question to share.</p>
                 <div className="prompt-field">
                   <div className="prompt-field-head">
                     <label htmlFor={progressFieldId}>Progress ({progressWordCount}/75 words)</label>
@@ -4485,6 +4518,7 @@ function ProjectsView({
   collaboratorUsers,
   uiCopyPrompts,
   onProjectsChanged,
+  onOpenMeeting,
 }: {
   projectsPayload: ProjectsPayload | null;
   projectsLoading: boolean;
@@ -4492,10 +4526,10 @@ function ProjectsView({
   collaboratorUsers: MentionableUser[];
   uiCopyPrompts: UiCopyPrompts | null;
   onProjectsChanged: () => Promise<void>;
+  onOpenMeeting: () => void;
 }) {
   const canSeeAll = canSeeAllRole(viewer.role);
   const mode: ProjectsMode = canSeeAll ? 'pi' : 'member';
-  const [confirmed, setConfirmed] = useState(false);
   const [agendaState, setAgendaState] = useState<Record<string, 'added' | 'dismissed'>>({});
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailProject, setDetailProject] = useState<ManagedProject | null>(null);
@@ -4646,36 +4680,19 @@ function ProjectsView({
             <section className="ops-panel">
               <div className="ops-panel-head">
                 <div>
-                  <h2>This week's theme meeting</h2>
-                  <p>Agenda assembled from current project state.</p>
+                  <h2>Prepare for your theme meeting</h2>
+                  <p>Suggestions from your project progress. You choose what to discuss.</p>
                 </div>
-                <StatusChip status={attentionProjects[0]?.status || 'on_track'} />
+                <button className="ops-secondary" type="button" onClick={onOpenMeeting}>Open meeting</button>
               </div>
-              <ol className="agenda-list">
-                <li>Round-table status check</li>
-                {attentionProjects.slice(0, 2).map((project) => (
-                  <li key={project.id}>{projectSlotLabels[project.recommendation]}: {project.title}</li>
+              <div className="theme-project-suggestions">
+                {activeProjects.filter((project) => project.lifecycle === 'active' && normalizedName(project.ownerUsername) === normalizedName(viewer.username)).map((project) => (
+                  <ProjectMeetingSuggestion key={project.id} project={project} />
                 ))}
-                <li>Submission and materials follow-ups</li>
-              </ol>
-              <div className="confirm-box">
-                <strong>Confirm your status for the round-table</strong>
-                <p>
-                  {activeProjects[0]
-                    ? `${activeProjects[0].title} is ${statusLabels[activeProjects[0].status].toLowerCase()}; last update was ${formatAge(
-                        daysSinceDate(activeProjects[0].lastUpdate),
-                      )} ago.`
-                    : 'No member project is available.'}
-                </p>
-                <div className="button-row">
-                  <button className="ops-primary" type="button" onClick={() => setConfirmed(true)}>
-                    <Check aria-hidden="true" />
-                    {confirmed ? 'Confirmed' : 'Confirm'}
-                  </button>
-                  <button className="ops-secondary" type="button">
-                    Review timeline
-                  </button>
-                </div>
+                {!activeProjects.some((project) => project.lifecycle === 'active' && normalizedName(project.ownerUsername) === normalizedName(viewer.username)) && (
+                  <p className="ops-muted-line">No active owned project is available for suggestions. You can still choose a slot in Meeting.</p>
+                )}
+                <p className="ops-muted-line">Suggestions do not submit an update or reserve agenda time. The coordinator confirms the final agenda.</p>
               </div>
             </section>
 
@@ -4828,7 +4845,7 @@ function ProjectsView({
                     <div>
                       <h3>{project.title}</h3>
                       <p>
-                        {project.ownerUsername} / stage {project.stage} ({project.stageProgress}%) / last update {formatAge(daysSinceDate(project.lastUpdate))} ago
+                        {project.ownerUsername} / stage {project.stage} ({project.stageProgress}%) / last update {formatAge(daysSinceDate(project.lastUpdate))}
                       </p>
                     </div>
                     <StatusChip status={project.status} />
@@ -8690,6 +8707,7 @@ export function OperationsConsole() {
               collaboratorUsers={collaboratorUsers}
               uiCopyPrompts={uiCopyPrompts}
               onProjectsChanged={loadProjects}
+              onOpenMeeting={() => selectView('meeting')}
             />
           )}
           {activeView === 'chat' && (

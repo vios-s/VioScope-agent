@@ -63,7 +63,8 @@
     "mail:up": "docker compose up -d mailpit",
     "mail:down": "docker compose stop mailpit",
     "db:down": "docker compose down",
-    "check:access-database-hardening": "tsx scripts/check-access-database-hardening.ts"
+    "check:access-database-hardening": "tsx scripts/check-access-database-hardening.ts",
+    "check:theme-project-advice": "node --import tsx scripts/check-theme-project-advice.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.73",

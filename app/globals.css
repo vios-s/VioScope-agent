@@ -1896,28 +1896,31 @@ html[data-theme="dark"] .briefing-hero::after {
   min-height: 42px;
 }
 
-.agenda-list {
+.theme-project-suggestions {
   display: grid;
-  gap: 10px;
-  margin: 0;
-  padding: 16px 18px 0 38px;
-  color: var(--ink-2);
-  line-height: 1.5;
+  gap: 12px;
+  padding: 16px;
 }
 
-.confirm-box {
+.theme-project-advice {
   display: grid;
-  gap: 9px;
-  margin: 16px;
+  gap: 8px;
+  min-width: 0;
   padding: 13px;
   border: 1px solid var(--teal-surface-bd);
   border-radius: 10px;
   background: var(--teal-surface);
+  overflow-wrap: anywhere;
 }
 
-.confirm-box p {
-  color: var(--muted);
+.theme-project-advice p {
+  margin: 0;
+  color: var(--ink-2);
   line-height: 1.5;
+}
+
+.theme-project-advice .ops-secondary {
+  justify-self: start;
 }
 
 .button-row {
@@ -2518,6 +2521,7 @@ html[data-theme="dark"] .briefing-hero::after {
 .theme-update-form > h3,
 .theme-update-form > p,
 .theme-update-form > .theme-prefill-row,
+.theme-update-form > .theme-project-advice,
 .theme-update-form > .prompt-field,
 .theme-update-form > .ops-primary {
   grid-column: 1 / -1;

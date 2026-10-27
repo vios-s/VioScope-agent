@@ -84,6 +84,11 @@ Done when: a real weekly cycle can run without developer intervention.
 
 - Improve project freshness signals from progress updates, artifact changes, and watch paths.
 - Make planning recommendations easier to inspect and override.
+- Show project-based meeting slot advice with recorded evidence and preparation prompts in Projects
+  and the member meeting form. Blockers, requests for input, recent milestones, stage progress and
+  deadlines inform the suggestion; ordinary recent progress suggests a 5-minute short update.
+  Missing/stale progress never implies `nothing_to_report`. Adopting advice only changes the draft;
+  members submit explicitly and coordinators confirm the final agenda.
 - Keep artifact summaries as context; do not inject raw large files into agent prompts.
 - Add focused checks for permission boundaries around artifacts and project updates.
 
