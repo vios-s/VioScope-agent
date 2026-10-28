@@ -316,15 +316,15 @@ synchronized to this release; unfinished dev work is preserved in a separate loc
 users must sign in again. The editable Idea Pitch rules remain in the configured skill file.
 
 
-### 2026-10-28 — Approved project / theme meeting handoff (development)
+### 2026-10-28 — Approved project / theme meeting handoff (deployed)
 
 - Approved pitch conversion: carry the agreed milestone into the project target; record a first owner-responsible action and deadline in the existing project TODO list.
 - Theme meeting submission: optionally attach an owned active project's owner, open next actions and deadlines. Existing projects are supported. A member must still submit explicitly; human agenda confirmation remains separate.
 - Keep live tasks in Projects and historical snapshots in meeting records. Shared snapshots do not reveal private pitch versions or expand project permissions.
-- Validation: disposable database integration, existing theme workflow/advice checks, English policy, production build and synthetic desktop/mobile browser flow. This entry does not mark deployment complete.
+- Validation: disposable database integration, existing theme workflow/advice checks, English policy, production build and synthetic desktop/mobile browser flow. Deployed with the Skeleton Lock release below.
 
 
-### Skeleton Lock rework — main development
+### Skeleton Lock rework — deployed
 
 - Checklists → Skeleton Lock opens a dedicated single-check view, without the old template preview or an unrelated Run All action.
 - Default input is eight expanded evidence sections matching the configured VIOS Skeleton Lock skill. Users may instead paste a complete outline or upload an existing supported draft/deck (TXT, Markdown, LaTeX, RST, PPTX). Input modes are exclusive; hidden material is never silently sent.
@@ -336,3 +336,6 @@ users must sign in again. The editable Idea Pitch rules remain in the configured
 
 
 Skeleton Lock live-AI validation (2026-10-28): a fictional cell-segmentation outline was reviewed by the configured ELM model using the configured Skeleton Lock skill. The result was SLIDE, with nine findings and ten draft citations; all citations were within the supplied text and were manually checked against the evidence. The review distinguished proposed experiments from completed results and retained pending human sign-off. Run `npm run check:skeleton-quality` to repeat this synthetic live-model check. One passing case is a smoke test, not a comprehensive model evaluation.
+
+
+Skeleton Lock deployment verified (2026-10-28): main was pushed and runtime commit `69cc5f6` was deployed as build `henMjh3TcAIVve2veXl8F`. A temporary synthetic member used the public HTTPS website to run the configured real AI, save the review, and inspect pending human sign-off. The online review returned SLIDE with eight evidence-linked findings. Authentication guards, desktop/mobile layout and absence of client errors passed. The temporary account and review were removed after screenshots; the audit trail was retained. The previous runtime and a restore-verified database backup are retained in the local deployment receipt. This release also includes the approved-project/theme-meeting handoff.
