@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const promptsDir = join(process.cwd(), 'src', 'mastra', 'prompts');
@@ -11,3 +11,5 @@ for (const fileName of await readdir(promptsDir)) {
     await copyFile(join(promptsDir, fileName), join(outputDir, fileName));
   }
 }
+
+await cp(join(promptsDir, 'idea-pitch'), join(outputDir, 'idea-pitch'), { recursive: true });

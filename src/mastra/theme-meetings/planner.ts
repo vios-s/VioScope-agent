@@ -30,12 +30,15 @@ import {
   type ThemeUpdateType,
 } from './schema';
 
+import { applyConfirmedAgendas, readMeetingWorkflow } from './workflow';
+
 const millisecondsPerDay = 24 * 60 * 60 * 1000;
 const targetWeekday = 3; // Wednesday, UTC date math over YYYY-MM-DD.
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
 const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
 
 export type BuildThemeMeetingPlanOptions = ThemeMeetingStoreOptions & {
+  rawAgenda?: boolean;
   meetingDate?: string;
   now?: Date;
   validateUsers?: boolean;
@@ -157,6 +160,20 @@ function localDateString(now: Date, timezone: string): string {
   }).formatToParts(now);
   const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
   return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function localDateTimeString(now: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 }
 
 export function upcomingWednesday(now = new Date(), timezone = 'Europe/London'): string {
@@ -347,11 +364,11 @@ function configuredReminderSchedule(config: ThemeMeetingConfig) {
   return {
     firstReminder: {
       weekday: configuredReminderWeekday(config, 'first_reminder', 'Monday'),
-      time: configuredReminderTime(config, 'first_reminder', '08:00'),
+      time: configuredReminderTime(config, 'first_reminder', '10:00'),
     },
     gentleReminder: {
       weekday: configuredReminderWeekday(config, 'gentle_missing_update_reminder', 'Tuesday'),
-      time: configuredReminderTime(config, 'gentle_missing_update_reminder', '04:00'),
+      time: configuredReminderTime(config, 'gentle_missing_update_reminder', '10:00'),
     },
     agendaPreview: {
       weekday: configuredReminderWeekday(config, 'agenda_preview', 'Tuesday'),
@@ -362,6 +379,13 @@ function configuredReminderSchedule(config: ThemeMeetingConfig) {
       time: configuredReminderTime(config, 'agenda_cutoff', '08:00'),
     },
   };
+}
+
+function submissionDeadline(config: ThemeMeetingConfig, meetingDate: string): string {
+  const cutoff = configuredReminderSchedule(config).agendaCutoff;
+  const meetingWeekday = parseDateOnly(meetingDate).getUTCDay();
+  const cutoffWeekday = (weekdays.indexOf(cutoff.weekday as (typeof weekdays)[number]) + 1) % 7;
+  return `${addDays(meetingDate, -modulo(meetingWeekday - cutoffWeekday, 7))}T${cutoff.time}`;
 }
 
 export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOptions = {}): Promise<{
@@ -448,7 +472,8 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
     }),
   });
 
-  return { configPath, cancellationsPath, updatesPath, notificationsPath, config, plan, notifications, cancellations };
+  const effectivePlan = options.rawAgenda ? plan : applyConfirmedAgendas(plan, await readMeetingWorkflow(options));
+  return { configPath, cancellationsPath, updatesPath, notificationsPath, config, plan: effectivePlan, notifications, cancellations };
 }
 
 export async function cancelThemeMeeting(input: CancelThemeMeetingInput): Promise<ThemeMeetingCancellation> {
@@ -479,6 +504,10 @@ export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateIn
     assertConfiguredUsersActive(config, usersByUsername);
   }
   const meetingDate = input.meetingDate || upcomingWednesday(input.now, config.timezone);
+  const deadline = submissionDeadline(config, meetingDate);
+  if (localDateTimeString(input.now || new Date(), config.timezone) >= deadline) {
+    throw new Error(`Theme ${input.themeId} updates are locked after ${deadline.replace('T', ' ')} (${config.timezone}).`);
+  }
   const { cancellations } = await readThemeMeetingCancellations(input);
   if (cancellations.some((cancellation) => meetingKey(cancellation.meeting_date, cancellation.theme_id) === meetingKey(meetingDate, input.themeId))) {
     throw new Error(`Theme ${input.themeId} meeting on ${meetingDate} has been cancelled.`);
@@ -536,7 +565,7 @@ export async function buildThemeMeetingReminderRun(
   action: ThemeReminderAction,
   options: BuildThemeMeetingReminderRunOptions = {},
 ): Promise<ThemeMeetingReminderRun> {
-  const { config, plan } = await buildThemeMeetingPlan(options);
+  const { config, plan } = await buildThemeMeetingPlan({ ...options, rawAgenda: action === 'agenda_preview' });
   const reminderSchedule = configuredReminderSchedule(config);
   const createdAt = (options.now || new Date()).toISOString();
   const meetings = (options.themeId

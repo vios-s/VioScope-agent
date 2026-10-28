@@ -365,7 +365,9 @@ async function main() {
     assert.equal(goodChange.status, 200, 'Medium password should be accepted.');
     assert.equal((await jsonBody(goodChange)).user.passwordResetRequired, false);
 
-    const logout = await logoutRoute.POST(jsonRequest('/api/auth/logout', {}, resetLogin.cookie || undefined));
+    assert.equal((await meRoute.GET(getRequest('/api/auth/me', resetLogin.cookie || undefined))).status, 401, 'Password change must revoke the previous session.');
+    const renewedCookie = goodChange.headers.get('set-cookie') || undefined;
+    const logout = await logoutRoute.POST(jsonRequest('/api/auth/logout', {}, renewedCookie));
     assert.equal(logout.status, 200, 'Logout should succeed.');
     const logoutCookie = logout.headers.get('set-cookie') || '';
     assert.ok(logoutCookie.includes(`${sessionCookieName}=`), 'Logout should clear session cookie.');

@@ -41,6 +41,7 @@ async function main() {
     notificationPreferences: defaultNotificationPreferences(),
     passwordResetRequired: false,
     passwordChangedAt: null,
+    sessionVersion: 0,
     lastLoginAt: null,
   };
   const token = createSessionToken(user);

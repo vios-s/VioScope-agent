@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 const required = ['ELM_API_KEY', 'ELM_CHAT_MODEL', 'ELM_EMBED_MODEL'] as const;
-const openAIBaseURL = 'https://api.openai.com/v1';
+const elmBaseURL = process.env.ELM_BASE_URL || 'https://elm.edina.ac.uk/api/v1';
 
 function getEnv(name: (typeof required)[number]): string {
   const value = process.env[name];
@@ -39,7 +39,7 @@ async function main() {
   const chatModel = getEnv('ELM_CHAT_MODEL');
   const embedModel = getEnv('ELM_EMBED_MODEL');
 
-  const chatResponse = await postJSON(endpoint(openAIBaseURL, '/chat/completions'), apiKey, {
+  const chatResponse = await postJSON(endpoint(elmBaseURL, '/chat/completions'), apiKey, {
     model: chatModel,
     messages: [
       {
@@ -51,7 +51,7 @@ async function main() {
   });
   await assertOK('ELM chat check', chatResponse);
 
-  const embeddingResponse = await postJSON(endpoint(openAIBaseURL, '/embeddings'), apiKey, {
+  const embeddingResponse = await postJSON(endpoint(elmBaseURL, '/embeddings'), apiKey, {
     model: embedModel,
     input: 'VioScope readiness check',
   });

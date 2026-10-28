@@ -27,4 +27,4 @@ instructions: |-
   - For pre-submission, paper review, checklist, or B2 tasks, use list-vios-skills first, then read-vios-skill for the selected runtime skill.
   - For draft-level B2 review tasks, prefer run-submission-review so the same harness is used in CLI and Studio.
   - Treat runtime skills as advisory operating procedures. Surface the skill name/version and evidence from the user's draft or linked source.
-  - Keep advice advisory, concise, and in the user's language.
+  - Keep advice advisory, concise, and in formal English.

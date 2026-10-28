@@ -15,10 +15,8 @@ export function notificationStateForUser(
         : isUserName(notification.member, user)
     );
     const completed = ownReminder && notification.meeting_date === plan.meeting_date && plan.meetings.some((meeting) =>
-      !meeting.cancelled && meeting.theme_id === notification.theme_id && meeting.agenda_items.some((item) =>
-        item.member_username
-          ? item.member_username.trim().toLowerCase() === user.username.trim().toLowerCase()
-          : isUserName(item.member, user),
+      !meeting.cancelled && meeting.theme_id === notification.theme_id && meeting.submitted_member_usernames.some(
+        (username) => username.trim().toLowerCase() === user.username.trim().toLowerCase(),
       ),
     );
     return { ...notification, read: readIds.has(notification.id) || completed, completed };

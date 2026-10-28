@@ -120,7 +120,7 @@ try {
     assert.ok(run.notifications.every((notification) => notification.member_username !== observer.username));
   }
   await assert.rejects(planner.submitThemeMeetingUpdate({
-    meetingDate: plan.meeting_date, themeId: 'C', member: observer.username, updateType: 'nothing_to_report',
+    meetingDate: plan.meeting_date, themeId: 'C', member: observer.username, updateType: 'nothing_to_report', now: new Date('2026-10-20T09:00:00Z'),
   }), /not configured/);
   const response = await meetingRoute.GET(new Request('http://localhost/api/theme-meetings?date=2026-10-21', {
     headers: { cookie: `${sessionCookieName}=${createSessionToken(observer)}` },

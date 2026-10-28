@@ -141,8 +141,8 @@ export async function GET(request: Request) {
     for (let week = 0; week < 8; week += 1) {
       const candidate =
         week === 0
-          ? payload
-          : await buildThemeMeetingPlan({ meetingDate: dateOffset(payload.plan.meeting_date, week * 7), validateUsers: true });
+          ? await buildThemeMeetingPlan({ meetingDate: payload.plan.meeting_date, validateUsers: true, rawAgenda: true })
+          : await buildThemeMeetingPlan({ meetingDate: dateOffset(payload.plan.meeting_date, week * 7), validateUsers: true, rawAgenda: true });
       const personalCandidate = ownSubmissionPlanForUser(candidate.plan, user);
       if (hasOwnMemberRow(personalCandidate, user)) {
         submissionPlan = personalCandidate;

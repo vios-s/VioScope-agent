@@ -51,6 +51,7 @@ export type UserSeedRecord = {
 };
 
 export type AuthUser = {
+  sessionVersion: number;
   id: string;
   username: string;
   displayName: string;
@@ -74,6 +75,7 @@ export type UserAdminRecord = AuthUser & {
 };
 
 type UserSeedRow = {
+  session_version: number;
   id: string;
   username: string;
   display_name: string;
@@ -135,6 +137,7 @@ function toAuthUser(row: AuthUserRow): AuthUser {
     displayName: row.display_name,
     email: row.email || profile.email || null,
     role: row.role,
+    sessionVersion: row.session_version,
     position: positionFromMetadata(row.metadata),
     provisioningStatus: row.provisioning_status,
     sourceProfileId: row.source_profile_id,
@@ -410,6 +413,7 @@ async function ensureUsersTableOnce(): Promise<void> {
         NULL;
       END $$;
     `);
+    await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0');
     await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ');
     await postgres.pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ');
     await postgres.pool.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check');
@@ -482,6 +486,7 @@ async function getAuthUserBy(
           metadata,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
         FROM users
         WHERE ${column} = $1
@@ -532,6 +537,7 @@ export async function listUsersForAdmin(): Promise<UserAdminRecord[]> {
           metadata,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
         FROM users
         ORDER BY
@@ -575,11 +581,13 @@ export async function authenticateLocalUser(username: string, password: string):
           last_login_at = now(),
           password_reset_required = CASE WHEN $2 THEN true ELSE password_reset_required END,
           password_reset_used_at = CASE WHEN $2 THEN now() ELSE password_reset_used_at END,
+          session_version = session_version + CASE WHEN $2 THEN 1 ELSE 0 END,
           updated_at = now()
         WHERE id = $1
+          AND session_version = $3
           AND (
             NOT $2
-            OR (password_reset_used_at IS NULL AND password_reset_expires_at > now())
+            OR (password_reset_used_at IS NULL AND password_reset_expires_at > now() AND password_reset_hash = $4)
           )
         RETURNING
           id::text,
@@ -598,12 +606,13 @@ export async function authenticateLocalUser(username: string, password: string):
           metadata,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
       `,
-      [record.user.id, Boolean(temporaryPasswordMatches)],
+      [record.user.id, Boolean(temporaryPasswordMatches), record.user.sessionVersion, record.passwordResetHash],
     );
     const row = result.rows[0];
-    return row ? toAuthUser(row) : temporaryPasswordMatches ? null : record.user;
+    return row ? toAuthUser(row) : null;
   } finally {
     await postgres.disconnect();
   }
@@ -646,8 +655,9 @@ export async function changeLocalUserPassword(
           password_reset_used_at = NULL,
           password_reset_sent_at = NULL,
           password_changed_at = now(),
+          session_version = session_version + 1,
           updated_at = now()
-        WHERE id = $1
+        WHERE id = $1 AND session_version = $4
         RETURNING
           id::text,
           username,
@@ -665,13 +675,14 @@ export async function changeLocalUserPassword(
           metadata,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
       `,
-      [userId, passwordHash, nextEmail],
+      [userId, passwordHash, nextEmail, record.user.sessionVersion],
     );
     const row = result.rows[0];
     if (!row) {
-      throw new Error('User not found.');
+      throw new Error('Account credentials changed. Log in again before changing your password.');
     }
     return toAuthUser(row);
   } finally {
@@ -750,6 +761,7 @@ export async function updateOwnUserProfile(input: {
           metadata,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
         FROM users
         WHERE id = $1
@@ -800,6 +812,7 @@ export async function updateOwnUserProfile(input: {
           metadata,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
       `,
       [input.userId, input.displayName?.trim() || current.display_name, nextEmail, JSON.stringify(nextMetadata)],
@@ -869,6 +882,11 @@ export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRe
           email = EXCLUDED.email,
           role = EXCLUDED.role,
           password_hash = EXCLUDED.password_hash,
+          session_version = users.session_version + 1,
+          password_reset_hash = NULL,
+          password_reset_expires_at = NULL,
+          password_reset_used_at = NULL,
+          password_reset_sent_at = NULL,
           password_reset_required = EXCLUDED.password_reset_required,
           password_changed_at = EXCLUDED.password_changed_at,
           auth_provider = 'local',
@@ -887,6 +905,7 @@ export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRe
           source_profile_id,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
       `,
       [username, displayName, email, input.role, passwordHash, passwordResetRequired, input.source || 'manual', JSON.stringify(metadata)],
@@ -936,6 +955,7 @@ export async function updateUserByAdmin(input: {
           metadata,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
         FROM users
         WHERE id = $1
@@ -1007,8 +1027,13 @@ export async function updateUserByAdmin(input: {
           password_hash = $7,
           password_reset_required = $8,
           password_changed_at = CASE WHEN $9 THEN NULL ELSE password_changed_at END,
+          password_reset_hash = CASE WHEN $9 THEN NULL ELSE password_reset_hash END,
+          password_reset_expires_at = CASE WHEN $9 THEN NULL ELSE password_reset_expires_at END,
+          password_reset_used_at = CASE WHEN $9 THEN NULL ELSE password_reset_used_at END,
+          password_reset_sent_at = CASE WHEN $9 THEN NULL ELSE password_reset_sent_at END,
+          session_version = session_version + CASE WHEN $9 OR password_reset_required IS DISTINCT FROM $8 OR provisioning_status IS DISTINCT FROM $4 THEN 1 ELSE 0 END,
           updated_at = now()
-        WHERE id = $1
+        WHERE id = $1 AND session_version = $10
         RETURNING
           id::text,
           username,
@@ -1023,6 +1048,7 @@ export async function updateUserByAdmin(input: {
           metadata,
           password_reset_required,
           password_changed_at::text,
+          session_version,
           last_login_at::text
       `,
       [
@@ -1035,12 +1061,13 @@ export async function updateUserByAdmin(input: {
         nextPasswordHash,
         nextPasswordResetRequired,
         Boolean(temporaryPassword),
+        current.session_version,
       ],
     );
 
     const row = result.rows[0];
     if (!row) {
-      throw new Error('User not found.');
+      throw new Error('Account credentials changed. Reload before updating this account.');
     }
     return toAdminRecord(row);
   } finally {
@@ -1110,6 +1137,7 @@ export async function upsertPublicTeamProfiles(
             source_profile_id,
             password_reset_required,
             password_changed_at::text,
+            session_version,
             last_login_at::text
         `,
         [profile.username, profile.name, options.sourceUrl, profile.sourceId || null, JSON.stringify(metadata)],
@@ -1121,6 +1149,21 @@ export async function upsertPublicTeamProfiles(
     }
 
     return records;
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
+// Public account directory for authenticated collaboration pickers.
+export async function listActiveAccountDirectory(): Promise<Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role'>[]> {
+  await ensureUsersTable();
+  const postgres = createPostgresClient('vioscope-users');
+  try {
+    const result = await postgres.pool.query<Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role'>>(
+      `SELECT id::text, username, display_name AS "displayName", role
+       FROM users WHERE provisioning_status = 'active' ORDER BY display_name, username`,
+    );
+    return result.rows;
   } finally {
     await postgres.disconnect();
   }

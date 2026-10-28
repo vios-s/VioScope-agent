@@ -268,30 +268,7 @@ export function parseMentionUsernames(message: string): string[] {
   return [...mentions];
 }
 
-export async function listMentionableUsers(): Promise<MentionableUser[]> {
-  await ensureChatTables();
-  const postgres = createPostgresClient('vioscope-chat');
-
-  try {
-    const result = await postgres.pool.query<UserRow>(
-      `
-        SELECT id::text, username, display_name, role
-        FROM users
-        WHERE provisioning_status = 'active'
-        ORDER BY display_name, username
-      `,
-    );
-    const rows = result.rows as UserRow[];
-    return rows.map((row) => ({
-      id: row.id,
-      username: row.username,
-      displayName: row.display_name,
-      role: row.role,
-    }));
-  } finally {
-    await postgres.disconnect();
-  }
-}
+export { listActiveAccountDirectory as listMentionableUsers } from './users';
 
 export async function saveChatTurn(input: {
   sessionId: string;

@@ -49,6 +49,138 @@ The v0.1 package should be treated as the first stable internal operations build
 
 ## Next Development Phases
 
+### Agreed Function Order (2026-10-28)
+
+Implement these functions incrementally, reusing the existing project, meeting and review features.
+Steps 1 and 2 are deployed. The current development scope is step 3 (private pre-project idea pitches); later steps remain planned work.
+This order takes precedence over the older phase numbering below. Keep B3 maintenance-only.
+
+| Order | Function | User outcome | Status |
+|---|---|---|---|
+| 1 | Confirm theme meeting agendas | The coordinator adjusts order and time, defers items when needed, and confirms a saved agenda version. | Deployed 2026-10-28; real-cycle pilot pending |
+| 2 | Follow up meeting actions | Record the decision, responsible person, due date and completion evidence; review unfinished actions at the next meeting. | Deployed 2026-10-28; real-cycle pilot pending |
+| 3 | Review private idea pitches | Upload or fill a pitch; get configurable AI advice; humans decide; explicitly create a project inheriting only the final approved version. | Deployed 2026-10-28; synthetic tests passed |
+| 4 | Build submission timelines | Count backwards from the submission date to the six-, five- and four-week checks and final two weeks. | Planned |
+| 5 | Confirm stage readiness | Require evidence and a named reviewer at each checkpoint, beyond a progress percentage. | Planned |
+| 6 | Complete internal review | Assign a PDRA, track feedback and required revisions, then obtain final PI clearance. Reuse the B2 harness. | Planned |
+| 7 | Learn after submission | Record outcomes, reviews, lessons and the revision or resubmission plan. | Planned |
+| 8 | Review the group portfolio | Extend the existing overview with submission risks, blockers, support needs and resource gaps. | Planned |
+| 9 | Support quarterly and career reviews | Record research, collaboration and development reflections with separate access controls. | Planned |
+
+#### Step 1 acceptance criteria
+
+- Coordinators manage only their own theme; PIs/admin may manage all themes.
+- Adjust agenda order and slot duration; show the 60-minute budget and explicitly defer items
+  that do not fit. Deferral must remain visible, without automatically submitting a future update.
+- Explicit confirmation saves the agenda snapshot, version, confirming username and time.
+- Later submissions or edits never silently change a confirmed agenda; changing it requires a
+  new explicit confirmation. Reject stale concurrent edits instead of overwriting them.
+- Keep the existing two-theme weekly layout, slot types, member-only preview audience,
+  subscription boundaries and Europe/London scheduling.
+
+#### Step 2 acceptance criteria
+
+- Record meeting decisions and actions against the specific theme and meeting date.
+- Each action has an active account owner, due date and status; completion records a note/evidence.
+- Show outstanding actions from earlier meetings for follow-up, with overdue dates visible.
+- Coordinators/PI/admin create and manage actions; assigned members can update their own progress.
+- Use account usernames for authorization and retain who changed each record and when.
+- Human confirmation is required for decisions and actions; no automatic project or wiki writes,
+  and no extra project access from action assignment or agenda subscriptions.
+
+Done when: a real theme meeting can move from draft to confirmed agenda, recorded decisions,
+assigned actions and next-meeting follow-up, with permission and concurrency checks passing.
+
+Optional project links (deployed and tested 2026-10-28): new meeting decisions/actions
+can select an existing accessible project, or remain unlinked group actions. The recorder and assignee
+must already have project access. Linked records are visible in the project's details to its authorized
+viewers; meeting reads and updates also enforce current project access. Both views read the same action
+record, including completion history. Linking never grants access or changes project stages, progress or
+todos. Existing actions remain unlinked. Real-cycle pilot deferred at the user's request.
+Deployment validation used an isolated database and the production build: project selection, action
+creation, member completion, project-side shared history, unchanged stage, and desktop/mobile layout
+passed. Live HTTPS login, updated bundle and unauthenticated API guards also passed.
+
+Implementation: each theme card exposes `Confirmed agenda and follow-up`, including a date selector
+for previous meetings. Existing member-only visibility is preserved; managers see their theme's
+records, while members see their own slots/actions. Deferral does not automatically book a later
+meeting. Action notes and status changes retain their actor and timestamp. No action emails or
+automatic project/wiki write-back are introduced.
+
+Snapshots and action history are stored beside the external meeting updates file as
+`<updates-path>.workflow.json`, using the existing database advisory locks and atomic file writes.
+Include this sidecar in datastore backups. Validate with `npm run check:theme-workflow`.
+
+Deployment check (2026-10-28): production web build passed; the built application passed a
+synthetic-database browser flow for agenda confirmation, action assignment and member completion.
+Live HTTPS login, new bundle delivery and unauthenticated API guards passed after service restart.
+A real meeting pilot is still pending. The previous build is retained locally for rollback.
+
+#### Step 3: Private idea pitches (revised by user)
+
+- A pitch exists before a project. Use Checklists → Idea Pitch, which replaces the former template preview. The separate
+  sidebar entry and previous project-details editor have been removed. All eight blocks are open on
+  entry; upload and paste are also expanded. A working title is optional; saving uses the research
+  question when it is blank. Opening the editor creates no record. Drafts, revisions, stop/revise/proceed decisions and AI advice alone
+  never create a project or count as active projects.
+- Title stays visible at the top of the form and can be revised with Save. Saved revisions include
+  their title. A saved pitch has Delete pitch with explicit irreversible confirmation; owner/PI/admin only,
+  stale versions rejected, revisions/source/reviews removed together. Converted pitches cannot be
+  deleted. Switching pitches warns about unsaved changes and is blocked during pending requests.
+- Full pitch history is visible only to its proposer, PI and administrator. The proposer/PI/admin may add explicit
+  active account collaborators who can read only the current saved title, blocks and decision.
+  Sharing exposes no original text, past revisions or AI reviews and grants no editing, export,
+  onward-sharing or project access. Removal revokes subsequent reads. No notification is sent.
+  PI and administrator have a searchable all-pitches list with proposer, version and status filters. Other users see
+  separate My pitches and Shared with me groups. Role labels alone never grant shared access.
+- Input: structured editable blocks, pasted complete text, or TXT/MD/DOCX/text-based PDF/PPTX upload.
+  Uploads are capped at 5 MB and 32000 extracted characters; scanned pages/figures need transcription.
+  Extraction produces exact source excerpts in a preview. Applying the preview replaces unsaved blocks;
+  explicit Save persists the edited blocks and extracted source text. Original binaries are not retained.
+- Eight areas: question, importance, contribution, reasoning/evidence, validation, resources/access,
+  risks/alternatives and next milestone. Partial drafts are allowed; completeness is not quality approval.
+- The editable `src/mastra/prompts/idea-pitch/SKILL.md` powers ELM assessment. An external
+  `IDEA_PITCH_SKILL_PATH` overrides it and is reread for each request. Reports include exact input quotes,
+  gaps and improvements, prioritized tests, model and rule fingerprint; full rule snapshots are stored.
+  AI advice does not grant approval or replace a human decision. No live literature search is claimed.
+- Human proceed/revise/stop decisions require explicit confirmation, reasons and a next/closure plan.
+  Proceed needs complete fields. Revised drafts reset the decision to pending; immutable prior versions
+  and advisory reviews remain private. Stale concurrent writes/reviews are rejected.
+- After Proceed, offer a private approved-document download in DOCX/PDF/Markdown/TXT. Default to
+  the supported source format, otherwise DOCX. Export the current confirmed title, eight blocks and
+  decision metadata only; never source text, old drafts or review history. Reject stale/unapproved
+  versions. A clean layout replaces original upload formatting. PDF requires Playwright Chromium.
+- After Proceed, a separate explicit Create project action creates exactly one Stage 1 project.
+  It inherits only the final draft and confirming decision as a read-only starting snapshot; project
+  viewers never inherit old drafts, source documents or AI review history. Converted pitches are read-only.
+- Storage: `idea_pitches`, `idea_pitch_revisions`, `idea_pitch_reviews`, `project_idea_origins` in Postgres.
+  The owner, PI and administrator can inspect all stored revisions and advisory reviews.
+- Rule configuration and methodology: [idea-pitch.md](idea-pitch.md).
+- Deployment verified 2026-10-28: live HTTPS serves the private pitch bundle, the old project
+  idea-check route returns 404, and unauthenticated pitch/project-origin requests return 401.
+  The previous build is retained for rollback; no real student records were used in validation.
+- Checklists replacement deployed 2026-10-28: default expanded input, optional title, old `?view=ideas`
+  compatibility, save/reopen/new-pitch switching and other checklist tabs passed isolated browser checks.
+  Desktop/tablet/mobile and public HTTPS smoke passed. Taste-skill checks passed with the existing
+  site palette and outer shell retained. A live ELM run passed; one repeat returned malformed JSON,
+  which leaves saved content intact and offers retry.
+- Title/delete/export update deployed 2026-10-28. A synthetic cell-counting pitch passed title
+  revision/reload, cancelled unsaved switching, deletion cancellation/confirmation, owner/PI/admin checks,
+  stale-version rejection, Proceed and all four browser downloads. Word/PDF files were rendered and
+  visually checked; the sample is one page in both. Live HTTPS bundle and unauthenticated export
+  protection passed. No real pitch was created, changed or deleted during these checks.
+- PI overview/read-only sharing deployed 2026-10-28. Synthetic owner, PI and collaborator accounts
+  passed add/read/revoke, private history/source/review exclusion, no onward sharing or mutations,
+  PI list/open and phone layout checks. Existing title/delete/export flows passed again. Live HTTPS
+  and unauthenticated collaborator mutation checks passed. No real sharing assignments were changed.
+- Administrator permission correction deployed 2026-10-28: administrators have every PI pitch
+  permission without explicit sharing. The overview is labelled PI / Admin. Synthetic tests cover
+  all-history/source access, editing, decisions, stored AI reviews, sharing, export, deletion and
+  conversion, while preserving ordinary collaborator restrictions. Admin browser and live HTTPS
+  checks passed; no real pitch records were modified for validation.
+- Validate with `npm run check:idea-check`, `npm run check:idea-import`, audit coverage, production build
+  and an isolated browser flow. Live ELM tests use synthetic pitches only.
+
 ### Phase 1: Release Hygiene
 
 - Commit a clean v0.1 release candidate and tag it.
@@ -134,6 +266,9 @@ Before tagging a stable release:
 - `npm run check:project-artifacts`
 - `npm run check:theme-meetings`
 - `npm run check:theme-meeting-auth`
+- `npm run check:theme-workflow`
+- `npm run check:idea-check`
+- `npm run check:idea-import`
 - `npm run check:review-runs`
 - `npm run check:chat-collaboration`
 - `npm run check:audit-coverage`
@@ -153,3 +288,29 @@ Run ELM/GitBook/wiki checks when those external services are part of the release
 - Local EIDF model for sensitive content.
 - Overleaf import.
 - Fine-grained evaluation dashboards.
+
+
+### 2026-10-28 release review
+
+The candidate passes functional checks but is not cleared for a new stable deployment until session
+revocation and dependency security findings are addressed. See `docs/software-design-review.md` for
+the scoped audit, AI quality evidence and release gates. Product UI and generated advice use formal
+English; user-authored text and verbatim evidence are preserved. Idea Pitch uses schema-constrained
+review output with evidence validation; it remains advisory and requires a human decision.
+
+
+### 2026-10-28 security remediation follow-up
+
+Both P1 release blockers now have tested fixes in the candidate: versioned session revocation and
+production dependency upgrades with zero known production advisories. The live service remains on
+its existing release until deployment. Deployment requires the new lockfile and build together, and
+all users must log in again once. Four low-severity development-only advisory entries remain on one
+unpatched deepmerge build-tool chain; see the remediation section of the software design review.
+
+
+### 2026-10-28 Idea Pitch release deployed
+
+The checked Idea Pitch, English advice policy and session/dependency security fixes are now deployed.
+The web service passed public HTTPS smoke checks after a verified database backup. Main and dev are
+synchronized to this release; unfinished dev work is preserved in a separate local stash. Existing
+users must sign in again. The editable Idea Pitch rules remain in the configured skill file.

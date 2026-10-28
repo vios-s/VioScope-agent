@@ -69,6 +69,7 @@ function fakeUser(displayName: string, role: AuthUser['role'] = 'member'): AuthU
     notificationPreferences: defaultNotificationPreferences(),
     passwordResetRequired: false,
     passwordChangedAt: null,
+    sessionVersion: 0,
     lastLoginAt: null,
   };
 }
@@ -209,16 +210,16 @@ submission:
 reminders:
   - name: first_reminder
     weekday: Monday
-    time: "08:00"
+    time: "10:00"
     channel: browser
   - name: gentle_missing_update_reminder
     weekday: Tuesday
-    time: "04:00"
+    time: "10:00"
     channel: browser
     only_if_missing_update: true
   - name: agenda_cutoff
-    weekday: Wednesday
-    time: "08:00"
+    weekday: Tuesday
+    time: "13:00"
     action: mark_missing_project_progress_and_build_agenda
 permissions: {}
 `,
@@ -259,10 +260,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function toolContext(user: AuthUser) {
+function toolContext(user: AuthUser, now?: Date) {
   return {
     requestContext: {
-      get: (key: string) => (key === 'vioscope-user' ? user : undefined),
+      get: (key: string) => (key === 'vioscope-user' ? user : key === 'vioscope-now' ? now : undefined),
     },
   };
 }
@@ -283,11 +284,11 @@ async function runAgentThemeMeetingCheck(): Promise<{ submittedVia: unknown; upd
           updateType: 'strategic_slot',
           progressText: latestAliceProgress,
         },
-        toolContext(alice) as never,
+        toolContext(alice, new Date('2026-06-22T08:00:00.000Z')) as never,
       ),
     );
     const planResult = asRecord(
-      await readThemeMeetingPlanTool.execute({ meetingDate: checkMeetingDate }, toolContext(alice) as never),
+      await readThemeMeetingPlanTool.execute({ meetingDate: checkMeetingDate }, toolContext(alice, new Date('2026-06-22T08:00:00.000Z')) as never),
     );
     const update = asRecord(updateResult.update);
 
@@ -454,6 +455,7 @@ async function main() {
     updateType: 'nothing_to_report',
     progressText: 'Nothing to report this cycle.',
     submittedVia: 'api',
+    now: new Date('2026-06-23T11:59:00.000Z'),
   });
 
   const afterNothing = await buildThemeMeetingPlan({ ...storePaths, meetingDate: checkMeetingDate });
@@ -464,6 +466,21 @@ async function main() {
   if (themeAAfterNothing?.planned_minutes !== 10) {
     throw new Error(`Expected Theme A planned minutes to remain 10, got ${themeAAfterNothing?.planned_minutes}.`);
   }
+
+  await assert.rejects(
+    submitThemeMeetingUpdate({
+      ...storePaths,
+      meetingDate: checkMeetingDate,
+      themeId: 'A',
+      member: 'Bob',
+      updateType: 'nothing_to_report',
+      progressText: 'This late update must not be accepted.',
+      submittedVia: 'api',
+      now: new Date('2026-06-23T12:00:00.000Z'),
+    }),
+    /updates are locked after 2026-06-23 13:00 \(Europe\/London\)/,
+    'Updates should lock exactly at Tuesday 13:00 UK local time.',
+  );
 
   const previousCutoffTime = process.env.THEME_MEETING_CUTOFF_TIME;
   process.env.THEME_MEETING_CUTOFF_TIME = '23:59';
@@ -478,7 +495,7 @@ async function main() {
   } else {
     process.env.THEME_MEETING_CUTOFF_TIME = previousCutoffTime;
   }
-  if (!configReminder.notifications.some((notification) => notification.body.includes('Wednesday 08:00'))) {
+  if (!configReminder.notifications.some((notification) => notification.body.includes('Tuesday 13:00'))) {
     throw new Error('Expected reminder cutoff text to come from theme meeting config, not legacy admin/env settings.');
   }
 

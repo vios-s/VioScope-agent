@@ -95,11 +95,11 @@ submission:
 reminders:
   - name: first_reminder
     weekday: Monday
-    time: "08:00"
+    time: "10:00"
     channel: browser
   - name: gentle_missing_update_reminder
     weekday: Tuesday
-    time: "04:00"
+    time: "10:00"
     channel: browser
     only_if_missing_update: true
   - name: agenda_preview

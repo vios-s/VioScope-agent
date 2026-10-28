@@ -9,6 +9,7 @@ type SessionPayload = {
   sub: string;
   iat: number;
   exp: number;
+  version: number;
 };
 
 export class AuthError extends Error {
@@ -62,6 +63,7 @@ export function createSessionToken(user: AuthUser): string {
     sub: user.id,
     iat: now,
     exp: now + sessionMaxAgeSeconds,
+    version: user.sessionVersion,
   };
   const body = base64url(JSON.stringify(payload));
   return `${body}.${sign(body)}`;
@@ -79,7 +81,9 @@ export function verifySessionToken(token?: string): SessionPayload | null {
 
   try {
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as SessionPayload;
-    if (!payload.sub || !payload.exp || payload.exp < Math.floor(Date.now() / 1000)) {
+    if (typeof payload.sub !== 'string' || !payload.sub || !Number.isSafeInteger(payload.iat)
+      || !Number.isSafeInteger(payload.exp) || payload.exp <= Math.floor(Date.now() / 1000)
+      || !Number.isSafeInteger(payload.version) || payload.version < 0) {
       return null;
     }
     return payload;
@@ -90,7 +94,9 @@ export function verifySessionToken(token?: string): SessionPayload | null {
 
 export async function sessionUserFromRequest(request: Request): Promise<AuthUser | null> {
   const payload = verifySessionToken(cookieValue(request, sessionCookieName));
-  return payload ? getUserById(payload.sub) : null;
+  if (!payload) return null;
+  const user = await getUserById(payload.sub);
+  return user && user.provisioningStatus === 'active' && user.sessionVersion === payload.version ? user : null;
 }
 
 export async function requireSessionUser(

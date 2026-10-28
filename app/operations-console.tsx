@@ -40,6 +40,10 @@ import {
 } from 'lucide-react';
 import { DotMatrixIcon } from './dot-matrix-icon';
 import { ReviewForm } from './review-form';
+import { IdeaPitches } from './idea-pitches';
+import { ProjectIdeaOrigin } from './project-idea-origin';
+import { ProjectMeetingActions } from './project-meeting-actions';
+import { ThemeMeetingWorkflow } from './theme-meeting-workflow';
 import { ApiRequestError, requestJson } from './client-request';
 import type {
   ProjectStatus,
@@ -777,6 +781,7 @@ const viewQueryParam = 'view';
 
 function activeViewFromSearch(search: string): ActiveView {
   const view = new URLSearchParams(search).get(viewQueryParam);
+  if (view === 'ideas') return 'checklists';
   if (view === 'dashboard') return 'projects';
   return activeViews.includes(view as ActiveView) ? (view as ActiveView) : 'briefing';
 }
@@ -3214,6 +3219,8 @@ function ProjectDetailModal({
           </div>
             )}
 
+        <ProjectIdeaOrigin projectId={project.id} />
+        <ProjectMeetingActions projectId={project.id} />
         <section className="project-artifact-panel">
           <div className="ops-panel-head">
             <div>
@@ -4051,6 +4058,7 @@ function ThemeMeetingPanel({
                         {meeting.missing_members.length ? `Missing update: ${meeting.missing_members.join(', ')}` : 'All updates received'}
                       </p>
                     )}
+                    {meeting && plan && <ThemeMeetingWorkflow themeId={meeting.theme_id} meetingDate={plan.meeting_date} onChanged={onChanged} />}
                     {meeting && managedThemeIds.has(meeting.theme_id) && (
                       <div className="theme-member-manager">
                         <p className="theme-section-label">Members</p>
@@ -5580,7 +5588,7 @@ function ChatView({
     </ConsolePageFrame>
   );
 }
-function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
+function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean; onProjectCreated: () => Promise<void> }) {
   const [activeChecklistId, setActiveChecklistId] = useState<ChecklistTemplateId>('idea');
   const workbenchRef = useRef<HTMLDivElement | null>(null);
   const activeChecklist = checklistTemplates.find((template) => template.id === activeChecklistId) || checklistTemplates[0];
@@ -5614,6 +5622,7 @@ function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
       tabs={checklistTabs}
     >
 
+      {activeChecklistId === 'idea' ? <IdeaPitches onProjectCreated={onProjectCreated} /> : <>
       <div className="checklist-layout">
         <section className="checklist-template-card" aria-label={`${activeChecklist.label} checklist`}>
           <header>
@@ -5684,6 +5693,7 @@ function ChecklistsView({ canSignOff }: { canSignOff: boolean }) {
         <p>Use the actual review runner for Skeleton Lock, PDRA Meta Review, Internal Red Team, and Revision Lock.</p>
       </div>
       <ReviewForm embedded canSignOff={canSignOff} />
+      </>}
     </ConsolePageFrame>
   );
 }
@@ -8738,7 +8748,7 @@ export function OperationsConsole() {
             />
             </>
           )}
-          {activeView === 'checklists' && <ChecklistsView canSignOff={canSeeAllRole(user.role)} />}
+          {activeView === 'checklists' && <ChecklistsView canSignOff={canSeeAllRole(user.role)} onProjectCreated={loadProjects} />}
           {activeView === 'feedback' && <FeedbackView />}
           {activeView === 'users' && (
             <UsersView

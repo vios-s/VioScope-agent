@@ -23,6 +23,11 @@ function requestUser(context: { requestContext?: { get: (key: string) => unknown
   return user;
 }
 
+function requestNow(context: { requestContext?: { get: (key: string) => unknown } } | undefined): Date | undefined {
+  const value = context?.requestContext?.get('vioscope-now');
+  return value instanceof Date && Number.isFinite(value.getTime()) ? value : undefined;
+}
+
 export const readThemeMeetingPlanTool = createTool({
   id: 'read-theme-meeting-plan',
   description:
@@ -45,7 +50,8 @@ export const readThemeMeetingPlanTool = createTool({
   },
   execute: async (input, context) => {
     const user = requestUser(context);
-    const { config, plan } = await buildThemeMeetingPlan({ meetingDate: input.meetingDate, validateUsers: true });
+    const now = requestNow(context);
+    const { config, plan } = await buildThemeMeetingPlan({ meetingDate: input.meetingDate, now, validateUsers: true });
     const visiblePlan = visiblePlanForUser(plan, config, user);
     return {
       plan: visiblePlan,
@@ -89,10 +95,12 @@ export const submitThemeMeetingUpdateTool = createTool({
     if (!canSeeAll(user) && !isUserName(input.member, user)) {
       throw new Error('Members can only submit their own theme meeting update.');
     }
-    const { config } = await buildThemeMeetingPlan({ meetingDate: input.meetingDate, validateUsers: true });
+    const now = requestNow(context);
+    const { config } = await buildThemeMeetingPlan({ meetingDate: input.meetingDate, now, validateUsers: true });
     const { update, plan } = await submitThemeMeetingUpdate({
       ...input,
       submittedVia: 'chat',
+      now,
       validateUsers: true,
     });
     const visiblePlan = visiblePlanForUser(plan, config, user);

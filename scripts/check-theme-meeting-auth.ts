@@ -50,10 +50,10 @@ const cancellationsPath = join(tmpdir(), 'vioscope-agent-smoke', 'theme-meeting-
 const temporaryPassword = 'ThemeCheck1!';
 
 const coordinators = [
-  { themeId: 'A', username: 'coordinator.a', meetingDate: '2026-06-24', otherThemeId: 'B', addCandidate: 'carla' },
-  { themeId: 'B', username: 'coordinator.b', meetingDate: '2026-06-24', otherThemeId: 'A', addCandidate: 'alice' },
-  { themeId: 'C', username: 'coordinator.c', meetingDate: '2026-07-01', otherThemeId: 'D', addCandidate: 'gabe' },
-  { themeId: 'D', username: 'coordinator.d', meetingDate: '2026-07-01', otherThemeId: 'C', addCandidate: 'erin' },
+  { themeId: 'A', username: 'coordinator.a', meetingDate: '2027-06-23', otherThemeId: 'B', addCandidate: 'carla' },
+  { themeId: 'B', username: 'coordinator.b', meetingDate: '2027-06-23', otherThemeId: 'A', addCandidate: 'alice' },
+  { themeId: 'C', username: 'coordinator.c', meetingDate: '2027-06-30', otherThemeId: 'D', addCandidate: 'gabe' },
+  { themeId: 'D', username: 'coordinator.d', meetingDate: '2027-06-30', otherThemeId: 'C', addCandidate: 'erin' },
 ] as const;
 
 const temporaryUsers: TestUser[] = [
@@ -400,7 +400,7 @@ async function main() {
       await cancellationsRoute.POST(
         requestFor(coordinatorB, '/api/theme-meetings/cancellations', {
           method: 'POST',
-          body: jsonBody({ themeId: 'B', meetingDate: '2026-06-24' }),
+          body: jsonBody({ themeId: 'B', meetingDate: '2027-06-23' }),
         }),
       ),
     );
@@ -411,7 +411,7 @@ async function main() {
       await remindersRoute.POST(
         requestFor(coordinatorB, '/api/theme-meetings/reminders', {
           method: 'POST',
-          body: jsonBody({ themeId: 'B', meetingDate: '2026-06-24', action: 'agenda_cutoff' }),
+          body: jsonBody({ themeId: 'B', meetingDate: '2027-06-23', action: 'agenda_cutoff' }),
         }),
       ),
       400,
@@ -425,7 +425,7 @@ async function main() {
           method: 'POST',
           body: jsonBody({
             themeId: 'B',
-            meetingDate: '2026-06-24',
+            meetingDate: '2027-06-23',
             member: 'bob',
             updateType: 'milestone_check',
             progressText: 'This cancelled meeting must not accept updates.',
@@ -436,7 +436,7 @@ async function main() {
     );
     const cancelledMemberDashboard = await expectJson<any>(
       'cancelled meeting hidden notifications',
-      await themeMeetingsRoute.GET(requestFor(bob, '/api/theme-meetings?date=2026-06-24')),
+      await themeMeetingsRoute.GET(requestFor(bob, '/api/theme-meetings?date=2027-06-23')),
     );
     assert.equal(cancelledMemberDashboard.notifications.some((notification: { theme_id: string }) => notification.theme_id === 'B'), false);
 
@@ -445,7 +445,7 @@ async function main() {
       await cancellationsRoute.DELETE(
         requestFor(coordinatorB, '/api/theme-meetings/cancellations', {
           method: 'DELETE',
-          body: jsonBody({ themeId: 'B', meetingDate: '2026-06-24' }),
+          body: jsonBody({ themeId: 'B', meetingDate: '2027-06-23' }),
         }),
       ),
     );
@@ -454,7 +454,7 @@ async function main() {
     const member = await activeUser('alice');
     const memberDashboard = await expectJson<any>(
       'member dashboard',
-      await themeMeetingsRoute.GET(requestFor(member, '/api/theme-meetings?date=2026-06-24')),
+      await themeMeetingsRoute.GET(requestFor(member, '/api/theme-meetings?date=2027-06-23')),
     );
     assert.deepEqual(memberDashboard.access.canManageThemeIds, []);
     assert.deepEqual(
@@ -468,7 +468,7 @@ async function main() {
         requestFor(member, '/api/theme-meetings/updates', {
           method: 'POST',
           body: jsonBody({
-            meetingDate: '2026-06-24',
+            meetingDate: '2027-06-23',
             themeId: 'A',
             member: 'alice',
             updateType: 'milestone_check',
@@ -485,7 +485,7 @@ async function main() {
         requestFor(member, '/api/theme-meetings/updates', {
           method: 'POST',
           body: jsonBody({
-            meetingDate: '2026-06-24',
+            meetingDate: '2027-06-23',
             themeId: 'A',
             member: 'bob',
             updateType: 'strategic_slot',
@@ -503,7 +503,7 @@ async function main() {
           method: 'POST',
           body: jsonBody({
             themeId: 'A',
-            meetingDate: '2026-06-24',
+            meetingDate: '2027-06-23',
             action: 'add',
             username: 'carla',
           }),
@@ -552,7 +552,7 @@ async function main() {
     );
     const adminMemberDashboard = await expectJson<any>(
       'admin member dashboard',
-      await themeMeetingsRoute.GET(requestFor(admin, '/api/theme-meetings?date=2026-07-01')),
+      await themeMeetingsRoute.GET(requestFor(admin, '/api/theme-meetings?date=2027-06-30')),
     );
     assert.deepEqual(
       adminMemberDashboard.submissionPlan.meetings.map((meeting: { theme_id: string }) => meeting.theme_id),

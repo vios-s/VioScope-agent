@@ -1,0 +1,49 @@
+import 'dotenv/config';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import JSZip from 'jszip';
+import { checkedSource, extractPitchUpload, organizePitchSource, validatePitchExtraction } from '../src/mastra/projects/idea-import';
+import { loadIdeaPitchRules, reviewIdeaPitch } from '../src/mastra/projects/idea-review';
+import { ideaDraftSchema } from '../src/mastra/projects/idea-check';
+
+const source = 'Can a smaller model retain accuracy?';
+assert.equal((await extractPitchUpload(new File([source], 'pitch.txt'))).text, source);
+assert.equal((await extractPitchUpload(new File([source], 'pitch.md'))).text, source);
+const doc = new JSZip(); doc.file('word/document.xml', `<w:document><w:body><w:p><w:r><w:t>${source}</w:t></w:r></w:p></w:body></w:document>`);
+assert.equal((await extractPitchUpload(new File([await doc.generateAsync({ type: 'arraybuffer' })], 'pitch.docx'))).text, source);
+const deck = new JSZip(); deck.file('ppt/slides/slide1.xml', `<p:sld><a:p><a:r><a:t>${source}</a:t></a:r></a:p></p:sld>`);
+assert.ok((await extractPitchUpload(new File([await deck.generateAsync({ type: 'arraybuffer' })], 'pitch.pptx'))).text.includes(source));
+const stream = `BT /F1 12 Tf 50 750 Td (${source}) Tj ET`;
+const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>', `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
+let pdf = '%PDF-1.4\n'; const offsets = [0];
+objects.forEach((object, index) => { offsets.push(Buffer.byteLength(pdf)); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+const xref = Buffer.byteLength(pdf); pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+assert.ok((await extractPitchUpload(new File([pdf], 'pitch.pdf'))).text.includes(source));
+await assert.rejects(extractPitchUpload(new File(['hello'], 'pitch.exe')), /Supported formats/);
+await assert.rejects(extractPitchUpload(new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'pitch.txt')), /5 MB/);
+assert.throws(() => checkedSource('x'.repeat(32001)), /32000/);
+assert.throws(() => checkedSource(''), /No readable text/);
+assert.throws(() => validatePitchExtraction({ question: 'Invented facts' }, source), /not present/);
+assert.equal(validatePitchExtraction({ question: source }, source).question, source);
+const dir = await mkdtemp(join(tmpdir(), 'idea-rules-'));
+const previous = process.env.IDEA_PITCH_SKILL_PATH;
+try {
+  const path = join(dir, 'SKILL.md'); process.env.IDEA_PITCH_SKILL_PATH = path;
+  await writeFile(path, 'First editable rules'); const first = await loadIdeaPitchRules();
+  await writeFile(path, 'Changed editable rules'); const second = await loadIdeaPitchRules();
+  assert.notEqual(first.rulesHash, second.rulesHash, 'Rules reload for each review.');
+} finally {
+  if (previous === undefined) delete process.env.IDEA_PITCH_SKILL_PATH; else process.env.IDEA_PITCH_SKILL_PATH = previous;
+  await rm(dir, { recursive: true, force: true });
+}
+if (process.env.CHECK_IDEA_ELM === 'true') {
+  const draft = ideaDraftSchema.parse({ question: source, importance: 'Lower inference cost could help small research teams.', contribution: 'Compare a compressed model with its full-size baseline; novelty is not yet established.', evidence: 'The working assumption is that many model parameters are redundant. No pilot results yet.', validation: 'Compare accuracy and latency on a held-out dataset with three seeds; report variance and failure cases.', resources: 'One researcher for two weeks using an existing GPU and a public dataset; verify dataset license first.', risks: 'Compression may harm rare examples. If accuracy falls, test a less aggressive compression ratio.', milestone: 'Alice will present a baseline comparison and failure cases in two weeks.' });
+  const text = Object.entries(draft).map(([key, value]) => `${key}: ${value}`).join('\n\n');
+  const extracted = await organizePitchSource(text);
+  assert.ok(extracted.question);
+  const review = await reviewIdeaPitch('Synthetic compression pitch', extracted);
+  console.log(JSON.stringify({ liveElm: true, recommendation: review.report.recommendation, criteria: review.report.checks.length, rulesHash: review.rulesHash.slice(0, 12) }));
+}
+console.log('Idea import passed: TXT, MD, DOCX, PPTX, PDF, upload limits, no invented extracted text and editable rule reload.');
