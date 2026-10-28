@@ -5632,7 +5632,7 @@ function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean;
       tabs={checklistTabs}
     >
 
-      {activeChecklistId === 'idea' ? <IdeaPitches onProjectCreated={onProjectCreated} /> : <>
+      {activeChecklistId === 'idea' ? <IdeaPitches onProjectCreated={onProjectCreated} /> : activeChecklistId === 'skeleton' ? <ReviewForm key="skeleton" embedded skeletonOnly canSignOff={canSignOff} /> : <>
       <div className="checklist-layout">
         <section className="checklist-template-card" aria-label={`${activeChecklist.label} checklist`}>
           <header>

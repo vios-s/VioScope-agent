@@ -239,6 +239,10 @@ try {
   const blank = await ideaDb.createIdeaPitch('DEMO — Empty import draft', accounts.get('alice')!);
   await ok(await remove('alice', 0, true, { params: Promise.resolve({ pitchId: blank.id }) }));
   assert.equal((await ideaDb.getProjectIdeaOrigin(records[0].id, accounts.get('alice')!)).version, 6);
+  if (process.env.CHECK_SKELETON_UI === 'true') {
+    const { checkSkeletonUi } = await import('./lib/skeleton-ui');
+    await checkSkeletonUi(sessionCookieName, createSessionToken(accounts.get('alice')!));
+  }
   if (process.env.CHECK_IDEA_UI === 'true') {
     const { checkIdeaPitchUi } = await import('./lib/idea-pitch-ui');
     await checkIdeaPitchUi(sessionCookieName, createSessionToken(accounts.get('alice')!), { collaborator: createSessionToken(accounts.get('bob')!), pi: createSessionToken(accounts.get('admincheck')!) });

@@ -52,7 +52,7 @@ The v0.1 package should be treated as the first stable internal operations build
 ### Agreed Function Order (2026-10-28)
 
 Implement these functions incrementally, reusing the existing project, meeting and review features.
-Steps 1 and 2 are deployed. The current development scope is step 3 (private pre-project idea pitches); later steps remain planned work.
+Steps 1–3 are deployed. Development now uses main. At the user's request, the next slice reworks Skeleton Lock before the full submission timeline in step 4; later steps remain planned work.
 This order takes precedence over the older phase numbering below. Keep B3 maintenance-only.
 
 | Order | Function | User outcome | Status |
@@ -322,3 +322,14 @@ users must sign in again. The editable Idea Pitch rules remain in the configured
 - Theme meeting submission: optionally attach an owned active project's owner, open next actions and deadlines. Existing projects are supported. A member must still submit explicitly; human agenda confirmation remains separate.
 - Keep live tasks in Projects and historical snapshots in meeting records. Shared snapshots do not reveal private pitch versions or expand project permissions.
 - Validation: disposable database integration, existing theme workflow/advice checks, English policy, production build and synthetic desktop/mobile browser flow. This entry does not mark deployment complete.
+
+
+### Skeleton Lock rework — main development
+
+- Checklists → Skeleton Lock opens a dedicated single-check view, without the old template preview or an unrelated Run All action.
+- Default input is eight expanded evidence sections matching the configured VIOS Skeleton Lock skill. Users may instead paste a complete outline or upload an existing supported draft/deck (TXT, Markdown, LaTeX, RST, PPTX). Input modes are exclusive; hidden material is never silently sent.
+- Reuse the existing review run storage, access checks, Markdown/JSON downloads and PI/admin sign-off. Saved block-based reviews retain their input sections for reopening. Upload/paste reviews retain the existing report-only history behavior.
+- Changing evidence or context clears the previous local review/sign-off and starts a new review. Mixed-check historical runs stay in the B2 workbench to avoid discarding other checks.
+- AI results remain advisory. This slice does not add automatic stage changes, a project-linked readiness gate or the complete submission timeline.
+- Rules remain editable in the external `vios-skeleton-lock/SKILL.md` loaded through `VIOS_SKILLS_DIR` (or the datastore skill directories). No private lab rule text is copied into public code.
+- Verification: `scripts/check-skeleton.ts`; `CHECK_SKELETON_UI=true` with the disposable-database `scripts/check-idea-check.ts` runner. Browser AI responses are stubbed; persistence and account permissions use the actual routes. Deployment is separate.

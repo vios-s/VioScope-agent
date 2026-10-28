@@ -71,7 +71,8 @@
     "check:idea-quality": "node --import tsx scripts/check-idea-quality.ts",
     "check:english-policy": "node --import tsx scripts/check-english-policy.ts",
     "check:session-revocation": "node --import tsx scripts/check-session-revocation.ts",
-    "check:email-transport": "node --import tsx scripts/check-email-transport.ts"
+    "check:email-transport": "node --import tsx scripts/check-email-transport.ts",
+    "check:skeleton": "node --import tsx scripts/check-skeleton.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.134",

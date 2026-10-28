@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { skeletonDraftSchema, renderSkeletonDraft, skeletonFields } from '../src/mastra/submission/skeleton';
+const draft = skeletonDraftSchema.parse({ claim: 'A synthetic claim; no results yet.' });
+assert.throws(() => renderSkeletonDraft(skeletonDraftSchema.parse({})), /Add evidence/);
+const text = renderSkeletonDraft(draft);
+assert.ok(text.includes(draft.claim));
+assert.equal(text.split('[Not provided]').length - 1, 7);
+for (const field of skeletonFields) assert.ok(text.includes(field.label));
+assert.equal(skeletonDraftSchema.safeParse({ claim: 'x'.repeat(6001) }).success, false);
+console.log('Skeleton sections passed: empty input, partial evidence, all rule areas and bounded input.');

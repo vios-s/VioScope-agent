@@ -16,6 +16,7 @@ import {
 import type { ReviewResult, ReviewRunRecord, ReviewRunSummary, ReviewSignoffStatus, ReviewVerdict } from './review-types';
 import { requestJson } from './client-request';
 import styles from './review-form.module.css';
+import { skeletonFields, skeletonDraftSchema, renderSkeletonDraft } from '../src/mastra/submission/skeleton';
 
 type SkillId = 'vios-skeleton-lock' | 'vios-pdra-meta-review' | 'vios-internal-red-team' | 'vios-revision-lock';
 
@@ -129,7 +130,10 @@ function checkedSkillIds(results: Partial<Record<SkillId, ReviewResult>>): Skill
   return reviewSkills.map((skill) => skill.id).filter((skillId) => Boolean(results[skillId]));
 }
 
-export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?: boolean; canSignOff?: boolean } = {}) {
+export function ReviewForm({ embedded = false, canSignOff = true, skeletonOnly = false }: { embedded?: boolean; canSignOff?: boolean; skeletonOnly?: boolean } = {}) {
+  const scopedSkills = skeletonOnly ? reviewSkills.filter(skill => skill.id === 'vios-skeleton-lock') : reviewSkills;
+  const [inputMode, setInputMode] = useState('blocks');
+  const [skeletonDraft, setSkeletonDraft] = useState(() => skeletonDraftSchema.parse({}));
   const [activeSkillId, setActiveSkillId] = useState<SkillId>('vios-skeleton-lock');
   const [results, setResults] = useState<Partial<Record<SkillId, ReviewResult>>>({});
   const [signoffs, setSignoffs] = useState<Partial<Record<SkillId, SignoffState>>>({});
@@ -153,8 +157,8 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
   const isBusy = busySkillId !== null || saving || Boolean(loadingRunId);
 
   const completion = useMemo(
-    () => ({ completed: completedSkillIds.length, total: reviewSkills.length }),
-    [completedSkillIds.length],
+    () => ({ completed: completedSkillIds.length, total: scopedSkills.length }),
+    [completedSkillIds.length, scopedSkills.length],
   );
 
   useEffect(() => {
@@ -173,6 +177,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
 
   function setMetaField(key: keyof RunMeta, value: string) {
     setRunMeta((current) => ({ ...current, [key]: value }));
+    if (skeletonOnly) clearDraftReviewState();
   }
 
   async function requestReview(skillId: SkillId): Promise<ReviewResult> {
@@ -183,6 +188,17 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
     const formData = new FormData(formRef.current);
     formData.delete('skills');
     formData.append('skills', skillId);
+    if (skeletonOnly) {
+      if (inputMode === 'blocks') {
+        formData.set('draftText', [`Project: ${runMeta.projectName || 'Not provided'}`, `Lead researcher: ${runMeta.initiator || 'Not provided'}`, `Lead reviewer: ${runMeta.reviewer || 'Not provided'}`, `PI / senior: ${runMeta.piOrSeniorReviewer || 'Not provided'}`, '', renderSkeletonDraft(skeletonDraft)].join('\n'));
+        formData.set('draftName', 'paper-skeleton');
+        formData.delete('draftFile');
+      } else if (inputMode === 'paste') {
+        formData.delete('draftFile');
+      } else {
+        formData.delete('draftText');
+      }
+    }
 
     return requestJson<ReviewResult>('/api/submission-review', 'Review failed.', {
       method: 'POST',
@@ -236,6 +252,8 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
   function resetForm() {
     formRef.current?.reset();
     setFileName('');
+    setSkeletonDraft(skeletonDraftSchema.parse({}));
+    setInputMode('blocks');
     setResults({});
     setSignoffs({});
     setErrors({});
@@ -286,13 +304,22 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
       cooperators: cooperatorsArray(runMeta.cooperators),
       reviewer: runMeta.reviewer,
       metadata: {
-        source: 'next-review-workbench',
+        source: skeletonOnly ? 'skeleton-lock' : 'next-review-workbench',
+        ...(skeletonOnly && inputMode === 'blocks' ? { skeletonDraft } : {}),
       },
       checks,
     };
   }
 
   function applyPersistedRun(run: ReviewRunRecord) {
+    if (skeletonOnly && run.checks.some(check => check.skillName !== 'vios-skeleton-lock')) {
+      throw new Error('This saved run contains other checks. Open it in the B2 workbench to preserve all results.');
+    }
+    if (skeletonOnly) {
+      const saved = skeletonDraftSchema.safeParse(run.metadata.skeletonDraft);
+      setSkeletonDraft(saved.success ? saved.data : skeletonDraftSchema.parse({}));
+      setInputMode('blocks');
+    }
     const nextResults: Partial<Record<SkillId, ReviewResult>> = {};
     const nextSignoffs: Partial<Record<SkillId, SignoffState>> = {};
 
@@ -437,7 +464,8 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
       <header className={cx('topbar')}>
         <div>
           <div className={cx('eyebrow')}>VioScope</div>
-          <h1>B2 Review Workbench</h1>
+          <h1>{skeletonOnly ? 'Skeleton Lock' : 'B2 Review Workbench'}</h1>
+          {skeletonOnly && <p>Six-week readiness check before focused paper writing. AI advice does not lock the project; human sign-off remains separate.</p>}
         </div>
         <div className={cx('status-pill')}>
           <ClipboardList aria-hidden="true" />
@@ -445,14 +473,21 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
         </div>
       </header>
 
-      <section className={cx('workspace')}>
-        <form ref={formRef} className={cx('input-panel')}>
+      <section className={cx('workspace', skeletonOnly && 'skeleton-workspace')}>
+        <form ref={formRef} inert={isBusy} className={cx('input-panel', skeletonOnly && 'skeleton-input')}>
           <div className={cx('panel-heading')}>
             <FileText aria-hidden="true" />
             <h2>Draft</h2>
           </div>
 
-          <label className={cx('file-drop')}>
+          {skeletonOnly && <label className={cx('field')}><span>Input method</span><select value={inputMode} onChange={(event) => { setInputMode(event.target.value); clearDraftReviewState(); }}>
+            <option value="blocks">Fill the skeleton sections</option><option value="paste">Paste an outline or draft</option><option value="upload">Upload a draft or deck</option>
+          </select></label>}
+          {skeletonOnly && inputMode === 'blocks' && skeletonFields.map(field => <label key={field.key} className={cx('field')}>
+            <span>{field.label}</span><small id={`skeleton-${field.key}-hint`}>{field.hint}</small>
+            <textarea rows={3} maxLength={6000} aria-describedby={`skeleton-${field.key}-hint`} value={skeletonDraft[field.key]} onChange={(event) => { setSkeletonDraft(current => ({ ...current, [field.key]: event.target.value })); clearDraftReviewState(); }} />
+          </label>)}
+          {(!skeletonOnly || inputMode === 'upload') && <label className={cx('file-drop')}>
             <input
               name="draftFile"
               type="file"
@@ -464,12 +499,13 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
             />
             <Upload aria-hidden="true" />
             <span>{fileName || 'Select draft or deck'}</span>
-          </label>
+            <small>TXT, Markdown, LaTeX, RST or PPTX</small>
+          </label>}
 
-          <label className={cx('field')}>
+          {(!skeletonOnly || inputMode === 'paste') && <label className={cx('field')}>
             <span>Paste Draft</span>
             <textarea name="draftText" rows={10} placeholder="Optional if a file is selected" onChange={clearDraftReviewState} />
-          </label>
+          </label>}
 
           <div className={cx('field-row')}>
             <label className={cx('field')}>
@@ -526,7 +562,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
             />
           </label>
 
-          <div className={cx('field-row', 'compact')}>
+          {!skeletonOnly && <div className={cx('field-row', 'compact')}>
             <label className={cx('field')}>
               <span>Draft Chars</span>
               <input name="maxDraftChars" type="number" min="1000" step="1000" placeholder="60000" />
@@ -535,17 +571,17 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
               <span>Output Tokens</span>
               <input name="maxOutputTokens" type="number" min="2500" step="500" placeholder="5000" />
             </label>
-          </div>
+          </div>}
 
           <div className={cx('action-row')}>
             <button className={cx('primary-button')} type="button" disabled={isBusy} onClick={() => runSkill(activeSkillId)}>
               {busySkillId === activeSkillId ? <Loader2 className={cx('spin')} aria-hidden="true" /> : <Play aria-hidden="true" />}
               <span>{busySkillId === activeSkillId ? 'Running' : 'Run This Check'}</span>
             </button>
-            <button className={cx('ghost-button')} type="button" onClick={runAllSkills} disabled={isBusy}>
+            {!skeletonOnly && <button className={cx('ghost-button')} type="button" onClick={runAllSkills} disabled={isBusy}>
               {busySkillId === 'all' ? <Loader2 className={cx('spin')} aria-hidden="true" /> : <Play aria-hidden="true" />}
               Run All
-            </button>
+            </button>}
             <button className={cx('ghost-button')} type="button" onClick={saveRun} disabled={isBusy || !completedSkillIds.length}>
               {saving ? <Loader2 className={cx('spin')} aria-hidden="true" /> : <Save aria-hidden="true" />}
               Save Run
@@ -556,11 +592,11 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
             </button>
           </div>
 
-          {statusMessage && <div className={cx('notice', 'inline')}>{statusMessage}</div>}
+          {statusMessage && <div role="status" className={cx('notice', 'inline')}>{statusMessage}</div>}
 
           <section className={cx('history-block')}>
             <div className={cx('history-heading')}>
-              <h2>History</h2>
+              <h2>{skeletonOnly ? 'Review history (all checks)' : 'History'}</h2>
               <button className={cx('tiny-button')} type="button" onClick={loadHistory} disabled={isBusy}>
                 Refresh
               </button>
@@ -578,7 +614,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
                   >
                     <span>{run.projectName || run.draftName}</span>
                     <small>
-                      {run.checkCount}/4 checks · {formatDate(run.updatedAt)}
+                      {run.checkCount} checks · {formatDate(run.updatedAt)}
                     </small>
                   </button>
                 ))
@@ -633,7 +669,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
           </div>
 
           <div className={cx('check-tabs')} role="tablist" aria-label="B2 checks">
-            {reviewSkills.map((skill) => {
+            {scopedSkills.map((skill) => {
               const result = results[skill.id];
               const hasError = Boolean(errors[skill.id]);
               const selected = activeSkillId === skill.id;
@@ -663,7 +699,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
           </div>
 
           {activeError && (
-            <div className={cx('notice', 'error')}>
+            <div className={cx('notice', 'error')} role="alert">
               <AlertTriangle aria-hidden="true" />
               <span>{activeError}</span>
             </div>
