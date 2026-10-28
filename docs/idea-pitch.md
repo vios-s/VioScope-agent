@@ -135,3 +135,12 @@ full reports under `.local/checks/idea-quality`. It requires provider access and
 Review these reports semantically as well as checking their schema: valid JSON is not proof of sound
 scientific advice. Recommendation labels may vary between `needs_revision` and `insufficient_evidence`
 for poorly specified proposals; either is acceptable if the gaps and next tests are justified.
+
+
+## Approved project to theme meeting handoff
+
+Creating a project in the UI now asks for a first next action (up to 240 characters) and a calendar deadline. The pitch author remains the project owner and is responsible for these project tasks. The approved next milestone becomes the project target; the first action is stored in the existing project TODO list. Additional actions, deadlines and completion are maintained in Projects. Older API clients may still create a project without an initial action.
+
+In Theme Meetings, select an owned active project, review its owner and open actions, and explicitly check the attachment option before submitting. Existing projects use the same path. The server reads the project itself and rejects another member's project, inaccessible projects and inactive projects. Attaching a project does not add theme membership, submit automatically, confirm an agenda, expose private pitch history or grant project access.
+
+Only the selected project's title, ID, owner and open tasks/deadlines are shared with the meeting audience and agenda email recipients. The update and confirmed agenda retain a snapshot from submission time. Project tasks remain the source of current state; completing a task changes the next submission, not past meeting records. Resubmission refreshes the snapshot, while unchecking the attachment removes it from that submission. AI slot advice still requires actual progress evidence and never treats a planned action as completed work.

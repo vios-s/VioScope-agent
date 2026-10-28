@@ -3,7 +3,7 @@ import { AuthError, canSeeAll } from '../auth/session';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { createProject, getProjectForUser } from './projects';
 import { ensureUsersTable, getUserByUsername, type AuthUser } from './users';
-import { checkIdea, ideaCommandSchema, type IdeaCommand, type IdeaRevision, type IdeaPitch } from '../projects/idea-check';
+import { checkIdea, ideaCommandSchema, initialProjectActionSchema, type IdeaCommand, type IdeaRevision, type IdeaPitch } from '../projects/idea-check';
 
 function canManage(pitch: IdeaPitch, user: AuthUser) {
   return user.provisioningStatus === 'active' && (pitch.ownerUsername === user.username || canSeeAll(user));
@@ -99,7 +99,7 @@ export async function writeIdeaCheck(id: string, input: IdeaCommand, user: AuthU
     return { version: command.version + 1 };
   });
 }
-export async function createProjectFromPitch(id: string, version: number, user: AuthUser) {
+export async function createProjectFromPitch(id: string, version: number, user: AuthUser, initialAction?: { text: string; dueDate: string }) {
   await ensureTable();
   return withDatabaseTransaction(async () => {
     const db = createPostgresClient();
@@ -109,7 +109,7 @@ export async function createProjectFromPitch(id: string, version: number, user: 
     const current = (await revisions(id, true))[0];
     if (current?.version !== version) throw new AuthError('This pitch changed. Reload before creating the project.', 409, 'conflict');
     if (current.decision?.outcome !== 'proceed') throw new Error('A confirmed Proceed decision is required before creating a project.');
-    const project = await createProject({ title: pitch.title, ownerUsername: pitch.ownerUsername, stage: 1 }, user);
+    const project = await createProject({ title: pitch.title, ownerUsername: pitch.ownerUsername, stage: 1, target: current.decision.nextMilestone, todos: initialAction ? [initialProjectActionSchema.parse(initialAction)] : [] }, user);
     await db.pool.query('INSERT INTO project_idea_origins(project_id,snapshot) VALUES($1,$2::jsonb)', [project.id,
       JSON.stringify({ title: pitch.title, draft: current.draft, decision: current.decision, approvedBy: current.by, approvedAt: current.at, version: current.version })]);
     await db.pool.query('UPDATE idea_pitches SET project_id=$2 WHERE id=$1', [id, project.id]);

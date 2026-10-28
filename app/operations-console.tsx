@@ -43,6 +43,8 @@ import { ReviewForm } from './review-form';
 import { IdeaPitches } from './idea-pitches';
 import { ProjectIdeaOrigin } from './project-idea-origin';
 import { ProjectMeetingActions } from './project-meeting-actions';
+import { MeetingProjectSummary } from './meeting-project-summary';
+import { meetingProjectContext } from '../src/mastra/theme-meetings/project-context';
 import { ThemeMeetingWorkflow } from './theme-meeting-workflow';
 import { ApiRequestError, requestJson } from './client-request';
 import type {
@@ -3656,7 +3658,8 @@ function ProjectMeetingSuggestion({ project, onUseSlot }: {
   const suggestedSlot = advice.slot;
   return (
     <article className="theme-project-advice" aria-label={`Meeting suggestion for ${project.title}`}>
-      <strong>{project.title}</strong>
+      <MeetingProjectSummary context={meetingProjectContext(project)} />
+      <p>Tasks are maintained in Projects. They are preparation plans, not evidence of completed progress.</p>
       <p><strong>Suggested slot: {advice.slot ? updateTypeOptionLabels[advice.slot] : 'Update progress first'}</strong></p>
       <p>{advice.evidence}</p>
       <p>{advice.preparation}</p>
@@ -3692,6 +3695,7 @@ function ThemeMeetingPanel({
   const [status, setStatus] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [sourceProjectId, setSourceProjectId] = useState('');
+  const [shareProject, setShareProject] = useState(false);
   const [memberCandidateByTheme, setMemberCandidateByTheme] = useState<Record<string, string>>({});
   const [meetingToCancel, setMeetingToCancel] = useState<ThemeMeetingPlan['meetings'][number] | null>(null);
   const [cancellationBusy, setCancellationBusy] = useState(false);
@@ -3758,11 +3762,11 @@ function ThemeMeetingPanel({
   const sourceProjects = useMemo(
     () =>
       projects
-        .filter((project) => normalizedName(project.ownerUsername) === normalizedName(viewer.username) && project.lifecycle !== 'archived')
+        .filter((project) => normalizedName(project.ownerUsername) === normalizedName(viewer.username) && project.lifecycle === 'active')
         .sort((left, right) => (right.lastUpdate || '').localeCompare(left.lastUpdate || '')),
     [projects, viewer.username],
   );
-  const sourceProject = sourceProjects.find((project) => project.id === sourceProjectId) || sourceProjects[0] || null;
+  const sourceProject = sourceProjectId ? sourceProjects.find((project) => project.id === sourceProjectId) || null : sourceProjects[0] || null;
   const progressFieldId = 'theme-meeting-progress';
   const progressWordCount = countWords(progressText);
   const questionsFieldId = 'theme-meeting-questions';
@@ -3783,13 +3787,9 @@ function ThemeMeetingPanel({
     setUpdateType(submittedUpdate?.update_type || 'nothing_to_report');
     setProgressText(submittedUpdate?.progress_text || '');
     setQuestions(submittedUpdate?.questions || '');
+    setShareProject(Boolean(submittedUpdate?.project_context));
+    setSourceProjectId(submittedUpdate?.project_context?.projectId || '');
   }, [selectedThemeId, submittedUpdate?.submitted_at]);
-
-  useEffect(() => {
-    if (sourceProject && sourceProject.id !== sourceProjectId) {
-      setSourceProjectId(sourceProject.id);
-    }
-  }, [sourceProject, sourceProjectId]);
 
   async function enableBrowserNotifications() {
     if (!('Notification' in window)) {
@@ -3812,6 +3812,7 @@ function ThemeMeetingPanel({
     }
 
     try {
+      if (shareProject && !sourceProject) throw new Error('The linked project is no longer available. Choose an active project or remove the attachment.');
       if (!progressText.trim() && updateType !== 'nothing_to_report') {
         document.getElementById(progressFieldId)?.focus();
         throw new Error('Add a short progress update before submitting.');
@@ -3829,6 +3830,7 @@ function ThemeMeetingPanel({
           updateType,
           progressText,
           questions,
+          ...(shareProject && sourceProject ? { projectId: sourceProject.id } : {}),
         }),
       });
       setStatus(submittedUpdate ? 'Changes saved.' : 'Update submitted.');
@@ -4043,6 +4045,7 @@ function ThemeMeetingPanel({
                                 <span>
                                   {updateTypeLabels[item.update_type]} / {item.duration_minutes} min
                                 </span>
+                                <MeetingProjectSummary context={item.project_context} />
                               </div>
                             ))
                           ) : summary.agenda_count ? (
@@ -4178,7 +4181,7 @@ function ThemeMeetingPanel({
                   <div className="theme-prefill-row">
                     <label>
                       <span>Project source</span>
-                      <select value={sourceProject?.id || ''} onChange={(event) => setSourceProjectId(event.target.value)}>
+                      <select value={sourceProject?.id || ''} onChange={(event) => { setSourceProjectId(event.target.value); setShareProject(false); }}>
                         {sourceProjects.map((project) => (
                           <option key={project.id} value={project.id}>
                             {project.title}
@@ -4201,6 +4204,13 @@ function ThemeMeetingPanel({
                     }}
                   />
                 )}
+                {(sourceProject || shareProject) && <div className="theme-project-share">
+                  <label><input type="checkbox" checked={shareProject} aria-describedby="theme-project-share-help" onChange={(event) => setShareProject(event.target.checked)} />
+                    <span>Attach this project's owner, next actions and deadlines</span>
+                  </label>
+                  <p id="theme-project-share-help">Visible to the meeting audience and agenda email recipients. Private pitch history and project access stay unchanged. Uncheck to remove the attachment when saving.</p>
+                </div>}
+                {submittedUpdate?.project_context && <details><summary>Previously shared project snapshot</summary><MeetingProjectSummary context={submittedUpdate.project_context} /></details>}
                 <p>Suggestions reserve no agenda time. Choose Nothing to report only when you have no progress or question to share.</p>
                 <div className="prompt-field">
                   <div className="prompt-field-head">

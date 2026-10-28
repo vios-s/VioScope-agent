@@ -1,4 +1,7 @@
 import 'dotenv/config';
+import { z } from 'zod';
+import { getProjectForUser } from '../../../../src/mastra/db/projects';
+import { meetingProjectContext } from '../../../../src/mastra/theme-meetings/project-context';
 import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
@@ -32,7 +35,18 @@ export async function POST(request: Request) {
       throw new AuthError('Members can only submit their own update.', 403, 'forbidden');
     }
 
+    let projectContext;
+    if (body.projectId !== undefined && body.projectId !== null) {
+      const projectId = z.string().uuid().parse(body.projectId);
+      const project = await getProjectForUser(projectId, user);
+      if (project.ownerUsername !== member.trim().toLowerCase()) {
+        throw new AuthError('Only the project owner can attach this project to their meeting update.', 403, 'forbidden');
+      }
+      if (project.lifecycle !== 'active') throw new Error('Only active projects can be linked to a meeting update.');
+      projectContext = meetingProjectContext(project);
+    }
     const result = await submitThemeMeetingUpdate({
+      projectContext,
       meetingDate: text(body.meetingDate),
       themeId,
       member,

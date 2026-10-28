@@ -15,6 +15,8 @@ const field = z.string().trim().max(4000).default('');
 export const ideaDraftSchema = z.object({ question: field, importance: field, contribution: field, evidence: field,
   validation: field, resources: field, risks: field, milestone: field }).strict();
 export type IdeaDraft = z.infer<typeof ideaDraftSchema>;
+export const initialProjectActionSchema = z.object({ text: z.string().trim().min(1).max(240), dueDate: z.iso.date() }).strict();
+
 export const ideaDecisionSchema = z.object({ outcome: z.enum(['proceed', 'revise', 'stop']),
   rationale: z.string().trim().min(1).max(4000), nextMilestone: z.string().trim().min(1).max(2000) }).strict();
 export type IdeaDecision = z.infer<typeof ideaDecisionSchema>;

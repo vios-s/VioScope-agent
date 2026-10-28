@@ -138,15 +138,51 @@ try {
   assert.equal((await share('alice', 'carol')).status, 400);
   await db.pool.query("UPDATE users SET provisioning_status='active' WHERE username='carol'");
   // WEB_TEST_INSERT
-  const conversions = await Promise.all(['alice', 'admincheck'].map(async name => ok(await post(name, { operation: 'create_project', version: 6, confirmed: true }))));
+  assert.equal((await post('alice', { operation: 'create_project', version: 6, confirmed: true, initialAction: { text: 'Run pilot', dueDate: '2026-02-30' } })).status, 400);
+  const conversions = await Promise.all(['alice', 'admincheck'].map(async name => ok(await post(name, { operation: 'create_project', version: 6, confirmed: true, initialAction: { text: 'Run a synthetic pilot', dueDate: '2026-11-06' } }))));
   assert.equal(conversions[0].projectId, conversions[1].projectId, 'Concurrent conversion creates one project.');
   assert.deepEqual(conversions.map(item => item.created).sort(), [false, true]);
   const records = await projects.listProjectsForUser(accounts.get('principal')!);
+  assert.equal(records[0].target, decision.nextMilestone);
+  assert.equal(records[0].todos.length, 1);
+  assert.equal(records[0].todos[0].dueDate, '2026-11-06');
+  const meetingRoute = await import('../app/api/theme-meetings/updates/route');
+  const meetingPost = (name: string, extra: Record<string, unknown> = {}) => meetingRoute.POST(new Request('http://localhost/api/theme-meetings/updates', {
+    method: 'POST', headers: headers(name), body: JSON.stringify({ meetingDate: '2099-11-04', themeId: 'A', member: name,
+      updateType: 'strategic_slot', progressText: 'The pilot is planned, not completed.', projectId: records[0].id, ...extra }),
+  }));
+  assert.equal((await meetingPost('outsider')).status, 400);
+  assert.equal((await meetingPost('bob')).status, 400);
+  const linked = await ok(await meetingPost('alice'));
+  const snapshot = linked.update.project_context;
+  assert.equal(snapshot.ownerUsername, 'alice');
+  assert.equal(snapshot.actions[0].text, 'Run a synthetic pilot');
+  assert.equal(snapshot.actions[0].dueDate, '2026-11-06');
+  assert.equal(JSON.stringify(snapshot).includes('PRIVATE_SOURCE'), false);
+  const agenda = linked.plan.meetings.find((meeting: { theme_id: string }) => meeting.theme_id === 'A');
+  assert.deepEqual(agenda.agenda_items[0].project_context, snapshot);
+  const { renderThemeMeetingAgendaEmail } = await import('../src/mastra/theme-meetings/agenda-email');
+  const email = renderThemeMeetingAgendaEmail(linked.plan);
+  assert.match(email.text, /Run a synthetic pilot/);
+  assert.match(email.html, /2026-11-06/);
+  const workflow = await import('../src/mastra/theme-meetings/workflow');
+  const state = { confirmations: [], actions: [] };
+  const confirmation = workflow.confirmAgenda(state, agenda, '2099-11-04', [{ username: 'alice', deferred: false, minutes: 10 }], 'chair');
+  assert.deepEqual(confirmation.entries[0].project_context, snapshot, 'Confirmed agendas retain the shared project snapshot.');
+  await projects.updateProject(records[0].id, { todos: [{ ...records[0].todos[0], done: true }] }, accounts.get('alice')!);
+  const { buildThemeMeetingPlan } = await import('../src/mastra/theme-meetings/planner');
+  const historical = await buildThemeMeetingPlan({ meetingDate: '2099-11-04' });
+  assert.deepEqual(historical.plan.meetings[0].agenda_items[0].project_context, snapshot, 'Editing live tasks does not rewrite a submitted snapshot.');
+  const refreshed = await ok(await meetingPost('alice'));
+  assert.deepEqual(refreshed.update.project_context.actions, [], 'Completed tasks leave the next submission.');
+  const detached = await ok(await meetingPost('alice', { projectId: null }));
+  assert.equal(detached.update.project_context, undefined, 'The project attachment is optional and removable.');
   const inherited = await ideaDb.getProjectIdeaOrigin(records[0].id, accounts.get('alice')!);
   assert.equal(inherited.version, 6); assert.deepEqual(inherited.draft, currentDraft);
   assert.equal(inherited.history, undefined); assert.equal(inherited.source, undefined); assert.equal(inherited.reviews, undefined);
   await projects.updateProject(records[0].id, { collaborators: ['bob'] }, accounts.get('principal')!);
   assert.deepEqual(await ideaDb.getProjectIdeaOrigin(records[0].id, accounts.get('bob')!), inherited, 'Collaborators receive only the final snapshot.');
+  assert.equal((await meetingPost('bob')).status, 403, 'Project collaboration does not authorize claiming ownership in a meeting.');
   assert.equal((await get('bob')).status, 403, 'Project access does not reveal private pitch history.');
   assert.equal(records.length, 1); assert.equal(records[0].stage, 1); assert.equal(records[0].ownerUsername, 'alice');
   assert.equal((await ok(await get('alice'))).canEdit, false);

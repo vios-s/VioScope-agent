@@ -6705,3 +6705,21 @@ html[data-theme="dark"] .briefing-hero::after {
 .idea-pi-list article { display: grid; grid-template-columns: minmax(0, 2fr) minmax(100px, 1fr) minmax(160px, 1fr); align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
 .idea-pi-list button { text-align: left; justify-content: flex-start; }
 @media (max-width: 900px) { .idea-pi-list article { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
+
+.theme-project-share {
+  grid-column: 1 / -1;
+}
+.theme-update-form .theme-project-share label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.theme-project-share input[type="checkbox"] {
+  width: auto;
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
+}
+.theme-project-share p {
+  margin: 0.5rem 0 0;
+  line-height: 1.5;
+}

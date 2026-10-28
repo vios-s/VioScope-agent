@@ -1,5 +1,7 @@
 'use client';
 
+import { MeetingProjectSummary } from './meeting-project-summary';
+
 import { useEffect, useState } from 'react';
 import { requestJson } from './client-request';
 import type { AgendaConfirmation, MeetingAction } from '../src/mastra/theme-meetings/workflow';
@@ -81,7 +83,7 @@ export function ThemeMeetingWorkflow({ themeId, meetingDate, onChanged }: {
             <ol>{entries.map((entry, index) => {
               const candidate = data.candidates.find((item) => item.member_username === entry.username)!;
               return <li key={entry.username} className="theme-workflow-entry">
-                <strong>{candidate.member}</strong><p>{candidate.progress_text}</p>
+                <strong>{candidate.member}</strong><p>{candidate.progress_text}</p><MeetingProjectSummary context={candidate.project_context} />
                 <label>Minutes <input type="number" min={candidate.update_type === 'nothing_to_report' ? 0 : 1} max={60} required value={entry.minutes}
                   readOnly={['short_update', 'nothing_to_report'].includes(candidate.update_type)}
                   onChange={(event) => setEntries((current) => current.map((item, i) => i === index ? { ...item, minutes: Number(event.target.value) } : item))} /></label>

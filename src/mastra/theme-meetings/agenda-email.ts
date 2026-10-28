@@ -1,3 +1,4 @@
+import { formatMeetingProject } from './project-context';
 import type { ThemeMeetingPlan, ThemeUpdateType } from './schema';
 
 const slotLabels: Record<ThemeUpdateType, string> = {
@@ -119,6 +120,7 @@ export function renderThemeMeetingAgendaEmail(
         ...(index === 0 ? [discussion.length ? 'Discussion details' : 'Updates'] : index === discussion.length ? ['Updates'] : []),
         `${item.member} — ${slotLabels[item.update_type]} (${item.duration_minutes} min)`,
         updateText(item.progress_text),
+        ...(item.project_context ? [formatMeetingProject(item.project_context)] : []),
         ...(item.questions ? [`Questions: ${updateText(item.questions)}`] : []),
       ].join('\n')),
       ...(meeting.agenda_items.length ? [] : ['No planned updates yet.']),
@@ -138,6 +140,7 @@ export function renderThemeMeetingAgendaEmail(
       <h4 style="margin:0 0 4px;font-size:16px;line-height:1.5;">${escapeHtml(item.member)}</h4>
       <p style="margin:0 0 10px;font-size:13px;color:#52616b;">${slotLabels[item.update_type]} &middot; ${item.duration_minutes} min</p>
       <div style="overflow-wrap:anywhere;word-break:break-word;">${updateHtml(item.progress_text)}</div>
+      ${item.project_context ? `<div style="margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(formatMeetingProject(item.project_context))}</div>` : ''}
       ${item.questions ? `<div style="margin:12px 0 0;overflow-wrap:anywhere;word-break:break-word;"><strong>Questions</strong>${updateHtml(item.questions)}</div>` : ''}
     </td></tr>`).join('')}` : '';
     return `

@@ -1,3 +1,4 @@
+import { formatMeetingProject } from './project-context';
 import {
   claimThemeMeetingEmailDelivery,
   readThemeMeetingCancellations,
@@ -57,6 +58,7 @@ export type SubmitThemeMeetingUpdateInput = ThemeMeetingStoreOptions & {
   progressText?: string;
   questions?: string;
   submittedVia?: ThemeMeetingUpdate['submitted_via'];
+  projectContext?: ThemeMeetingUpdate['project_context'];
   now?: Date;
   validateUsers?: boolean;
 };
@@ -445,6 +447,7 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
           update_type: update.update_type,
           duration_minutes: updateDuration(config, update.update_type),
           progress_text: update.progress_text,
+          ...(update.project_context ? { project_context: update.project_context } : {}),
           questions: update.questions,
           submitted_at: update.submitted_at,
         }));
@@ -534,6 +537,7 @@ export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateIn
     member_username: member.username,
     update_type: input.updateType,
     progress_text: progressText,
+    project_context: input.projectContext,
     questions,
     submitted_at: (input.now || new Date()).toISOString(),
     submitted_via: input.submittedVia || 'api',
@@ -763,7 +767,7 @@ export function renderThemeMeetingPlan(plan: ThemeMeetingPlan): string {
               (item) =>
                 `  - ${item.member}: ${item.update_type} (${item.duration_minutes} min) - ${item.progress_text}${
                   item.questions ? ` Questions: ${item.questions}` : ''
-                }`,
+                }${item.project_context ? `\n${formatMeetingProject(item.project_context)}` : ''}`,
             )
             .join('\n')
         : '  - No planned updates yet';

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { meetingProjectContextSchema } from './project-context';
 
 const dateStringSchema = z
   .union([z.string(), z.date()])
@@ -87,6 +88,7 @@ export const themeMeetingUpdateSchema = z.object({
   member: z.string().trim().min(1),
   update_type: themeUpdateTypeSchema,
   progress_text: z.string().trim().min(1),
+  project_context: meetingProjectContextSchema.optional(),
   questions: z.string().trim().default(''),
   submitted_at: z.string().datetime(),
   submitted_via: z.enum(['dashboard', 'chat', 'cron', 'api']).default('api'),
@@ -118,6 +120,7 @@ export const themeMeetingAgendaItemSchema = z.object({
   update_type: themeUpdateTypeSchema,
   duration_minutes: z.number().int().nonnegative(),
   progress_text: z.string(),
+  project_context: meetingProjectContextSchema.optional(),
   questions: z.string(),
   submitted_at: z.string().datetime(),
 });

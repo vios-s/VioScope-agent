@@ -20,6 +20,8 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
   const [decision, setDecision] = useState<IdeaDecision>({ outcome: 'revise', rationale: '', nextMilestone: '' });
   const [confirmed, setConfirmed] = useState(false);
   const [createConfirmed, setCreateConfirmed] = useState(false);
+  const [initialAction, setInitialAction] = useState('');
+  const [actionDueDate, setActionDueDate] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [operationBusy, setBusy] = useState(false);
@@ -109,7 +111,7 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
       const target = await ensurePitch();
       await requestJson(target, 'Could not save idea check.', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ operation, version: data.current?.version || 0,
-          ...(operation === 'save' ? { title, draft, source } : operation === 'decide' ? { decision, confirmed } : { confirmed: createConfirmed }) }) });
+          ...(operation === 'save' ? { title, draft, source } : operation === 'decide' ? { decision, confirmed } : { confirmed: createConfirmed, initialAction: { text: initialAction, dueDate: actionDueDate } }) }) });
       const payload = await requestJson<IdeaCheckPayload>(target, 'Saved, but could not refresh. Reload to see the saved record.');
       setData(payload); setExportFormat(defaultPitchExportFormat(payload.current?.source?.name)); setTitle(payload.pitch.title); setDraft(payload.current!.draft); setConfirmed(false); setCreateConfirmed(false);
       await onChanged(resolvedId.current);
@@ -224,6 +226,10 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
       {data.canManage && (data.pitch.projectId ? <p role="status">Created project: {data.pitch.title}. Find it under Projects.</p> : data.current?.decision?.outcome === 'proceed' && !dirty && <form onSubmit={(event) => { event.preventDefault(); void save('create_project'); }}>
         <fieldset disabled={busy}><legend>Create a project from this pitch</legend>
           <p>This creates a Stage 1 project owned by @{data.pitch.ownerUsername}, using the pitch title. You can set its track and other details in the project.</p>
+          <p>Approved next milestone: {data.current.decision.nextMilestone}</p>
+          <label>First next action <textarea required maxLength={240} rows={2} value={initialAction} onChange={(event) => { setInitialAction(event.target.value); setCreateConfirmed(false); }} /></label>
+          <label>Action deadline <input required type="date" value={actionDueDate} onChange={(event) => { setActionDueDate(event.target.value); setCreateConfirmed(false); }} /></label>
+          <p>@{data.pitch.ownerUsername} is responsible for this action. Manage further tasks in Projects. Attach the project when submitting a theme meeting update.</p>
           <label className="idea-confirm"><input type="checkbox" required checked={createConfirmed} onChange={(event) => setCreateConfirmed(event.target.checked)} /> I confirm this approved pitch should now become a project.</label>
           <button type="submit" className="ops-primary" disabled={!createConfirmed}>Create project</button>
         </fieldset>

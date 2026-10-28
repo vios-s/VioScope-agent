@@ -314,3 +314,11 @@ The checked Idea Pitch, English advice policy and session/dependency security fi
 The web service passed public HTTPS smoke checks after a verified database backup. Main and dev are
 synchronized to this release; unfinished dev work is preserved in a separate local stash. Existing
 users must sign in again. The editable Idea Pitch rules remain in the configured skill file.
+
+
+### 2026-10-28 — Approved project / theme meeting handoff (development)
+
+- Approved pitch conversion: carry the agreed milestone into the project target; record a first owner-responsible action and deadline in the existing project TODO list.
+- Theme meeting submission: optionally attach an owned active project's owner, open next actions and deadlines. Existing projects are supported. A member must still submit explicitly; human agenda confirmation remains separate.
+- Keep live tasks in Projects and historical snapshots in meeting records. Shared snapshots do not reveal private pitch versions or expand project permissions.
+- Validation: disposable database integration, existing theme workflow/advice checks, English policy, production build and synthetic desktop/mobile browser flow. This entry does not mark deployment complete.
