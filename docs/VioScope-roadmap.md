@@ -333,3 +333,6 @@ users must sign in again. The editable Idea Pitch rules remain in the configured
 - AI results remain advisory. This slice does not add automatic stage changes, a project-linked readiness gate or the complete submission timeline.
 - Rules remain editable in the external `vios-skeleton-lock/SKILL.md` loaded through `VIOS_SKILLS_DIR` (or the datastore skill directories). No private lab rule text is copied into public code.
 - Verification: `scripts/check-skeleton.ts`; `CHECK_SKELETON_UI=true` with the disposable-database `scripts/check-idea-check.ts` runner. Browser AI responses are stubbed; persistence and account permissions use the actual routes. Deployment is separate.
+
+
+Skeleton Lock live-AI validation (2026-10-28): a fictional cell-segmentation outline was reviewed by the configured ELM model using the configured Skeleton Lock skill. The result was SLIDE, with nine findings and ten draft citations; all citations were within the supplied text and were manually checked against the evidence. The review distinguished proposed experiments from completed results and retained pending human sign-off. Run `npm run check:skeleton-quality` to repeat this synthetic live-model check. One passing case is a smoke test, not a comprehensive model evaluation.
