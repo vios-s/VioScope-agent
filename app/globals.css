@@ -6667,6 +6667,9 @@ html[data-theme="dark"] .briefing-hero::after {
 .idea-fields legend { padding-bottom: 12px; }
 .idea-fields label { align-content: stretch; grid-template-rows: auto 1fr auto; }
 .idea-fields textarea { min-height: 120px; }
+.idea-pitches-panel .idea-fields label, .skeleton-lock .skeleton-blocks label { font-size: 16px; font-weight: 600; line-height: 1.5; color: var(--ink); }
+.idea-pitches-panel .idea-fields label > span, .skeleton-blocks > div > p { font-size: 14px; font-weight: 400; line-height: 1.5; color: var(--ink-3); text-wrap: pretty; }
+.skeleton-blocks > div > p { margin: 6px 0 10px; }
 .idea-fields > button, .idea-optional-title { grid-column: 1 / -1; }
 .idea-fields > button { justify-self: start; }
 .idea-import { padding: 20px; border-radius: 8px; background: var(--field); border: 1px solid var(--line); }
