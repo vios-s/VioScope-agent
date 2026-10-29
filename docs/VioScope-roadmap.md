@@ -332,10 +332,20 @@ users must sign in again. The editable Idea Pitch rules remain in the configured
 - Changing evidence or context clears the previous local review/sign-off and starts a new review. Mixed-check historical runs stay in the B2 workbench to avoid discarding other checks.
 - AI results remain advisory. This slice does not add automatic stage changes, a project-linked readiness gate or the complete submission timeline.
 - Rules remain editable in the external `vios-skeleton-lock/SKILL.md` loaded through `VIOS_SKILLS_DIR` (or the datastore skill directories). No private lab rule text is copied into public code.
-- Verification: `scripts/check-skeleton.ts`; `CHECK_SKELETON_UI=true` with the disposable-database `scripts/check-idea-check.ts` runner. Browser AI responses are stubbed; persistence and account permissions use the actual routes. Deployment is separate.
+- Verification: `scripts/check-skeleton.ts`; the original disposable-database browser runner (superseded by `check:skeleton-project` below). Browser AI responses are stubbed; persistence and account permissions use the actual routes. Deployment is separate.
 
 
 Skeleton Lock live-AI validation (2026-10-28): a fictional cell-segmentation outline was reviewed by the configured ELM model using the configured Skeleton Lock skill. The result was SLIDE, with nine findings and ten draft citations; all citations were within the supplied text and were manually checked against the evidence. The review distinguished proposed experiments from completed results and retained pending human sign-off. Run `npm run check:skeleton-quality` to repeat this synthetic live-model check. One passing case is a smoke test, not a comprehensive model evaluation.
 
 
 Skeleton Lock deployment verified (2026-10-28): main was pushed and runtime commit `69cc5f6` was deployed as build `henMjh3TcAIVve2veXl8F`. A temporary synthetic member used the public HTTPS website to run the configured real AI, save the review, and inspect pending human sign-off. The online review returned SLIDE with eight evidence-linked findings. Authentication guards, desktop/mobile layout and absence of client errors passed. The temporary account and review were removed after screenshots; the audit trail was retained. The previous runtime and a restore-verified database backup are retained in the local deployment receipt. This release also includes the approved-project/theme-meeting handoff.
+
+
+### Project-bound Skeleton Lock — implemented, not deployed (2026-10-29)
+
+- Every new Skeleton Lock check selects an existing active project. Owner, PI, PDRA reviewer, collaborators, target venue and submission deadline come from Projects. There is no separate initiator field.
+- Projects now store an assigned PI and one PDRA reviewer using active account usernames. The PI must have PI/admin permissions. A project owner cannot be their own PDRA. Assigned PDRA accounts can read the project, but cannot edit it merely through this assignment.
+- The owner, PI or administrator requests the AI check. The server attaches current project data and saves the evidence, AI result and project snapshot together. Legacy generic review records remain available in the review workbench; they are not automatically linked by title.
+- The assigned PDRA has a dedicated review view and records Locked, Conditional or Revise with an evidence note. PI/admin has a separate overview and records final approval or required revision after the PDRA judgment. Administrators can perform either action. Human identities, timestamps and all previous judgments are retained.
+- Only the newest AI check with unchanged project context can receive judgments. New checks require new judgments; amending a PDRA judgment requires fresh PI confirmation. Reassigning the PDRA immediately removes the former reviewer's assignment-based access. Project stages do not advance automatically.
+- Validation: `npm run check:skeleton-project` uses a disposable database; `CHECK_SKELETON_PROJECT_UI=true` adds the owner/PDRA/PI browser flow against a separate production build. AI output in this workflow test is synthetic; live-model quality remains covered separately by `check:skeleton-quality`.

@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { DotMatrixIcon } from './dot-matrix-icon';
 import { ReviewForm } from './review-form';
+import { SkeletonLock } from './skeleton-lock';
 import { IdeaPitches } from './idea-pitches';
 import { ProjectIdeaOrigin } from './project-idea-origin';
 import { ProjectMeetingActions } from './project-meeting-actions';
@@ -214,6 +215,8 @@ type ManagedProject = {
   title: string;
   ownerUsername: string;
   collaborators: string[];
+  piUsername: string | null;
+  pdraUsername: string | null;
   track: string;
   stage: number;
   stageProgress: number;
@@ -292,6 +295,8 @@ type ProjectDraft = {
   title: string;
   ownerUsername: string;
   collaboratorsText: string;
+  piUsername: string;
+  pdraUsername: string;
   track: ProjectTrack;
   stage: string;
   stageProgress: string;
@@ -862,6 +867,8 @@ function projectDraftFromProject(project: ManagedProject | null, viewer: Current
     title: project?.title || '',
     ownerUsername,
     collaboratorsText: project?.collaborators.join(', ') || '',
+    piUsername: project?.piUsername || '',
+    pdraUsername: project?.pdraUsername || '',
     track: project?.track === 'B' ? 'B' : 'A',
     stage: String(project?.stage || 1),
     stageProgress: String(project?.stageProgress ?? 0),
@@ -885,6 +892,8 @@ function projectRequestBody(draft: ProjectDraft) {
     title: draft.title,
     ownerUsername: draft.ownerUsername,
     collaborators: collaboratorTokens(draft.collaboratorsText),
+    piUsername: draft.piUsername || null,
+    pdraUsername: draft.pdraUsername || null,
     track: draft.track,
     stage: Number(draft.stage),
     stageProgress: Number(draft.stageProgress || 0),
@@ -2475,6 +2484,18 @@ function CollaboratorInput({
   );
 }
 
+function ProjectReviewerFields({ draft, users, onChange }: { draft: ProjectDraft; users: MentionableUser[]; onChange: (patch: Partial<ProjectDraft>) => void }) {
+  return <>
+    <label><span>Project PI</span><select value={draft.piUsername} onChange={event => onChange({ piUsername: event.target.value })}>
+      <option value="">Not assigned</option>{users.filter(user => user.role === 'pi' || user.role === 'administrator').map(user => <option key={user.id} value={user.username}>@{user.username}</option>)}
+    </select></label>
+    <label><span>Assigned PDRA reviewer</span><select value={draft.pdraUsername} onChange={event => onChange({ pdraUsername: event.target.value })}>
+      <option value="">Not assigned</option>{users.filter(user => user.username !== draft.ownerUsername).map(user => <option key={user.id} value={user.username}>@{user.username}</option>)}
+    </select></label>
+    <p>The assigned PDRA can read this project and judge its Skeleton Lock reviews. Assignment does not allow editing project progress.</p>
+  </>;
+}
+
 function ProjectEditorModal({
   project,
   viewer,
@@ -2631,6 +2652,7 @@ function ProjectEditorModal({
               </output>
             </div>
           )}
+          <ProjectReviewerFields draft={draft} users={collaboratorUsers} onChange={patch => setDraft(current => ({ ...current, ...patch }))} />
           <CollaboratorInput
             value={draft.collaboratorsText}
             users={collaboratorUsers}
@@ -3148,6 +3170,7 @@ function ProjectDetailModal({
                 ))}
               </select>
             </label>
+            <ProjectReviewerFields draft={editDraft} users={collaboratorUsers} onChange={patch => setEditDraft(current => ({ ...current, ...patch }))} />
             <label>
               <span>Venue</span>
               <input value={editDraft.venue} onChange={(event) => setEditDraft((current) => ({ ...current, venue: event.target.value }))} />
@@ -3213,6 +3236,14 @@ function ProjectDetailModal({
             <div>
               <span>Collaborators</span>
               <strong>{project.collaborators.join(', ') || 'None'}</strong>
+            </div>
+            <div>
+              <span>PI</span>
+              <strong>{project.piUsername ? `@${project.piUsername}` : 'Not assigned'}</strong>
+            </div>
+            <div>
+              <span>PDRA reviewer</span>
+              <strong>{project.pdraUsername ? `@${project.pdraUsername}` : 'Not assigned'}</strong>
             </div>
             <div>
               <span>Watch path</span>
@@ -5632,7 +5663,7 @@ function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean;
       tabs={checklistTabs}
     >
 
-      {activeChecklistId === 'idea' ? <IdeaPitches onProjectCreated={onProjectCreated} /> : activeChecklistId === 'skeleton' ? <ReviewForm key="skeleton" embedded skeletonOnly canSignOff={canSignOff} /> : <>
+      {activeChecklistId === 'idea' ? <IdeaPitches onProjectCreated={onProjectCreated} /> : activeChecklistId === 'skeleton' ? <SkeletonLock /> : <>
       <div className="checklist-layout">
         <section className="checklist-template-card" aria-label={`${activeChecklist.label} checklist`}>
           <header>

@@ -48,6 +48,8 @@ export type ProjectCreateInput = {
   title?: string;
   ownerUsername?: string;
   collaborators?: string[];
+  piUsername?: string | null;
+  pdraUsername?: string | null;
   track?: string;
   stage?: number;
   stageProgress?: number;
@@ -125,6 +127,8 @@ export type ProjectRecord = {
   title: string;
   ownerUsername: string;
   collaborators: string[];
+  piUsername: string | null;
+  pdraUsername: string | null;
   track: string;
   stage: number;
   stageProgress: number;
@@ -163,6 +167,8 @@ type ProjectRow = {
   title: string;
   owner_username: string;
   collaborator_usernames: string[] | null;
+  pi_username: string | null;
+  pdra_username: string | null;
   track: string;
   stage: number | string;
   stage_progress: number | string | null;
@@ -428,6 +434,7 @@ function accessReason(row: ProjectRow, user: AuthUser, managedOwnerUsernames: Se
   if (canSeeAll(user)) return 'pi_admin';
   if (cleanUsername(row.owner_username) === username) return 'owner';
   if (user.provisioningStatus === 'active' && (row.collaborator_usernames || []).some((name) => cleanUsername(name) === username)) return 'collaborator';
+  if (user.provisioningStatus === 'active' && row.pdra_username === username) return 'collaborator';
   if (managedOwnerUsernames.has(cleanUsername(row.owner_username))) return 'coordinator';
   return null;
 }
@@ -498,6 +505,8 @@ function toProject(
     title: row.title,
     ownerUsername: row.owner_username,
     collaborators: row.collaborator_usernames || [],
+    piUsername: row.pi_username || null,
+    pdraUsername: row.pdra_username || null,
     track: row.track,
     stage: Number(row.stage),
     stageProgress: Number(row.stage_progress || 0),
@@ -569,6 +578,7 @@ async function ensureProjectTablesOnce(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await postgres.pool.query('ALTER TABLE project_records ADD COLUMN IF NOT EXISTS pi_username TEXT, ADD COLUMN IF NOT EXISTS pdra_username TEXT');
     await postgres.pool.query('ALTER TABLE project_records DROP CONSTRAINT IF EXISTS project_records_slug_key');
     await postgres.pool.query("ALTER TABLE project_records ADD COLUMN IF NOT EXISTS todos JSONB NOT NULL DEFAULT '[]'::jsonb");
     await postgres.pool.query("UPDATE project_records SET track = 'A' WHERE track NOT IN ('A', 'B')");
@@ -733,7 +743,7 @@ export async function listProjectsForUser(user: AuthUser, input: { includeArchiv
   try {
     const result = await postgres.pool.query<ProjectRow>(
       `
-        SELECT id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
+        SELECT id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, todos, archived_at, created_at, updated_at
         FROM project_records
@@ -755,7 +765,7 @@ async function projectRowsByIdOrSlug(projectId: string): Promise<ProjectRow[]> {
   try {
     const result = await postgres.pool.query<ProjectRow>(
       `
-        SELECT id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
+        SELECT id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, todos, archived_at, created_at, updated_at
         FROM project_records
@@ -768,6 +778,21 @@ async function projectRowsByIdOrSlug(projectId: string): Promise<ProjectRow[]> {
   } finally {
     await postgres.disconnect();
   }
+}
+
+async function validateProjectReviewers(pi: string | null | undefined, pdra: string | null | undefined, owner: string) {
+  const piUsername = pi ? cleanUsername(pi) : null;
+  const pdraUsername = pdra ? cleanUsername(pdra) : null;
+  if (piUsername) {
+    const account = await getUserByUsername(piUsername);
+    if (!account || account.provisioningStatus !== 'active' || !canSeeAll(account)) throw new Error('Project PI must be an active PI or administrator account.');
+  }
+  if (pdraUsername) {
+    const account = await getUserByUsername(pdraUsername);
+    if (!account || account.provisioningStatus !== 'active') throw new Error('Project PDRA must be an active account.');
+    if (pdraUsername === owner) throw new Error('The project owner cannot be their own PDRA reviewer.');
+  }
+  return { piUsername, pdraUsername };
 }
 
 async function assertActiveOwner(username: string): Promise<void> {
@@ -847,6 +872,7 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
 
   await assertActiveOwner(ownerUsername);
   const collaborators = cleanUsernames(input.collaborators);
+  const reviewers = await validateProjectReviewers(input.piUsername, input.pdraUsername, ownerUsername);
   await assertProjectNameAvailable({ ownerUsername, title, slug });
 
   const stage = cleanStage(input.stage ?? 1);
@@ -864,10 +890,10 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
         INSERT INTO project_records (
           slug, title, owner_username, collaborator_usernames, track, stage, stage_progress, lifecycle, status,
           stage_since, last_update, blocker, target, venue, submission_deadline, watch_path, notes, todos,
-          created_by_user_id
+          created_by_user_id, pi_username, pdra_username
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::date, $12, $13, $14, $15::date, $16, $17, $18::jsonb, $19)
-        RETURNING id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::date, $12, $13, $14, $15::date, $16, $17, $18::jsonb, $19, $20, $21)
+        RETURNING id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, todos, archived_at, created_at, updated_at
       `,
@@ -891,6 +917,8 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
         cleanText(input.notes),
         JSON.stringify(todos),
         actor.id,
+        reviewers.piUsername,
+        reviewers.pdraUsername,
       ],
     );
     return (await hydrateProjects(result.rows, actor))[0]!;
@@ -909,6 +937,11 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
     throw new Error('Only PI/admin can change the project owner.');
   }
   await assertActiveOwner(nextOwnerUsername);
+  const nextPi = input.piUsername === undefined ? current.piUsername : input.piUsername;
+  const nextPdra = input.pdraUsername === undefined ? current.pdraUsername : input.pdraUsername;
+  const reviewers = nextPi !== current.piUsername || nextPdra !== current.pdraUsername || nextOwnerUsername !== current.ownerUsername
+    ? await validateProjectReviewers(nextPi, nextPdra, nextOwnerUsername)
+    : { piUsername: current.piUsername, pdraUsername: current.pdraUsername };
   const nextCollaborators = input.collaborators === undefined ? current.collaborators : cleanUsernames(input.collaborators);
   const nextSlug = cleanSlug(input.project || current.project);
   if (!nextSlug) throw new Error('Project slug is required.');
@@ -960,10 +993,12 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
           watch_path = $17,
           notes = $18,
           todos = $19::jsonb,
+          pi_username = $20,
+          pdra_username = $21,
           archived_at = CASE WHEN $9 = 'archived' THEN COALESCE(archived_at, now()) ELSE NULL END,
           updated_at = now()
         WHERE id = $1
-        RETURNING id::text, slug, title, owner_username, collaborator_usernames, track, stage, stage_progress,
+        RETURNING id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, todos, archived_at, created_at, updated_at
       `,
@@ -987,6 +1022,8 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
         nextWatchPath,
         input.notes === undefined ? current.notes : cleanText(input.notes),
         JSON.stringify(nextTodos),
+        reviewers.piUsername,
+        reviewers.pdraUsername,
       ],
     );
     return (await hydrateProjects(result.rows, actor))[0]!;

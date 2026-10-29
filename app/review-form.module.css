@@ -698,13 +698,3 @@
     min-height: 280px;
   }
 }
-
-.skeleton-workspace { grid-template-columns: minmax(0, 1fr); }
-.skeleton-input { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; position: static; }
-.skeleton-input > :not(.field),
-.skeleton-input > .field:first-of-type { grid-column: 1 / -1; }
-.skeleton-input .field textarea { min-height: 120px; }
-.skeleton-input .field small { line-height: 1.5; }
-@media (max-width: 720px) {
-  .skeleton-input { grid-template-columns: minmax(0, 1fr); }
-}

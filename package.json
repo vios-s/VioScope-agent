@@ -72,6 +72,7 @@
     "check:english-policy": "node --import tsx scripts/check-english-policy.ts",
     "check:session-revocation": "node --import tsx scripts/check-session-revocation.ts",
     "check:email-transport": "node --import tsx scripts/check-email-transport.ts",
+    "check:skeleton-project": "node --import tsx scripts/check-skeleton-project.ts",
     "check:skeleton": "node --import tsx scripts/check-skeleton.ts",
     "check:skeleton-quality": "node --import tsx scripts/check-skeleton-quality.ts"
   },

@@ -6723,3 +6723,21 @@ html[data-theme="dark"] .briefing-hero::after {
   margin: 0.5rem 0 0;
   line-height: 1.5;
 }
+
+.skeleton-lock fieldset { border: 1px solid var(--border-soft); border-radius: 10px; padding: 20px; margin: 18px 0; display: grid; gap: 16px; }
+.skeleton-lock label { display: grid; gap: 8px; font-weight: 650; }
+.skeleton-lock input:not([type="checkbox"]), .skeleton-lock select, .skeleton-lock textarea { width: 100%; padding: 10px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface); color: var(--ink); }
+.skeleton-lock textarea { resize: vertical; }
+.skeleton-project-context, .skeleton-blocks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.skeleton-project-context dd { margin: 4px 0 0; overflow-wrap: anywhere; }
+.skeleton-project-context dt { font-weight: 700; }
+.skeleton-review-list { display: grid; gap: 10px; }
+.skeleton-review-list button { display: grid; gap: 6px; text-align: left; white-space: normal; }
+.skeleton-review-detail { margin-top: 24px; }
+.skeleton-review-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow-y: auto; }
+.skeleton-review-detail td, .skeleton-review-detail th { padding: 10px; text-align: left; vertical-align: top; }
+.skeleton-lock .skeleton-confirm { display: flex; align-items: flex-start; }
+.skeleton-confirm input { width: auto; flex: 0 0 auto; }
+@media (max-width: 720px) { .skeleton-project-context, .skeleton-blocks { grid-template-columns: minmax(0, 1fr); } }
+
+.skeleton-lock .ops-button-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
