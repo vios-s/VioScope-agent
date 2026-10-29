@@ -1,5 +1,6 @@
 import type { ProjectRecord } from '../db/projects';
 import type { ThemeUpdateType } from './schema';
+import { formatDay } from '../../../app/format';
 
 type AdviceProject = Pick<ProjectRecord,
   'lifecycle' | 'status' | 'blocker' | 'stage' | 'stageProgress' | 'lastUpdate' | 'submissionDeadline' | 'updates'
@@ -13,6 +14,7 @@ export function suggestThemeMeetingSlot(project: AdviceProject, now = new Date()
   if (project.lifecycle !== 'active') return null;
   const latestProgress = project.updates.find((update) => update.type === 'progress');
   const progressDate = latestProgress?.date || project.lastUpdate;
+  const shownDate = formatDay(progressDate);
   const age = progressDate ? (now.getTime() - Date.parse(progressDate)) / 86_400_000 : NaN;
   const fresh = age >= 0 && age < 14;
   const deadlineDays = project.submissionDeadline
@@ -40,7 +42,7 @@ export function suggestThemeMeetingSlot(project: AdviceProject, now = new Date()
     return {
       slot: 'short_update',
       evidence: [
-        milestone ? `The progress update on ${progressDate} records a milestone.` : '',
+        milestone ? `The progress update on ${shownDate} records a milestone.` : '',
         deadlineSoon ? `Submission deadline: ${project.submissionDeadline} (${deadlineDays} days away).` : '',
         fresh && project.stageProgress >= 80 ? `Stage ${project.stage} is ${project.stageProgress}% complete.` : '',
       ].filter(Boolean).join(' ') + freshness,
@@ -50,20 +52,20 @@ export function suggestThemeMeetingSlot(project: AdviceProject, now = new Date()
   if (!fresh) {
     return {
       slot: null,
-      evidence: progressDate ? `The last recorded progress is dated ${progressDate}; it is not current enough to suggest a slot.` : 'No project progress has been recorded.',
+      evidence: progressDate ? `The last recorded progress is dated ${shownDate}; it is not current enough to suggest a slot.` : 'No project progress has been recorded.',
       preparation: 'Update your project progress first, then choose the slot. Missing data does not mean nothing to report.',
     };
   }
   if (project.stage === 1) {
     return {
       slot: 'deep_dive',
-      evidence: `The project is at the idea/proposal stage, with progress recorded on ${progressDate}.`,
+      evidence: `The project is at the idea/proposal stage, with progress recorded on ${shownDate}.`,
       preparation: 'Bring the research question or idea, possible directions, and the feedback you need.',
     };
   }
   return {
     slot: 'short_update',
-    evidence: `Progress was recorded on ${progressDate}, with no recorded blocker, near deadline, or milestone flag.`,
+    evidence: `Progress was recorded on ${shownDate}, with no recorded blocker, near deadline, or milestone flag.`,
     preparation: 'Summarise what changed, one result, and the next step. Choose a deep dive if you have a substantial result to discuss.',
   };
 }

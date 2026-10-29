@@ -179,11 +179,11 @@ async function checkMember(browser: any) {
   await login(page, users.member);
   await expectVisible(page, 'Past meetings');
   await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
-  await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
-  assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
+  // A single theme is shown as text, not as a one-option select.
+  assert.match(await page.locator('.theme-update-form .mt-static-field').first().innerText(), /UI Theme D/);
   const slotSelect = page.locator('.theme-update-form').getByRole('combobox', { name: 'Update type', exact: true });
   assert.deepEqual(await slotSelect.locator('option').evaluateAll((options: Element[]) => options.map((option) => [(option as HTMLOptionElement).value, option.textContent])),
-    [['short_update', 'Update · 5 min'], ['deep_dive', 'Deep Dive · 20–30 min'], ['nothing_to_report', 'Nothing to Report · 0 min']]);
+    [['short_update', 'Update (5 min)'], ['deep_dive', 'Deep Dive (20–30 min)'], ['nothing_to_report', 'Nothing to Report (0 min)']]);
   assert.equal(await page.getByRole('textbox', { name: 'Project stage', exact: true }).count(), 0);
   await slotSelect.selectOption('nothing_to_report');
   await page.locator('.theme-update-form textarea').nth(0).fill('Finished a mock UI smoke test update for the next meeting.');
@@ -212,12 +212,11 @@ async function checkCoordinator(browser: any) {
   await login(page, users.coordinator);
   await expectVisible(page, 'Past meetings');
   await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
-  await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
-  assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'B');
+  assert.match(await page.locator('.theme-update-form .mt-static-field').first().innerText(), /UI Theme B/);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
-  await expectVisible(page, 'Meeting configuration');
-  await expectVisible(page, 'Theme B');
+  await expectVisible(page, 'Members of the themes you coordinate.');
+  await page.getByText('Theme B', { exact: true }).first().waitFor({ state: 'visible', timeout: 10_000 });
   await page.close();
 }
 
@@ -228,7 +227,8 @@ async function checkPlanningOnly(browser: any, username: string) {
   assert.equal(await page.locator('.theme-meeting-card').count(), 2, 'PI should see both active theme meeting cards.');
   assert.equal(await page.locator('.theme-update-form').count(), 0);
   assert.ok(await page.getByRole('button', { name: /^Send reminder/ }).count() > 0, 'PI/admin planning view should expose theme management actions.');
-  await page.getByRole('button', { name: 'Skip this meeting' }).first().click();
+  await page.getByRole('button', { name: /^More actions for/ }).first().click();
+  await page.getByRole('menuitem', { name: 'Skip this meeting' }).click();
   const skipDialog = page.getByRole('dialog', { name: 'Skip this meeting?' });
   await skipDialog.waitFor({ state: 'visible', timeout: 10_000 });
   await skipDialog.getByLabel('Reason (shown to members)').fill('Synthetic workshop week');
@@ -240,8 +240,8 @@ async function checkPlanningOnly(browser: any, username: string) {
   await expectVisible(page, 'meeting restored.');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
-  await expectVisible(page, 'Meeting configuration');
-  await expectVisible(page, 'Theme A');
+  await expectVisible(page, 'Schedule, reminders, slot lengths and theme membership.');
+  await page.getByText('Theme A', { exact: true }).first().waitFor({ state: 'visible', timeout: 10_000 });
   await page.close();
 }
 
@@ -251,13 +251,13 @@ async function checkAdminMember(browser: any) {
   await expectVisible(page, 'Past meetings');
   assert.equal(await page.locator('.theme-meeting-card').count(), 2, 'Admin should see both active theme meeting cards.');
   await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
-  await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
-  assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
+  // A single theme is shown as text, not as a one-option select.
+  assert.match(await page.locator('.theme-update-form .mt-static-field').first().innerText(), /UI Theme D/);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
-  await expectVisible(page, 'Meeting configuration');
-  await expectVisible(page, 'All theme groups');
-  await expectVisible(page, 'UI Theme D');
+  await expectVisible(page, 'Schedule, reminders, slot lengths and theme membership.');
+  const themeTitles = await page.getByLabel('Title', { exact: true }).evaluateAll((inputs: Element[]) => inputs.map((input) => (input as HTMLInputElement).value));
+  assert.ok(themeTitles.includes('UI Theme D'), 'Admin should be able to edit every theme title.');
   await page.close();
 }
 

@@ -3,6 +3,7 @@ import { themeUpdateTypeLabels } from '../src/mastra/theme-meetings/schema';
 
 import { MeetingProjectSummary } from './meeting-project-summary';
 import { ConfirmDialog } from './confirm-dialog';
+import { formatDay, formatDayTime } from './format';
 
 import { useEffect, useMemo, useReducer, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { Check, GripVertical, Mail, RotateCcw } from 'lucide-react';
@@ -24,7 +25,7 @@ type Drag = { username: string; from: number; to: number; dy: number; height: nu
 /** Renders a project title as a link to its record when the viewer can open it, otherwise as plain text. */
 type ProjectLink = (projectId: string | null | undefined, title: string, workflowTab?: 'tasks') => ReactNode;
 
-const ukTime = (value: string) => new Date(value).toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const ukTime = (value: string) => formatDayTime(value);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 const people = (count: number) => `${count} ${count === 1 ? 'person' : 'people'}`;
 
@@ -159,14 +160,15 @@ function ItemSummary({ item, projectLink }: { item: ThemeMeetingAgendaItem; proj
     <strong>{item.project_context?.title || item.member}</strong>
     <span>{item.project_context ? `${item.member} · Project stage ${item.project_context.stage ?? 'not recorded'}` : 'No linked project'}</span>
     {item.project_context && <details className="mt-snapshot"><summary>Project snapshot</summary>
-      <p className="mt-snapshot-record">Project record: {projectLink(item.project_context.projectId, item.project_context.title)}</p>
-      <MeetingProjectSummary context={item.project_context} /></details>}
+      <MeetingProjectSummary context={item.project_context} title={projectLink(item.project_context.projectId, item.project_context.title)} /></details>}
   </span>;
 }
 
-function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, canAccess, fallbackItems, revision, onSaved, onChanged, projectLink }: {
+function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, canAccess, fallbackItems, revision, onSaved, onChanged, projectLink, draftNote }: {
   userId: string; themeId: string; meetingDate: string; meetingTime: string; cancelled: boolean; canAccess: boolean;
   fallbackItems: ThemeMeetingAgendaItem[]; revision: number | string; onSaved: () => void; onChanged: () => Promise<void> | void; projectLink: ProjectLink;
+  /** Shown to members while the agenda is a draft, because they see only their own submission. */
+  draftNote?: string;
 }) {
   const { data, error } = useWorkflow(userId, themeId, meetingDate, revision, canAccess);
   // Local order and minutes live in unsavedOrders (kept across card switches); nothing is saved until Confirm.
@@ -364,12 +366,12 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
       <ItemSummary item={item} projectLink={projectLink} />
       {editable ? <span className="mt-arrange-controls">
         <span className={`mt-slot mt-slot-${item.update_type}`}>{themeUpdateTypeLabels[item.update_type]}</span>
-        <label className="mt-minutes">
-          <input type="number" inputMode="numeric" step={1} min={item.update_type === 'nothing_to_report' ? 0 : 1} max={60} required value={Number.isFinite(minutes) ? minutes : ''} readOnly={fixed}
-            disabled={busy} aria-label={`Minutes for ${item.member}`} aria-describedby={`mt-drag-hint-${themeId}`}
-            aria-invalid={!fixed && !validMinutes(minutes) ? true : undefined}
+        {fixed ? <span className="mt-minutes-text" title={`${themeUpdateTypeLabels[item.update_type]} slots are fixed at ${minutes} minutes`}>{minutes} min</span> : <label className="mt-minutes" title="Deep Dive minutes can be edited (1–60)">
+          <input type="number" inputMode="numeric" step={1} min={1} max={60} required value={Number.isFinite(minutes) ? minutes : ''}
+            disabled={busy} aria-label={`Minutes for ${item.member}`}
+            aria-invalid={!validMinutes(minutes) ? true : undefined}
             onChange={(event) => update(username, { minutes: event.target.value === '' ? Number.NaN : Math.round(Number(event.target.value)) })} />
-          <span aria-hidden="true">min</span></label>
+          <span aria-hidden="true">min</span></label>}
       </span> : <span className={`mt-slot mt-slot-${item.update_type}`}>{themeUpdateTypeLabels[item.update_type]}{isSkipped ? '' : ` · ${minutes} min`}</span>}
     </li>;
   }
@@ -393,14 +395,15 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
     {editable && legacyDeferred.length > 0 && <p className="mt-board-note is-subtle" role="note">Deferred in an earlier version: {legacyDeferred.join(', ')}. A new version schedules every submitted update; adjust Deep Dive minutes instead.</p>}
     {!changedSinceConfirmation && confirmation && editable && !upToDate && <p className="mt-board-note is-subtle" role="note">This draft differs from confirmed version {confirmation.version}. Email still sends version {confirmation.version} until you confirm again.</p>}
     {message && <p className={`form-message${message.error ? ' error' : ''}`} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
-    {editable && <p id={`mt-drag-hint-${themeId}`} className="mt-board-hint">Drag the handle, or focus it and press the arrow keys, to reorder. Updates are 5 minutes and Nothing to Report is 0 minutes; Deep Dive minutes can be edited.</p>}
+    {editable && <p id={`mt-drag-hint-${themeId}`} className="mt-board-hint">Drag or use the arrow keys to reorder.</p>}
     <p className="vs-sr-only" aria-live="polite">{announcement}</p>
     {loading ? (!error && <ol className="mt-agenda-list is-loading" role="status" aria-label="Loading agenda…">
       {Array.from({ length: Math.max(1, fallbackItems.length) }, (_, index) => <li key={index} aria-hidden="true">
         <span className="mt-skeleton is-time" /><span className="mt-item-main"><span className="mt-skeleton is-title" /><span className="mt-skeleton is-meta" /></span>
         <span className="mt-skeleton is-slot" /></li>)}
     </ol>) : scheduled.length ? <ol ref={listRef} className={`mt-agenda-list${drag ? ' is-sorting' : ''}`} aria-label="Agenda">{scheduled.map((item, index) => row(item, starts[index], index))}</ol>
-      : <p className="mt-agenda-empty">{rows.length ? 'No items are scheduled.' : 'No planned updates yet'}</p>}
+      : !(draftNote && !manager && !confirmation) && <p className="mt-agenda-empty">{rows.length ? 'No items are scheduled.' : 'No planned updates yet'}</p>}
+    {!loading && draftNote && !manager && !confirmation && <p className="mt-agenda-empty">{draftNote}</p>}
     {skipped.length > 0 && <section className="mt-skipped" aria-label="Deferred items">
       <h3>Deferred in an earlier version · not scheduled</h3>
       <ul className="mt-agenda-list">{skipped.map((item, index) => row(item, '', index))}</ul>
@@ -416,11 +419,12 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
           title={upToDate ? `Version ${confirmation!.version} is already confirmed` : undefined}>
           <Check aria-hidden="true" />Confirm</button>
         <button className="ops-secondary" type="button" disabled={busy || !confirmation} onClick={() => setDialog('email')}
-          aria-label={confirmation ? `Email confirmed agenda version ${confirmation.version}` : 'Email the agenda'} aria-describedby={confirmation ? undefined : emailHintId}>
+          aria-label={confirmation ? `Email confirmed agenda version ${confirmation.version}` : 'Email the agenda'} aria-describedby={confirmation ? undefined : emailHintId}
+          title={confirmation ? undefined : 'Confirm the agenda first'}>
           <Mail aria-hidden="true" />Email</button>
       </div>
       {minutesInvalid && <p id={minutesHintId} className="mt-email-hint">Enter whole minutes from 1 to 60 for every Deep Dive.</p>}
-      {!confirmation && <p id={emailHintId} className="mt-email-hint">Confirm the agenda first.</p>}
+      {!confirmation && <p id={emailHintId} className="vs-sr-only">Confirm the agenda first.</p>}
     </div>}
     <ConfirmDialog id={`mt-confirm-agenda-${themeId}`} open={dialog === 'confirm'} tone="default" title="Confirm this agenda?"
       message={`This saves version ${nextVersion} with ${plural(scheduled.length, 'item')} (${total} of ${duration} minutes). Emailing the agenda is a separate step.`}
@@ -441,10 +445,20 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
   </div>;
 }
 
-function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChanged, projectLink }: {
+function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChanged, projectLink, recordsRequest }: {
   userId: string; themeId: string; meetingDate: string; revision: string; memberNames: Record<string, string>; onChanged: () => Promise<void> | void; projectLink: ProjectLink;
+  recordsRequest?: RecordsRequest;
 }) {
   const [date, setDate] = useState(meetingDate);
+  const detailsRef = useRef<HTMLDetailsElement | null>(null);
+  // A Past meetings row asks to show that meeting's records here.
+  useEffect(() => {
+    if (!recordsRequest || !detailsRef.current) return;
+    setDate(recordsRequest.date);
+    detailsRef.current.open = true;
+    detailsRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    detailsRef.current.querySelector('summary')?.focus({ preventScroll: true });
+  }, [recordsRequest]);
   const [local, setLocal] = useState(0);
   const { data, error } = useWorkflow(userId, themeId, date, `${revision}|${local}`);
   const [status, setStatus] = useState('');
@@ -470,19 +484,18 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
   const person = (username: string) => memberNames[username] ? `${memberNames[username]} (@${username})` : `@${username}`;
   const open = data?.actions.filter((item) => item.status === 'open') || [];
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  return <details className="theme-workflow" id={`theme-workflow-${themeId}`}>
+  return <details className="theme-workflow" id={`theme-workflow-${themeId}`} ref={detailsRef}>
     <summary>Decisions &amp; actions{data ? ` · ${open.length} open` : ''}</summary>
     <div className="theme-workflow-body" aria-busy={busy}>
-      <p className="ops-muted-line">Each action has one responsible theme member and may link to one project. Linked actions also appear in that project’s Research workflow under Project tasks, where its members can follow progress.</p>
       <div className="theme-workflow-date">
         <label>Meeting date <input type="date" value={date} disabled={busy} onChange={(event) => { if (event.target.value) setDate(event.target.value); }} /></label>
-        <p className="ops-muted-line">Choose an earlier meeting to see its confirmed agenda and record its decisions. Open actions remain visible at later meetings of this theme.</p>
+        {date !== meetingDate && <button className="mt-link-btn" type="button" disabled={busy} onClick={() => setDate(meetingDate)}>Back to {formatDay(meetingDate)}</button>}
       </div>
       {(error || failure) && <p className="form-message error" role="alert">{failure || error} <button className="ops-secondary" type="button" disabled={busy} onClick={() => setLocal((value) => value + 1)}>Reload</button></p>}
       {status && <p className="form-message" role="status">{status}</p>}
       {!data ? <p className="ops-muted-line" role="status">{error ? 'Meeting records unavailable.' : 'Loading meeting records…'}</p> : <>
         {date !== meetingDate && <>
-          <p className={`theme-workflow-state ${data.confirmation ? 'is-confirmed' : 'is-draft'}`}>{data.confirmation ? `Confirmed v${data.confirmation.version} by @${data.confirmation.confirmedBy} on ${ukTime(data.confirmation.confirmedAt)} (UK time)` : 'No confirmed agenda for this date.'}</p>
+          <p className={`theme-workflow-state ${data.confirmation ? 'is-confirmed' : 'is-draft'}`}>{data.confirmation ? `Confirmed version ${data.confirmation.version} by @${data.confirmation.confirmedBy}, ${ukTime(data.confirmation.confirmedAt)}` : `No confirmed agenda for ${formatDay(date)}.`}</p>
           {data.confirmation && <ol className="theme-workflow-confirmed">{data.confirmation.entries.map((entry) => <li key={entry.member_username || entry.member}>
             <strong>{entry.member}</strong> <span>{themeUpdateTypeLabels[entry.update_type]} · {entry.duration_minutes} min{entry.deferred ? ' · Deferred, not scheduled' : ''}</span>
             <MeetingProjectSummary context={entry.project_context} />
@@ -495,13 +508,12 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
             <label>Next action <textarea required maxLength={2000} value={action.task} onChange={(event) => setAction({ ...action, task: event.target.value })} /></label>
             <div className="theme-workflow-fields">
               <label>Responsible member <select required value={action.owner} onChange={(event) => setAction({ ...action, owner: event.target.value })}><option value="">Choose member</option>{data.members.map((member) => <option key={member} value={member}>{person(member)}</option>)}</select></label>
-              <label>Linked project (optional) <select value={action.projectId} onChange={(event) => setAction({ ...action, projectId: event.target.value })}>
+              <label>Linked project (optional) <select value={action.projectId} aria-describedby={`theme-action-project-help-${themeId}`} onChange={(event) => setAction({ ...action, projectId: event.target.value })}>
                 <option value="">No project — group action</option>{data.projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
-              </select></label>
+              </select><small id={`theme-action-project-help-${themeId}`} className="theme-workflow-help">Linking grants no access.</small></label>
               <label>Due date <input required type="date" min={date} value={action.dueDate} onChange={(event) => setAction({ ...action, dueDate: event.target.value })} /></label>
             </div>
-            <p>The responsible member must already have access to the linked project. Linked actions appear in that project’s Research workflow → Project tasks. Linking grants no access and never changes the project stage.</p>
-            <button className="ops-primary" type="submit" aria-label="Save decision and action">Save</button>
+            <button className="ops-primary" type="submit">Add action</button>
           </fieldset>
         </form>}
         <h4 className="theme-workflow-heading">Actions · {open.length} open</h4>
@@ -513,17 +525,17 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
             <fieldset disabled={busy}><legend>{item.task}</legend>
               <dl className="theme-workflow-facts">
                 <div><dt>Responsible</dt><dd>{person(item.owner)}</dd></div>
-                <div><dt>Project</dt><dd>{item.projectTitle ? <>{projectLink(item.projectId, item.projectTitle, 'tasks')} <span className="theme-workflow-where">· in Research workflow → Project tasks</span></> : 'No project — group action'}</dd></div>
-                <div><dt>Due</dt><dd className="vs-mono">{item.dueDate}</dd></div>
+                <div><dt>Project</dt><dd>{item.projectTitle ? <>{projectLink(item.projectId, item.projectTitle, 'tasks')} <span className="theme-workflow-where">· Project tasks</span></> : 'No project — group action'}</dd></div>
+                <div><dt>Due</dt><dd>{formatDay(item.dueDate)}</dd></div>
                 <div><dt>Status</dt><dd><span className={`theme-workflow-status is-${item.status}${overdue ? ' is-overdue' : ''}`}>{item.status === 'done' ? 'Done' : 'Open'}{overdue ? ' · Overdue' : ''}</span></dd></div>
               </dl>
               <p>Decision: {item.decision}</p>
-              <p className="theme-workflow-meta">Recorded at the {item.meetingDate} meeting.</p>
-              <details><summary>History</summary><ul>{item.history.map((change, index) => <li key={index}>@{change.by} · {change.at} · {change.status}: {change.note}</li>)}</ul></details>
-              <label>Progress / completion evidence <textarea required maxLength={2000} value={notes[item.id] || ''} onChange={(event) => setNotes({ ...notes, [item.id]: event.target.value })} /></label>
-              <button className="ops-secondary" type="submit" aria-label={`Save progress for ${item.task}`}>Save</button>
+              <p className="theme-workflow-meta">Recorded at the {formatDay(item.meetingDate)} meeting.</p>
+              <details><summary>History</summary><ul>{item.history.map((change, index) => <li key={index}>@{change.by} · {formatDayTime(change.at)} · {change.status === 'done' ? 'Done' : 'Open'}: {change.note}</li>)}</ul></details>
+              <label>Progress note <textarea required maxLength={2000} value={notes[item.id] || ''} onChange={(event) => setNotes({ ...notes, [item.id]: event.target.value })} /></label>
+              <button className="ops-secondary" type="submit" aria-label={`Save note for ${item.task}`}>Save note</button>
               <button className="ops-secondary" type="button" disabled={!notes[item.id]?.trim()} onClick={() => void save({ operation: 'update_action', id: item.id, version: item.version, status: item.status === 'done' ? 'open' : 'done', note: notes[item.id] })}>{item.status === 'done' ? 'Reopen' : 'Mark done'}</button>
-              {!notes[item.id]?.trim() && <p className="ops-muted-line">Add a note before changing completion status.</p>}
+              {!notes[item.id]?.trim() && <p className="ops-muted-line">Add a note to mark it {item.status === 'done' ? 'open' : 'done'}.</p>}
             </fieldset>
           </form>;
         })}
@@ -533,8 +545,10 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
 }
 
 /** The current agenda (view, reorder, confirm, email) followed by decisions and actions for the theme. */
+export type RecordsRequest = { date: string; nonce: number };
+
 export function ThemeMeetingWorkflow({ userId, planRevision = '', themeId, meetingDate, meetingTime, cancelled, canAccess, fallbackItems, memberNames = {}, onChanged, children,
-  onOpenProject, openableProjectIds = [], prefetchThemeIds = [] }: {
+  onOpenProject, openableProjectIds = [], prefetchThemeIds = [], draftNote, recordsRequest }: {
   /** Signed-in account id: every cached agenda and unsaved order is keyed by it. */
   userId: string;
   /** Changes whenever the parent reloads the meeting plan (submissions, members, skip/restore), so the board refetches. */
@@ -545,6 +559,10 @@ export function ThemeMeetingWorkflow({ userId, planRevision = '', themeId, meeti
   onOpenProject?: (projectId: string, workflowTab?: 'tasks') => void; openableProjectIds?: string[];
   /** Other accessible themes on this date whose payload is fetched in the background so switching cards is instant. */
   prefetchThemeIds?: string[];
+  /** Members see only their own draft row; this sentence tells them how many updates are planned and when the draft is shared. */
+  draftNote?: string;
+  /** Set by a Past meetings row to open Decisions & actions at that date. */
+  recordsRequest?: RecordsRequest;
 }) {
   const [revision, setRevision] = useState(0);
   const prefetchKey = prefetchThemeIds.join('|');
@@ -559,8 +577,8 @@ export function ThemeMeetingWorkflow({ userId, planRevision = '', themeId, meeti
   const boardRevision = `${planRevision}|${revision}`;
   return <>
     <AgendaBoard userId={userId} themeId={themeId} meetingDate={meetingDate} meetingTime={meetingTime} cancelled={cancelled} canAccess={canAccess}
-      fallbackItems={fallbackItems} revision={boardRevision} onSaved={() => setRevision((value) => value + 1)} onChanged={onChanged} projectLink={projectLink} />
+      fallbackItems={fallbackItems} revision={boardRevision} onSaved={() => setRevision((value) => value + 1)} onChanged={onChanged} projectLink={projectLink} draftNote={draftNote} />
     {children}
-    {canAccess && <FollowUp userId={userId} themeId={themeId} meetingDate={meetingDate} revision={boardRevision} memberNames={memberNames} onChanged={onChanged} projectLink={projectLink} />}
+    {canAccess && <FollowUp userId={userId} themeId={themeId} meetingDate={meetingDate} revision={boardRevision} memberNames={memberNames} onChanged={onChanged} projectLink={projectLink} recordsRequest={recordsRequest} />}
   </>;
 }

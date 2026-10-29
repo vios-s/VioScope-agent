@@ -20,14 +20,14 @@ export function IdeaPitchSharing({ pitchId, owner, collaborators, disabled, onBu
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not change sharing.'); }
     finally { setBusy(false); onBusyChanged(false); }
   }
-  return <section className="idea-sharing" aria-labelledby={`sharing-${pitchId}`}><h3 id={`sharing-${pitchId}`}>Sharing</h3>
-    <p>Collaborators never see pitch history, source documents or AI reviews. People you add can read the latest saved pitch and decision. They cannot edit, approve, delete, export or share it onward.</p>
+  return <section className="checklist-step idea-sharing" aria-labelledby={`sharing-${pitchId}`}><h3 id={`sharing-${pitchId}`}>Sharing</h3>
+    <p>Collaborators see only the latest saved version and decision. They never see pitch history, source documents or AI reviews, and cannot edit, approve, delete, export or share it onward.</p>
     {error && <p role="alert" className="ops-notice error">{error}</p>}{status && <p role="status" className="form-message">{status}</p>}
     <div className="idea-sharing-add"><label>Add people<select aria-label="Add people" value={username} disabled={busy || disabled} onChange={event => setUsername(event.target.value)}>
       <option value="">Choose an active account</option>
       {users.filter(user => user.username !== owner && user.role !== 'pi' && user.role !== 'administrator' && !collaborators.includes(user.username)).map(user => <option key={user.username} value={user.username}>@{user.username} · {user.displayName}</option>)}
     </select></label><button type="button" className="ops-secondary" disabled={busy || disabled || !username} onClick={() => void change(username, 'add')}>Add collaborator</button></div>
-    {collaborators.length ? <ul>{collaborators.map(name => <li key={name}><span>@{name} · Read only</span><button type="button" className="ops-secondary" aria-label={`Remove collaborator ${name}`} disabled={busy || disabled} onClick={() => void change(name, 'remove')}>Remove</button></li>)}</ul> : <p className="idea-sharing-empty">The proposer, PI and administrator have access.</p>}
-    <p className="idea-sharing-empty">Sharing a pitch does not grant access to its future project. No notification is sent.</p>
+    {collaborators.length ? <ul>{collaborators.map(name => <li key={name}><span>@{name} · Read only</span><button type="button" className="ops-secondary" aria-label={`Remove collaborator ${name}`} disabled={busy || disabled} onClick={() => void change(name, 'remove')}>Remove</button></li>)}</ul> : <p className="checklist-hint">The proposer, PI and administrator have access.</p>}
+    <p className="checklist-hint">Sharing a pitch does not grant access to its future project. No notification is sent.</p>
   </section>;
 }

@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     await requireAdministrator(request);
     const url = new URL(request.url);
     const day = url.searchParams.get('day') || today();
-    const [logs, days] = await Promise.all([listAuditLogs({ day }), listAuditLogDays()]);
+    const [logs, days] = await Promise.all([listAuditLogs({ day, limit: 1000 }), listAuditLogDays()]);
     return NextResponse.json({
       day,
       fileName: auditLogFileName(day),

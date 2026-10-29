@@ -82,18 +82,17 @@ async function login(browser: any, username: string, heading?: string) {
 async function checkEmptyMemberCreateProject(browser: any) {
   const { context, page } = await login(browser, users.emptyMember);
   try {
-    await page.getByText('No visible projects yet. Add one to start tracking work.').waitFor({ state: 'visible' });
+    await page.getByText('No projects yet', { exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: 'Add project' }).click();
     const modal = page.locator('.project-modal');
     await modal.waitFor({ state: 'visible' });
     await modal.getByLabel('Full project name').fill(createdTitle);
-    assert.equal(await modal.getByLabel('Slug').inputValue(), autoCreatedSlug);
-    await modal.getByLabel('Slug').fill(createdSlug);
-    assert.equal((await modal.getByLabel('Watch path').textContent())?.trim(), `project://${users.emptyMember}/${createdSlug}`);
+    // Slug and watch path are administrator-only (Advanced); members get the generated slug.
+    assert.equal(await modal.getByLabel('Slug').count(), 0);
     await modal.getByLabel('Collaborators').fill(`${users.member}, External Education Partner`);
     await modal.getByLabel('Venue').fill('ICLR');
     await modal.getByLabel('Submission deadline').fill('2026-10-15');
-    await page.getByRole('button', { name: 'Save changes' }).click();
+    await page.getByRole('button', { name: 'Create project' }).click();
     await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByText('Track A').first().waitFor({ state: 'visible' });
   } finally {
@@ -105,28 +104,27 @@ async function checkMember(browser: any) {
   const { context, page } = await login(browser, users.member, title);
   try {
     await page.getByLabel(`Project details for ${title}`).click();
-    await page.getByRole('button', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
-    const detailsForm = page.locator('.project-manage-form');
+    await page.getByRole('tab', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
+    // Details are read-only; Edit details opens the shared project form.
+    await page.getByRole('button', { name: 'Edit details' }).click();
+    const detailsForm = page.locator('.project-modal:not(.project-detail-modal)');
     assert.equal(await detailsForm.getByLabel('Full project name').inputValue(), title);
-    assert.equal(await detailsForm.getByLabel('Slug').inputValue(), slug);
-    await detailsForm.getByLabel('Slug').fill(renamedSlug);
-    assert.equal(await detailsForm.getByLabel('Watch path').inputValue(), `project://${users.member}/${renamedSlug}`);
+    assert.equal(await detailsForm.getByLabel('Slug').count(), 0, 'Slug is administrator-only.');
     await detailsForm.getByLabel('Venue').fill('AIED UX');
-    await detailsForm.getByLabel('Deadline').fill('2026-10-01');
+    await detailsForm.getByLabel('Submission deadline').fill('2026-10-01');
     await detailsForm.getByLabel('Notes').fill('Updated through Playwright project UI smoke.');
     const saveResponse = page.waitForResponse((response: any) => response.url().includes('/api/projects/') && response.request().method() === 'PATCH');
-    await page.getByRole('button', { name: 'Save project' }).click();
+    await detailsForm.getByRole('button', { name: 'Save changes' }).click();
     assert.equal((await saveResponse).ok(), true);
-    assert.equal(await detailsForm.getByLabel('Venue').inputValue(), 'AIED UX');
+    await page.locator('.vs-details-list').getByText('AIED UX', { exact: true }).waitFor({ state: 'visible' });
 
-    await page.getByRole('button', { name: 'Research workflow', exact: true }).click();
-    await page.getByRole('region', { name: 'Project research workflow' }).getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('tab', { name: 'Research workflow', exact: true }).click();
+    await page.getByRole('region', { name: 'Project research workflow' }).getByRole('tab', { name: 'Tasks', exact: true }).click();
     const todoPanel = page.getByRole('region', { name: 'Project research workflow' });
     await todoPanel.getByText('Add a task', { exact: true }).click();
     const taskForm = todoPanel.locator('form').filter({ has: page.getByRole('button', { name: 'Create project task' }) });
     await taskForm.getByLabel('Task', { exact: true }).fill('Draft evaluation checklist');
     await taskForm.getByLabel('Due date').fill('2026-10-20');
-    await taskForm.getByRole('checkbox').check();
     await taskForm.getByRole('button', { name: 'Create project task' }).click();
     const todoRow = todoPanel.locator('article').filter({ has: page.getByRole('heading', { name: 'Draft evaluation checklist', exact: true }) });
     await todoRow.getByText('Update task and completion evidence').click();
@@ -134,13 +132,12 @@ async function checkMember(browser: any) {
     await todoRow.getByLabel('Due date').fill('2026-10-21');
     await todoRow.getByLabel('Task status').selectOption('done');
     await todoRow.getByLabel('Progress or completion evidence').fill('Synthetic checklist completed.');
-    await todoRow.getByRole('checkbox').check();
     await todoRow.getByRole('button', { name: 'Save task progress' }).click();
     await todoPanel.getByRole('heading', { name: 'Draft evaluation checklist v2' }).waitFor();
     await page.getByLabel('Close project details').click();
 
     await page.getByLabel(`Research workflow for ${title}`).click();
-    await page.getByRole('region', { name: 'Project research workflow' }).getByRole('button', { name: 'Tasks', exact: true }).click();
+    await page.getByRole('region', { name: 'Project research workflow' }).getByRole('tab', { name: 'Tasks', exact: true }).click();
     await page.getByRole('heading', { name: 'Project tasks' }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByLabel('Close project details').click();
 
@@ -166,7 +163,8 @@ async function checkMember(browser: any) {
     await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible' });
 
     await page.getByLabel(`Project details for ${title}`).click();
-    await page.getByRole('button', { name: 'Archive project' }).click();
+    await page.getByRole('button', { name: `More actions for ${title}` }).click();
+    await page.getByRole('menuitem', { name: 'Archive project' }).click();
     const archiveDialog = page.getByRole('dialog', { name: 'Archive project?' });
     assert.equal(await archiveDialog.getByRole('button', { name: 'Archive project' }).isDisabled(), true, 'Archive needs the typed project title.');
     await archiveDialog.getByLabel('Type the project title to confirm').fill(title);
@@ -184,7 +182,7 @@ async function checkMember(browser: any) {
     await page.getByText('Web only').waitFor({ state: 'visible' });
     await page.getByLabel('Project progress reminders email notifications').click();
     await page.getByLabel('Theme meeting reminders web notifications').click();
-    await page.getByRole('button', { name: 'Save notification settings' }).click();
+    await page.getByRole('button', { name: 'Save changes' }).click();
     await page.getByText('Notification preferences saved.').waitFor({ state: 'visible', timeout: 15_000 });
     const preferences = await page.evaluate(async () => {
       const response = await fetch('/api/auth/me');
@@ -209,7 +207,7 @@ async function checkPi(browser: any) {
     assert.equal(await page.getByRole('heading', { name: 'Project planning brief' }).count(), 0, 'Planning brief is removed from Projects.');
     assert.equal(await page.getByRole('heading', { name: 'Members', exact: true }).count(), 0, 'Members list is removed from Projects.');
     await page.getByLabel(`Project details for ${title}`).click();
-    await page.getByRole('button', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
+    await page.getByRole('tab', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
   } finally {
     await context.close();
   }
@@ -222,8 +220,12 @@ async function checkAdmin(browser: any) {
     await page.getByRole('button', { name: title, exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
     await page.getByLabel(`Project details for ${createdTitle}`).click();
-    await page.getByRole('button', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
-    assert.equal(await page.locator('.project-manage-form').getByLabel('Owner').isDisabled(), false);
+    await page.getByRole('tab', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Edit details' }).click();
+    const editor = page.locator('.project-modal:not(.project-detail-modal)');
+    assert.equal(await editor.getByLabel('Owner').isDisabled(), false);
+    await editor.getByText('Advanced', { exact: true }).click();
+    assert.equal(await editor.getByLabel('Slug').inputValue(), autoCreatedSlug, 'Administrators see the generated slug under Advanced.');
   } finally {
     await context.close();
   }
@@ -232,7 +234,7 @@ async function checkAdmin(browser: any) {
 async function cleanup() {
   const postgres = createPostgresClient('project-ui-check-cleanup');
   try {
-    await postgres.pool.query('DELETE FROM project_records WHERE slug = ANY($1::text[])', [[slug, renamedSlug, createdSlug]]).catch(() => undefined);
+    await postgres.pool.query('DELETE FROM project_records WHERE slug = ANY($1::text[])', [[slug, renamedSlug, createdSlug, autoCreatedSlug]]).catch(() => undefined);
     await postgres.pool
       .query('DELETE FROM audit_log WHERE actor_username = ANY($1::text[]) OR metadata::text LIKE $2', [
         Object.values(users),

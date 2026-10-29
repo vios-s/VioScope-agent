@@ -7,25 +7,6 @@
   min-width: 0;
 }
 
-.mt-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: -12px;
-}
-
-.mt-toolbar .ops-secondary {
-  min-height: var(--vs-control-sm);
-  font-size: 13px;
-}
-
-.mt-toolbar .ops-muted-line {
-  flex: 1 1 320px;
-  margin: 0;
-}
-
 .mt-panel > .form-message {
   margin: 0;
 }
@@ -44,9 +25,35 @@
 /* ---------- Theme summary cards (active pair only) ---------- */
 
 .mt-cards {
+  --mt-cols: 2;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  grid-template-columns: repeat(var(--mt-cols), minmax(0, 1fr));
+  grid-template-rows: auto;
   gap: 16px;
+}
+
+.mt-cards[data-cards="1"] {
+  --mt-cols: 1;
+}
+
+/* The tablist and the agenda-email layer share the same tracks, so each checkbox sits on its own card. */
+.mt-card-tabs,
+.mt-card-options {
+  grid-area: 1 / 1 / -1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-template-rows: subgrid;
+}
+
+.mt-card-options {
+  pointer-events: none;
+}
+
+.mt-card-option {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  padding: 16px 18px 0 0;
 }
 
 .mt-card {
@@ -87,6 +94,20 @@
 
 .mt-card-select:hover {
   background: transparent;
+}
+
+/* The card itself is the tab; leave room in its upper right for the agenda email checkbox. */
+.mt-card.mt-card-select {
+  border-width: 1px;
+  border-style: solid;
+}
+
+.mt-card.mt-card-select:not(.is-selected) {
+  border-color: var(--vs-line);
+}
+
+.mt-card.mt-card-select:hover:not(.is-selected) {
+  border-color: var(--vs-line-strong, var(--vs-border-control));
 }
 
 .mt-card-select:focus-visible {
@@ -153,21 +174,31 @@
   color: var(--vs-warn-fg);
 }
 
-.mt-card .theme-agenda-subscription {
-  padding: 14px 16px 0 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-
-.mt-card .theme-agenda-subscription .ops-secondary {
-  min-height: var(--vs-control-sm);
-  padding: 0 10px;
+.theme-agenda-subscription {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 6px;
   font-size: 13px;
+  color: var(--vs-ink-2);
+  cursor: pointer;
 }
 
-.mt-card .theme-agenda-subscription span {
+.theme-agenda-subscription input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--vs-accent);
+}
+
+.theme-agenda-subscription:has(input:disabled) {
+  cursor: default;
+}
+
+.theme-agenda-subscription small {
+  grid-column: 1 / -1;
+  justify-self: end;
   font-size: 11px;
   color: var(--vs-ink-3);
 }
@@ -352,16 +383,25 @@
 }
 
 .mt-awaiting {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
   margin: 0;
-  padding: 12px 14px;
+  overflow: hidden;
   border-radius: 10px;
   background: var(--vs-surface-2);
   font-size: 13px;
   color: var(--vs-ink);
+}
+
+.mt-awaiting > p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px;
+  font-weight: 500;
+}
+
+.mt-awaiting > .mt-reminder-status {
+  border-top: 1px solid var(--vs-line-soft);
 }
 
 .mt-awaiting svg {
@@ -492,12 +532,6 @@
   border: 1px solid var(--vs-line);
   border-radius: var(--vs-radius-panel);
   background: var(--vs-surface);
-}
-
-.mt-form .mt-form-date {
-  margin-top: 6px;
-  font: var(--vs-text-meta-mono);
-  color: var(--vs-ink-3);
 }
 
 .mt-form label,
@@ -659,8 +693,50 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--vs-ink-3);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Project snapshot and suggestion reasons: label column + value column. */
+dl.meeting-project-summary,
+.theme-advice-facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+dl.meeting-project-summary > div,
+.theme-advice-facts > div {
+  display: grid;
+  grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+  gap: 2px 12px;
+}
+
+dl.meeting-project-summary dt,
+.theme-advice-facts dt {
+  color: var(--vs-ink-3);
+}
+
+dl.meeting-project-summary dd,
+.theme-advice-facts dd {
+  margin: 0;
+  color: var(--vs-ink-2);
+}
+
+dl.meeting-project-summary ul,
+.theme-advice-facts ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.theme-advice-facts dd.is-pre {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 480px) {
+  dl.meeting-project-summary > div,
+  .theme-advice-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* ---------- Past meetings ---------- */
@@ -684,20 +760,47 @@
 }
 
 .mt-past-list li {
+  border-bottom: 1px solid var(--vs-line-soft);
+}
+
+.mt-past-row {
+  width: 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--vs-line-soft);
+  padding: 12px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--vs-ink);
+  font: inherit;
   font-size: 14px;
+  text-align: left;
 }
 
-.mt-past-list li > span:nth-child(2) {
-  flex: 1 1 280px;
+button.mt-past-row {
+  cursor: pointer;
+}
+
+button.mt-past-row:hover {
+  background: var(--vs-surface-2);
+}
+
+button.mt-past-row:focus-visible {
+  outline: var(--vs-focus-ring);
+  outline-offset: -2px;
+}
+
+.mt-past-row > span:first-child {
+  flex: 0 0 96px;
+  color: var(--vs-ink-3);
+  font-size: 13px;
+}
+
+.mt-past-row > span:nth-child(2) {
+  flex: 1 1 260px;
   min-width: 0;
 }
 
-.mt-past-list .vs-mono,
 .mt-past-list .mt-num {
   font-size: 13px;
   color: var(--vs-ink-3);
@@ -1208,10 +1311,6 @@
   gap: 4px 12px;
 }
 
-.mt-form .mt-form-title-row .mt-form-date {
-  margin: 0;
-}
-
 .mt-form .mt-form-status {
   display: flex;
   flex-wrap: wrap;
@@ -1247,32 +1346,13 @@
 
 
 .mt-form .mt-word-count {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
+  display: block;
 }
 
 .mt-form .prompt-field > p.mt-word-count.is-warn {
   color: var(--vs-warn-fg);
 }
 
-.mt-word-meter {
-  flex: 0 0 72px;
-  height: 4px;
-  overflow: hidden;
-  border-radius: var(--vs-radius-pill);
-  background: var(--vs-meter-track);
-}
-
-.mt-word-meter > span {
-  display: block;
-  height: 100%;
-  background: var(--vs-accent);
-}
-
-.mt-word-count.is-warn .mt-word-meter > span { background: var(--vs-warn-dot); }
-.mt-word-count.ops-error .mt-word-meter > span { background: var(--vs-danger-dot); }
 
 .mt-form-footer p {
   flex: 1 1 200px;
@@ -1490,32 +1570,6 @@
   margin-left: auto;
 }
 
-.mt-form .prompt-copy-button {
-  width: var(--vs-control-sm);
-  justify-content: center;
-  padding: 0;
-}
-
-.mt-form .prompt-copy-button span {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-}
-
-.mt-form .prompt-copy-button:not([data-state="idle"]) {
-  width: auto;
-  padding: 0 8px;
-}
-
-.mt-form .prompt-copy-button:not([data-state="idle"]) span {
-  position: static;
-  width: auto;
-  height: auto;
-  clip: auto;
-}
 
 .theme-advice-top {
   display: flex;
@@ -1647,11 +1701,6 @@
   color: var(--vs-accent-hover);
 }
 
-.mt-snapshot-record {
-  margin: 6px 0 0;
-  color: var(--vs-ink-2);
-}
-
 /* Email dialog: collapsible recipient names (never addresses) */
 .mt-email-recipients {
   margin-top: 8px;
@@ -1720,3 +1769,136 @@
 }
 .mt-form-footer .mt-submit-notice.error { color: var(--vs-danger-fg); }
 .mt-form-footer .mt-form-buttons { order: 2; }
+
+/* ---------- Round 2: agenda actions menu, fixed minutes, form fields ---------- */
+
+.meeting-page .vs-page-eyebrow {
+  font: var(--vs-text-secondary);
+  color: var(--vs-ink-3);
+}
+
+.mt-agenda-actions {
+  position: relative;
+  align-items: center;
+}
+
+.mt-more-button {
+  width: var(--vs-control-sm);
+  min-height: var(--vs-control-sm);
+  justify-content: center;
+  padding: 0;
+}
+
+.mt-more-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mt-meeting-menu {
+  top: calc(var(--vs-control-sm) + 6px);
+  right: 0;
+}
+
+.mt-minutes-text {
+  min-width: 56px;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mt-remind-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.mt-static-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mt-static-field > span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vs-ink);
+}
+
+.mt-static-field > strong {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  font-weight: 400;
+  color: var(--vs-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.mt-form-row .mt-form-wide {
+  grid-column: 1 / -1;
+}
+
+.mt-form .prompt-field-actions {
+  margin-left: auto;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 12px;
+}
+
+.mt-form .prompt-field-head {
+  flex-wrap: wrap;
+}
+
+.mt-form .prompt-field-head > label {
+  flex: 1 0 auto;
+}
+
+/* Leave room in the card's upper right for the agenda email checkbox. */
+.mt-card.mt-card-select .mt-card-title {
+  padding-right: 140px;
+}
+
+.mt-agenda .theme-workflow > summary {
+  font: var(--vs-text-heading);
+}
+
+.theme-workflow-help {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--vs-ink-3);
+}
+
+/* Members see their own update form first on narrow screens. */
+@media (max-width: 767px) {
+  .mt-layout.is-member-first .mt-form {
+    order: -1;
+  }
+
+  .mt-cards {
+    --mt-cols: 1;
+    grid-template-rows: repeat(2, auto);
+  }
+
+  .mt-cards[data-cards="1"] {
+    grid-template-rows: auto;
+  }
+
+}
+
+
+@media (max-width: 767px) {
+  .mt-card.mt-card-select .mt-card-title {
+    padding-right: 0;
+    padding-top: 28px;
+  }
+}
+
+@media (max-width: 767px) {
+  .mt-meeting-menu {
+    left: 0;
+    right: auto;
+  }
+}

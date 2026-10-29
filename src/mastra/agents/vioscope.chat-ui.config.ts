@@ -1,6 +1,6 @@
 export const vioscopeChatUiConfig = {
   title: 'Chat',
-  emptyTitle: 'Hey I am VioScope, what can I help you with?',
+  emptyTitle: 'Hello, I am VioScope. How can I help?',
   thinkingText: 'Thinking',
   inputPlaceholder: 'Ask or @mention a teammate',
 } as const;

@@ -195,34 +195,45 @@ dialog.vs-dialog-form {
   margin: -8px 0 0;
 }
 
-/* Radio-like option pills (States: Status options) */
-.role-picker {
+/* Permission: native radio group */
+.role-radio-group {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
-.role-picker button {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius-control);
-  background: var(--vs-surface);
+.role-radio-group legend {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0;
   color: var(--vs-ink);
   font-size: 13px;
   font-weight: 500;
 }
 
-.role-picker button:hover {
-  border-color: var(--vs-border-control);
-  background: var(--vs-surface-2);
-  color: var(--vs-ink);
+.users-modal .role-radio-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+  cursor: pointer;
 }
 
-.role-picker button.selected {
-  border-color: var(--vs-accent-line);
-  background: var(--vs-accent-wash);
-  color: var(--vs-accent-strong);
+.role-radio-group input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--vs-accent);
+}
+
+.users-modal .field-help {
+  color: var(--vs-ink-3);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
 }
 
 /* ---------- Confirmation (alertdialog) ---------- */
@@ -332,13 +343,21 @@ dialog.vs-dialog-form {
   background: var(--vs-surface);
 }
 
-.welcome-kicker {
-  display: block;
-  margin: 0 0 4px;
-  font: var(--vs-text-label-caps);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--vs-ink-3);
+.welcome-link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--vs-accent-strong);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.welcome-link:hover {
+  color: var(--vs-accent-hover);
 }
 
 .welcome-dialog-card > p {
@@ -412,13 +431,6 @@ dialog.vs-dialog-form {
   padding: 14px 24px 20px;
   border-top: 1px solid var(--vs-line-soft);
   background: var(--vs-surface);
-}
-
-.welcome-dialog-card .button-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .welcome-checkbox {

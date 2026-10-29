@@ -186,40 +186,13 @@
   color: var(--vs-ink);
 }
 
-.feedback-count {
+.feedback-filter {
   margin-left: auto;
-  color: var(--vs-ink-3);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.ops-secondary.feedback-refresh {
-  min-height: var(--vs-control-sm);
-  padding: 0 10px;
-  font-size: 13px;
-}
-
-.feedback-summary {
-  display: flex;
   flex-wrap: wrap;
-  gap: 6px 16px;
 }
 
-.feedback-summary > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.feedback-summary strong {
-  color: var(--vs-ink);
-  font-size: 13px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+.feedback-filter .vs-tab-count {
+  margin-left: 2px;
 }
 
 .feedback-list {
@@ -394,6 +367,8 @@
 .feedback-manager-field {
   display: flex;
   flex-direction: column;
+  align-self: stretch;
+  justify-content: flex-start;
   gap: 6px;
   color: var(--vs-ink);
   font-size: 13px;
@@ -417,7 +392,12 @@
   resize: vertical;
 }
 
+.feedback-manager-field label {
+  line-height: 20px;
+}
+
 .feedback-manager button {
+  align-self: end;
   min-height: var(--vs-control-md);
 }
 
@@ -458,6 +438,10 @@
 
   .feedback-manager {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .feedback-filter {
+    margin-left: 0;
   }
 
   .feedback-reply {

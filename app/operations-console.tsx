@@ -48,14 +48,17 @@ import {
 } from 'lucide-react';
 import { DotMatrixIcon } from './dot-matrix-icon';
 import { ConfirmDialog } from './confirm-dialog';
+import * as fmt from './format';
 import { ArrowUp as ChatSendIcon, Compass as ChatAdvisorIcon } from 'lucide-react';
 import { SkeletonLock } from './skeleton-lock';
 import { IdeaPitches } from './idea-pitches';
 import { ProjectIdeaOrigin } from './project-idea-origin';
 import { ProjectWorkflow, type WorkflowTab } from './project-workflow';
+import { ProjectRecordMenu } from './project-record-menu';
+import { ProjectDetailsList } from './project-details-list';
 import { MeetingProjectSummary } from './meeting-project-summary';
 import { meetingProjectContext } from '../src/mastra/theme-meetings/project-context';
-import { ThemeMeetingWorkflow, resetThemeMeetingWorkflowCache } from './theme-meeting-workflow';
+import { ThemeMeetingWorkflow, resetThemeMeetingWorkflowCache, type RecordsRequest } from './theme-meeting-workflow';
 import { ApiRequestError, requestJson } from './client-request';
 import type {
   ProjectStatus,
@@ -329,6 +332,7 @@ type ThemeMeetingPayload = {
   submissionPlan?: ThemeMeetingPlan | null;
   submissionDeadline?: string | null;
   pastPlans?: ThemeMeetingOverviewPlan[];
+  agendaPreview?: { weekday: string; time: string };
   agendaSubscriptions?: { theme_id: string; title: string; subscribed: boolean; required: boolean }[];
   notifications: ThemeMeetingNotification[];
   access?: {
@@ -518,7 +522,6 @@ type SettingsTab =
   | 'general'
   | 'memory'
   | 'notifications'
-  | 'integrations'
   | 'teamProfiles'
   | 'themeMeeting'
   | 'users'
@@ -526,6 +529,7 @@ type SettingsTab =
   | 'audit'
   | 'about';
 type PasswordStrength = 'weak' | 'medium' | 'strong';
+type AppInfo = { version: string; buildId: string | null };
 type ChecklistTemplateId = 'idea' | 'skeleton';
 
 const notificationPreferenceRows: Array<{
@@ -533,6 +537,7 @@ const notificationPreferenceRows: Array<{
   title: string;
   desc: string;
   emailDisabled?: boolean;
+  managersOnly?: boolean;
 }> = [
   {
     key: 'chat_mentions',
@@ -553,7 +558,8 @@ const notificationPreferenceRows: Array<{
   {
     key: 'project_planning_brief',
     title: 'Project planning brief',
-    desc: 'Attention items and updated project summaries for PI/admin review.',
+    desc: 'Projects that need attention, with updated summaries.',
+    managersOnly: true,
   },
   {
     key: 'checklist_results',
@@ -607,7 +613,7 @@ const projectUpdateTypeLabels: Record<ProjectUpdateType, string> = {
   note: 'Note',
   decision: 'Decision',
   blocker: 'Blocker',
-  artifact: 'Artifact',
+  artifact: 'Material',
 };
 
 const projectTrackLabels: Record<ProjectTrack, string> = {
@@ -645,10 +651,10 @@ const updateTypeOptionLabels: Record<ThemeUpdateType, string> = {
 
 const themeMeetingSlotTypes: ThemeUpdateType[] = ['short_update', 'deep_dive', 'nothing_to_report'];
 const themeMeetingReminderRows = [
-  { name: 'first_reminder', label: 'Update reminder', weekday: 'Monday', time: '08:00' },
-  { name: 'gentle_missing_update_reminder', label: 'Missing-update reminder', weekday: 'Tuesday', time: '04:00' },
-  { name: 'agenda_preview', label: 'Draft agenda preview (members only)', weekday: 'Tuesday', time: '13:00' },
-  { name: 'agenda_cutoff', label: 'Submission deadline and agenda', weekday: 'Wednesday', time: '08:00' },
+  { name: 'first_reminder', label: 'Update reminder', help: 'Sent to all theme members.', weekday: 'Monday', time: '08:00' },
+  { name: 'gentle_missing_update_reminder', label: 'Missing-update reminder', help: 'Sent only to members who have not submitted.', weekday: 'Tuesday', time: '04:00' },
+  { name: 'agenda_preview', label: 'Draft agenda preview', help: 'Draft agenda sent to members only.', weekday: 'Tuesday', time: '13:00' },
+  { name: 'agenda_cutoff', label: 'Submission deadline', help: 'Submissions close and the agenda is sent.', weekday: 'Wednesday', time: '08:00' },
 ];
 
 const checklistTemplates: Array<{ id: ChecklistTemplateId; label: string }> = [
@@ -656,11 +662,18 @@ const checklistTemplates: Array<{ id: ChecklistTemplateId; label: string }> = [
   { id: 'skeleton', label: 'Skeleton Lock' },
 ];
 
-const userPermissionOptions: CurrentUser['role'][] = ['administrator', 'pi', 'organizer', 'member'];
+const userPermissionOptions: CurrentUser['role'][] = ['administrator', 'pi', 'organizer', 'member', 'viewer'];
+const roleDescriptions: Array<[CurrentUser['role'], string]> = [
+  ['member', 'Updates own projects, submits theme meeting updates and writes Idea Pitches.'],
+  ['organizer', 'Manages themes assigned in Settings → Theme meeting: members, reminders and agenda confirmation.'],
+  ['pi', 'Reviews every theme and project, changes coordinators, manages members and confirms checkpoints.'],
+  ['administrator', 'Has every permission, including configuration, service restart and the audit log.'],
+  ['viewer', 'Public team profile. Once activated, signs in with the same personal access as a member.'],
+];
 const userPositionOptions: UserPosition[] = ['pi', 'student', 'postdoc', 'software_engineer', 'visitor'];
 const provisioningStatusOptions = ['profile_only', 'active', 'disabled'];
 const rowMenuWidth = 190;
-const rowMenuHeight = 88;
+const rowMenuHeight = 48;
 const rowMenuGutter = 10;
 const refusalPattern = /could not find|cannot find|not enough|insufficient|knowledge gap|limited to VIOS lab|non-lab topics/i;
 const activeViews: ActiveView[] = ['briefing', 'projects', 'chat', 'meeting', 'checklists', 'feedback', 'users'];
@@ -711,10 +724,7 @@ function dateValue(value: string) {
 }
 
 function formatDate(value: string | null) {
-  if (!value) return 'No date';
-  const date = dateValue(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(date);
+  return fmt.formatDay(value, 'No date');
 }
 
 function formatAge(days: number | null) {
@@ -902,6 +912,22 @@ function projectNeedsAttention(project: ManagedProject) {
   return project.needsUpdate || project.recommendation !== 'none' || project.status !== 'on_track' || Boolean(project.blocker);
 }
 
+/** Why projectNeedsAttention holds, in plain words; a non-on-track status is already shown by its own chip. */
+function projectAttentionReasons(project: ManagedProject) {
+  return [
+    project.blocker ? 'Blocker recorded' : null,
+    project.needsUpdate ? 'Update due' : null,
+    project.attentionReason?.includes('deadline soon') ? 'Deadline soon' : null,
+    project.recommendation === 'deep_dive' ? 'Deep Dive suggested' : project.recommendation === 'short_update' ? 'Update slot suggested' : null,
+  ].filter((reason): reason is string => Boolean(reason));
+}
+
+function AttentionChip({ project }: { project: ManagedProject }) {
+  const reasons = projectAttentionReasons(project);
+  if (!reasons.length) return null;
+  return <span className="vs-attention-chip" title={reasons.join(' · ')}>{reasons[0]}{reasons.length > 1 && <span className="vs-attention-more"> +{reasons.length - 1}<span className="vs-sr-only">: {reasons.slice(1).join(', ')}</span></span>}</span>;
+}
+
 type ProjectListFilter = 'active' | 'attention' | 'finished' | 'archived';
 
 /** In-progress work: active, or paused but not finished. Briefing, sidebar and Projects all count this set. */
@@ -1025,12 +1051,7 @@ function chatSessionShortTime(value: string) {
 }
 
 function compactNotificationTime(value: string) {
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value));
+  return `${fmt.formatShortDay(value)}, ${fmt.formatTime(value)}`;
 }
 
 const auditLogTimeZone = 'Europe/London';
@@ -1049,16 +1070,10 @@ function auditLogDateKey(value: Date | string = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+const auditPageSize = 50;
+
 function auditLogTime(value: string) {
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: auditLogTimeZone,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  }).format(new Date(value));
+  return fmt.formatDayTime(value);
 }
 
 function compactJson(value: Record<string, unknown>) {
@@ -1142,6 +1157,31 @@ function groupedConfigSettings(settings: AdminConfigSetting[]) {
     label: configSectionLabels[section],
     settings: settings.filter((setting) => setting.section === section),
   })).filter((group) => group.settings.length);
+}
+
+// Native time inputs follow the browser locale (12-hour in en-US); UK meeting times are always typed as 24-hour HH:MM.
+const time24InputProps = { type: 'text', inputMode: 'numeric', pattern: '([01][0-9]|2[0-3]):[0-5][0-9]', placeholder: 'HH:MM', maxLength: 5, title: '24-hour time, for example 13:00' } as const;
+const configSourceLabels: Record<AdminConfigSetting['source'], string> = { env: 'Set by environment', database: 'Set in VioScope', default: 'Default' };
+const configStatusLabels: Record<NonNullable<AdminConfigSetting['status']>['state'], string> = { ok: 'Readable', missing: 'Not readable', not_configured: 'Not configured' };
+const bytesPerMegabyte = 1024 * 1024;
+
+// Byte-valued settings are shown and edited in MB but stored in bytes.
+function isByteSetting(setting: AdminConfigSetting) {
+  return setting.key.endsWith('_BYTES');
+}
+
+function configSettingLabel(setting: AdminConfigSetting) {
+  return isByteSetting(setting) ? `${setting.label.replace(/ bytes$/i, ' size')} (MB)` : setting.label;
+}
+
+function bytesToMegabytes(value: string) {
+  const bytes = Number(value);
+  return value.trim() && Number.isFinite(bytes) ? String(Math.round((bytes / bytesPerMegabyte) * 100) / 100) : value;
+}
+
+function megabytesToBytes(value: string) {
+  const megabytes = Number(value);
+  return value.trim() && Number.isFinite(megabytes) ? String(Math.round(megabytes * bytesPerMegabyte)) : value;
 }
 
 function activeMentionQuery(value: string): string | null {
@@ -1336,8 +1376,8 @@ function profileAvatarUrl(user: CurrentUser): string {
   return user.profile?.avatarUrl || '';
 }
 
-const passwordRequirementText = '8+ characters with a letter, number, and special character.';
-const passwordRequirementError = `Password must be ${passwordRequirementText}`;
+const passwordRequirementText = 'At least 8 characters, including a letter, a number and a symbol.';
+const passwordRequirementError = 'Use at least 8 characters, including a letter, a number and a symbol.';
 
 function passwordStrength(password: string): PasswordStrength {
   const hasLetter = /[A-Za-z]/.test(password);
@@ -1365,7 +1405,7 @@ function PasswordStrengthMeter({ password }: { password: string }) {
 function PasswordRequirement({ id }: { id: string }) {
   return (
     <span id={id} className="password-requirement">
-      Password requirement: {passwordRequirementText}
+      {passwordRequirementText}
     </span>
   );
 }
@@ -1474,6 +1514,7 @@ function WelcomeDialog({
   onDontShowAgainChange,
   onClose,
   onOpenSettings,
+  onOpenFeedback,
 }: {
   open: boolean;
   user: CurrentUser;
@@ -1481,11 +1522,13 @@ function WelcomeDialog({
   onDontShowAgainChange: (checked: boolean) => void;
   onClose: () => void;
   onOpenSettings: () => void;
+  onOpenFeedback?: () => void;
 }) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const titleId = 'welcome-dialog-title';
   const descriptionId = 'welcome-dialog-description';
+  const manager = user.role === 'pi' || user.role === 'administrator';
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -1519,60 +1562,54 @@ function WelcomeDialog({
     >
       <section className="welcome-dialog-card">
         <header>
-          <div>
-            <span className="welcome-kicker">Welcome to VioScope</span>
-            <h2 id={titleId}>Thanks for helping us test VioScope, {user.displayName || user.username}.</h2>
-          </div>
+          <h2 id={titleId}>Welcome to VioScope, {user.displayName || user.username}.</h2>
           <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close welcome message">
             <X aria-hidden="true" />
           </button>
         </header>
 
-        <p id={descriptionId}>
-          VioScope is an advisory workspace for VIOS project work: it keeps project state, personal memory,
-          theme meeting updates, chat collaboration, notifications, and checklist support in one place. Your real
-          updates help us understand where the agent is useful and where it needs better evidence or behaviour.
-        </p>
+        <p id={descriptionId}>VioScope keeps your projects, theme meetings and checklists in one place. Its advice is advisory; you decide.</p>
 
         <ol className="welcome-task-list">
           <li>
             <Settings aria-hidden="true" />
             <div>
-              <strong>Update your profile and memory.</strong>
-              <p>Add your current details in Settings, then use My memory to tell VioScope how you work.</p>
+              <strong>Check your profile.</strong>
+              <p>
+                Review your details in <button className="welcome-link" type="button" onClick={onOpenSettings}>Settings</button>, and add notes for VioScope under My memory.
+              </p>
             </div>
           </li>
           <li>
             <FileText aria-hidden="true" />
             <div>
-              <strong>Update your project.</strong>
-              <p>Please use real project progress and artefacts so we can test how the agent reads and responds.</p>
+              <strong>Keep your projects current.</strong>
+              <p>Record progress and materials so briefings and suggestions reflect your real work.</p>
             </div>
           </li>
           <li>
             <CalendarDays aria-hidden="true" />
             <div>
-              <strong>Add theme meeting progress.</strong>
-              <p>Submit a realistic update, even if the right status is nothing to report.</p>
+              <strong>Submit your theme meeting update.</strong>
+              <p>Choose Update, Deep Dive or Nothing to Report before the cutoff.</p>
             </div>
           </li>
+          {(manager || user.role === 'organizer') && (
+            <li>
+              <ClipboardList aria-hidden="true" />
+              <div>
+                <strong>{manager ? 'Review agendas and accounts.' : 'Confirm your theme agenda.'}</strong>
+                <p>{manager ? 'Confirm theme agendas, and manage members and lab settings in Settings.' : 'Confirm the agenda and manage members for the themes you coordinate.'}</p>
+              </div>
+            </li>
+          )}
           <li>
-            <Bell aria-hidden="true" />
-            <div>
-              <strong>Check general configuration.</strong>
-              <p>Review notification settings and any administrator configuration you have access to.</p>
-            </div>
-          </li>
-          <li>
-            <AlertCircle aria-hidden="true" />
+            <LifeBuoy aria-hidden="true" />
             <div>
               <strong>Tell us what breaks.</strong>
               <p>
-                Submit a bug at{' '}
-                <a href="https://github.com/vios-s/VioScope-agent/issues" target="_blank" rel="noreferrer">
-                  GitHub issues
-                </a>
-                , or contact Yuyang or Danilo directly.
+                Send a report or request from the{' '}
+                {onOpenFeedback ? <button className="welcome-link" type="button" onClick={onOpenFeedback}>Feedback</button> : 'Feedback'} page.
               </p>
             </div>
           </li>
@@ -1587,15 +1624,9 @@ function WelcomeDialog({
             />
             <span>Don&apos;t show this again on this browser</span>
           </label>
-          <div className="button-row">
-            <button className="ops-secondary" type="button" onClick={onClose}>
-              Review later
-            </button>
-            <button className="ops-primary" type="button" onClick={onOpenSettings}>
-              <Settings aria-hidden="true" />
-              Open Settings
-            </button>
-          </div>
+          <button className="ops-primary" type="button" onClick={onClose}>
+            Close
+          </button>
         </footer>
       </section>
     </dialog>
@@ -1604,9 +1635,10 @@ function WelcomeDialog({
 
 function AvatarCircle({ user, className = '' }: { user: CurrentUser; className?: string }) {
   const avatarUrl = profileAvatarUrl(user);
+  const name = user.displayName || user.username;
   return (
     <span className={`user-avatar ${className}`}>
-      {avatarUrl ? <img src={avatarUrl} alt="" /> : initials(user.displayName || user.username)}
+      {avatarUrl ? <AvatarImage src={avatarUrl} name={name} /> : initials(name)}
     </span>
   );
 }
@@ -1656,10 +1688,11 @@ function PromptCopyButton({ prompt, label }: { prompt: string; label: string }) 
     }
   }
 
-  const text = !ready ? 'Prompt loading' : state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy prompt';
+  const text = !ready ? 'Prompt loading' : state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy AI prompt';
+  const tooltip = state === 'failed' ? 'Your browser blocked the clipboard. Try again.' : 'Copies a ready-made prompt to paste into an AI assistant. Nothing is sent from VioScope.';
 
   return (
-    <button className="prompt-copy-button" type="button" disabled={!ready} onClick={copyPrompt} aria-label={label} title={text} data-state={state}>
+    <button className="prompt-copy-button" type="button" disabled={!ready} onClick={copyPrompt} aria-label={label} title={tooltip} data-state={state}>
       <Copy aria-hidden="true" />
       <span>{text}</span>
     </button>
@@ -1801,15 +1834,13 @@ function LoginView({ onLogin, initialError }: { onLogin: (user: CurrentUser) => 
           </label>
           {error && <div className="form-message error" role="alert">{error}</div>}
           {recoveryMessage && <div className="form-message" role="status">{recoveryMessage}</div>}
-          <div className="button-row">
-            <button className="ops-primary" type="submit" disabled={busy}>
-              <KeyRound aria-hidden="true" />
-              {busy ? 'Sending' : 'Email temporary password'}
-            </button>
-            <button className="ops-secondary" type="button" onClick={() => { setShowRecovery(false); setError(null); }}>
-              Back to sign in
-            </button>
-          </div>
+          <button className="ops-primary" type="submit" disabled={busy}>
+            <KeyRound aria-hidden="true" />
+            {busy ? 'Sending' : 'Email temporary password'}
+          </button>
+          <button className="vs-auth-link" type="button" onClick={() => { setShowRecovery(false); setError(null); }}>
+            Back to sign in
+          </button>
         </form>
       </AuthFrame>
     );
@@ -2032,7 +2063,7 @@ function AccountDetailsPanel({
       });
       if (!body.user) throw new Error('Could not update account.');
       onUserChanged(body.user);
-      setProfileMessage('Account details saved.');
+      setProfileMessage('Profile saved.');
     } catch (caught) {
       setProfileError(caught instanceof Error ? caught.message : 'Could not update account.');
     } finally {
@@ -2078,19 +2109,21 @@ function AccountDetailsPanel({
     <section className="account-details-panel">
         <div className="account-settings-grid">
           <form className="account-settings-card" onSubmit={saveProfile}>
-            <h3>Personal details</h3>
+            <h3>Profile</h3>
             <div className="account-avatar-row">
-              <span className="user-avatar large">
-                {profileDraft.avatarUrl ? <img src={profileDraft.avatarUrl} alt="" /> : initials(profileDraft.displayName || user.username)}
-              </span>
+              <div className="account-avatar-stack">
+                <span className="user-avatar large">
+                  {profileDraft.avatarUrl ? <img src={profileDraft.avatarUrl} alt="" /> : initials(profileDraft.displayName || user.username)}
+                </span>
+                <label className="avatar-change-button">
+                  Change photo
+                  <input accept="image/*" type="file" onChange={chooseAvatar} />
+                </label>
+              </div>
               <span className="account-identity">
                 <strong>@{user.username}</strong>
                 <small>{roleLabel(user.role)}</small>
               </span>
-              <label className="avatar-upload avatar-upload-icon" aria-label="Upload avatar" title="Upload avatar">
-                <Upload aria-hidden="true" />
-                <input accept="image/*" type="file" onChange={chooseAvatar} />
-              </label>
             </div>
             <label>
               <span>Display name</span>
@@ -2122,12 +2155,12 @@ function AccountDetailsPanel({
             {profileMessage && <div className="form-message">{profileMessage}</div>}
             <button className="ops-primary" type="submit" disabled={busyProfile}>
               <Save aria-hidden="true" />
-              {busyProfile ? 'Saving' : 'Save account'}
+              {busyProfile ? 'Saving' : 'Save profile'}
             </button>
           </form>
 
           <form className="account-settings-card" onSubmit={savePassword}>
-            <h3>Change password</h3>
+            <h3>Password</h3>
             <label>
               <span>Current password</span>
               <input
@@ -2165,7 +2198,7 @@ function AccountDetailsPanel({
             {passwordMessage && <div className="form-message">{passwordMessage}</div>}
             <button className="ops-primary" type="submit" disabled={busyPassword}>
               <KeyRound aria-hidden="true" />
-              {busyPassword ? 'Saving' : 'Save password'}
+              {busyPassword ? 'Saving' : 'Change password'}
             </button>
           </form>
         </div>
@@ -2174,13 +2207,10 @@ function AccountDetailsPanel({
 }
 
 function formatShortDate(value: string | null) {
-  if (!value) return 'Not recorded';
-  const date = dateValue(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+  return fmt.formatDay(value, 'Not recorded');
 }
 
-function ProjectRecordRail({ project, checkpoints, linked }: { project: ManagedProject; checkpoints?: ReactNode; linked?: ReactNode }) {
+function ProjectRecordRail({ project, checkpoints, linked, showPeople = true }: { project: ManagedProject; checkpoints?: ReactNode; linked?: ReactNode; showPeople?: boolean }) {
   const people: Array<[string, string]> = [
     ['Owner', `@${project.ownerUsername}`],
     ['PI', project.piUsername ? `@${project.piUsername}` : 'Not assigned'],
@@ -2207,7 +2237,7 @@ function ProjectRecordRail({ project, checkpoints, linked }: { project: ManagedP
           {checkpoints ?? <p className="vs-rail-caption">Recorded checkpoint decisions are listed in the Research workflow.</p>}
         </div>
       </section>
-      <section className="vs-rail-section">
+      {showPeople && <section className="vs-rail-section">
         <h3>People</h3>
         <dl className="vs-rail-people">
           {people.map(([term, value]) => (
@@ -2217,7 +2247,7 @@ function ProjectRecordRail({ project, checkpoints, linked }: { project: ManagedP
             </div>
           ))}
         </dl>
-      </section>
+      </section>}
       {linked && (
         <section className="vs-rail-section">
           <h3>Linked records</h3>
@@ -2372,8 +2402,8 @@ function ProjectEditorModal({
       >
         <header>
           <div>
-            <h2 id={titleId}>{isNew ? 'Add project' : 'Edit project'}</h2>
-            <p>{isNew ? 'Create a visible project record.' : project.title}</p>
+            <h2 id={titleId}>{isNew ? 'Add project' : 'Edit details'}</h2>
+            {!isNew && <p>{project.title}</p>}
           </div>
           <button ref={closeButtonRef} type="button" onClick={onClose} aria-label="Close project editor">
             <X aria-hidden="true" />
@@ -2400,22 +2430,6 @@ function ProjectEditorModal({
                 }))
               }
               placeholder="Toy segmentation with robust ablation"
-            />
-          </label>
-          <label>
-            <span>Slug</span>
-            <input
-              value={draft.project}
-              onChange={(event) => {
-                const nextSlug = slugifyProjectName(event.target.value);
-                setSlugTouched(true);
-                setDraft((current) => ({
-                  ...current,
-                  project: nextSlug,
-                  watchPath: generatedWatchPath(current.ownerUsername, nextSlug),
-                }));
-              }}
-              placeholder="toy-segmentation"
             />
           </label>
           {canEditOwner ? (
@@ -2467,7 +2481,8 @@ function ProjectEditorModal({
               value={draft.lifecycle}
               onChange={(event) => setDraft((current) => ({ ...current, lifecycle: event.target.value as ProjectLifecycle }))}
             >
-              {(Object.keys(lifecycleLabels) as ProjectLifecycle[]).map((lifecycle) => (
+              {/* Archiving has its own confirmed action in the project record. */}
+              {(Object.keys(lifecycleLabels) as ProjectLifecycle[]).filter((lifecycle) => lifecycle !== 'archived' || draft.lifecycle === 'archived').map((lifecycle) => (
                 <option key={lifecycle} value={lifecycle}>
                   {lifecycleLabels[lifecycle]}
                 </option>
@@ -2499,13 +2514,6 @@ function ProjectEditorModal({
         </div>
 
         <div className="modal-fieldset full">
-          <h3>Notes and links</h3>
-          <div className="readonly-field readonly-path-field full">
-            <span>Watch path</span>
-            <output aria-label="Watch path" className="readonly-value readonly-path-value">
-              {generatedWatchPath(draft.ownerUsername, slugifyProjectName(draft.project || draft.title)) || 'Generated after naming'}
-            </output>
-          </div>
           <label className="full">
             <span>Notes</span>
             <textarea
@@ -2514,6 +2522,33 @@ function ProjectEditorModal({
               onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
             />
           </label>
+          {viewer.role === 'administrator' && (
+            <details className="vs-advanced full">
+              <summary>Advanced</summary>
+              <label>
+                <span>Slug</span>
+                <input
+                  value={draft.project}
+                  onChange={(event) => {
+                    const nextSlug = slugifyProjectName(event.target.value);
+                    setSlugTouched(true);
+                    setDraft((current) => ({
+                      ...current,
+                      project: nextSlug,
+                      watchPath: generatedWatchPath(current.ownerUsername, nextSlug),
+                    }));
+                  }}
+                  placeholder="toy-segmentation"
+                />
+              </label>
+              <div className="readonly-field readonly-path-field">
+                <span>Watch path</span>
+                <output aria-label="Watch path" className="readonly-value readonly-path-value">
+                  {generatedWatchPath(draft.ownerUsername, slugifyProjectName(draft.project || draft.title)) || 'Generated after naming'}
+                </output>
+              </div>
+            </details>
+          )}
         </div>
 
         {error && <div className="form-message error">{error}</div>}
@@ -2522,8 +2557,8 @@ function ProjectEditorModal({
             Cancel
           </button>
           <button className="ops-primary" type="submit" disabled={busy}>
-            <Save aria-hidden="true" />
-            {busy ? 'Saving' : 'Save changes'}
+            {isNew ? <Plus aria-hidden="true" /> : <Save aria-hidden="true" />}
+            {busy ? 'Saving' : isNew ? 'Create project' : 'Save changes'}
           </button>
         </footer>
       </form>
@@ -2560,7 +2595,11 @@ function ProjectDetailModal({
 }) {
   const [mode, setMode] = useState<ProjectDetailMode>(initialMode);
   const [draft, setDraft] = useState(() => defaultTimelineDraft(project));
-  const [editDraft, setEditDraft] = useState(() => projectDraftFromProject(project, viewer));
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [recordMenuOpen, setRecordMenuOpen] = useState(false);
+  const recordMenuRef = useRef<HTMLDivElement | null>(null);
+  const recordMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  useMenuFocus(recordMenuOpen, recordMenuRef);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
   const [updateToDelete, setUpdateToDelete] = useState<ManagedProjectUpdate | null>(null);
@@ -2580,7 +2619,6 @@ function ProjectDetailModal({
   useCustomDialogFocus(true, closeButtonRef);
 
   useEffect(() => {
-    setEditDraft(projectDraftFromProject(project, viewer));
     setDraft(defaultTimelineDraft(project));
     setEditingUpdateId(null);
     setError(null);
@@ -2617,42 +2655,11 @@ function ProjectDetailModal({
     });
   }
 
-  async function submitProjectEdit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy('edit');
-    setError(null);
-    setNotice(null);
-    try {
-      const duplicate = existingProjects.find(
-        (existing) =>
-          existing.id !== project.id &&
-          existing.ownerUsername.toLowerCase() === editDraft.ownerUsername.toLowerCase() &&
-          (existing.title.trim().toLowerCase() === editDraft.title.trim().toLowerCase() ||
-            existing.project === slugifyProjectName(editDraft.project || editDraft.title)),
-      );
-      if (!editDraft.title.trim()) {
-        throw new Error('Full project name is required.');
-      }
-      if (duplicate) {
-        throw new Error(
-          duplicate.project === slugifyProjectName(editDraft.project || editDraft.title)
-            ? 'This owner already has a project with the same slug.'
-            : 'This owner already has a project with the same full project name.',
-        );
-      }
-      const body = await requestJson<ProjectsPayload>(`/api/projects/${project.id}`, 'Could not save project.', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(projectRequestBody(editDraft)),
-      });
-      if (!body.project) throw new Error('Could not save project.');
-      await onSaved(body.project);
-      setNotice({ kind: 'edit', text: 'Project details saved.' });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save project.');
-    } finally {
-      setBusy(null);
-    }
+  // Edit details reuses the Add project form (one shared form); it saves through the same PATCH.
+  async function handleDetailsSaved(saved: ManagedProject) {
+    setEditorOpen(false);
+    await onSaved(saved);
+    setNotice({ kind: 'edit', text: 'Project details saved.' });
   }
 
   async function submitUpdate(event: FormEvent<HTMLFormElement>) {
@@ -2809,6 +2816,7 @@ function ProjectDetailModal({
   }
 
   return (
+    <>
     <div className="users-modal-backdrop" role="presentation" onClick={onClose}>
       <div
         className="users-modal user-edit-modal project-modal project-detail-modal vs-dialog-record"
@@ -2826,180 +2834,51 @@ function ProjectDetailModal({
             </button>
             <h2 id={titleId} className="vs-record-title">{project.title}</h2>
             <div className="vs-record-meta">
-              <StatusChip status={project.status} />
+              <span className="vs-chip-row"><StatusChip status={project.status} />{projectInProgress(project) && <AttentionChip project={project} />}</span>
               <span className="vs-meta-item">Track {project.track}</span>
               <span className="vs-meta-item">Owner <strong>@{project.ownerUsername}</strong></span>
               {project.venue && <span className="vs-meta-item">Target <strong>{project.venue}</strong></span>}
               <span className="vs-meta-item vs-meta-muted">{project.lastUpdate ? `Last update ${formatShortDate(project.lastUpdate)}` : 'No update recorded'}</span>
             </div>
           </div>
-          <button ref={closeButtonRef} className="vs-record-close" type="button" onClick={onClose} aria-label="Close project details">
-            <X aria-hidden="true" />
-          </button>
+          <div className="vs-record-header-actions">
+            {project.access.canArchive && (
+              <div className="vs-record-menu-wrap">
+                <button ref={recordMenuTriggerRef} className="vs-record-close" type="button" aria-label={`More actions for ${project.title}`} aria-haspopup="menu" aria-expanded={recordMenuOpen} onClick={() => setRecordMenuOpen((current) => !current)}>
+                  <Ellipsis aria-hidden="true" />
+                </button>
+                {recordMenuOpen && <ProjectRecordMenu menuRef={recordMenuRef} trigger={recordMenuTriggerRef.current} title={project.title} archived={project.lifecycle === 'archived'} onClose={() => setRecordMenuOpen(false)} onSelect={() => void (project.lifecycle === 'archived' ? onUnarchive : onArchive)(project)} />}
+              </div>
+            )}
+            <button ref={closeButtonRef} className="vs-record-close" type="button" onClick={onClose} aria-label="Close project details">
+              <X aria-hidden="true" />
+            </button>
+          </div>
         </header>
 
-        <div className="project-modal-tabs vs-record-tabs" role="group" aria-label="Project modal section">
-          <button className={mode === 'details' ? 'selected' : ''} aria-pressed={mode === 'details'} type="button" onClick={() => setMode('details')}>
-            Details
-          </button>
-          <button className={mode === 'progress' ? 'selected' : ''} aria-pressed={mode === 'progress'} type="button" onClick={() => setMode('progress')}>
-            Update
-          </button>
-          <button className={mode === 'workflow' ? 'selected' : ''} aria-pressed={mode === 'workflow'} type="button" onClick={() => setMode('workflow')}>
-            Research workflow
-          </button>
+        <div className="project-modal-tabs vs-record-tabs" role="tablist" aria-label="Project record sections" onKeyDown={tablistKeyDown}>
+          {([['details', 'Details'], ['progress', 'Update'], ['workflow', 'Research workflow']] as const).map(([value, text]) => (
+            <button key={value} className={mode === value ? 'selected' : ''} role="tab" id={`project-record-tab-${value}`} aria-selected={mode === value} aria-controls="project-record-panel" tabIndex={mode === value ? 0 : -1} type="button" onClick={() => setMode(value)}>
+              {text}
+            </button>
+          ))}
         </div>
 
-        <div className="vs-record-scroll">
+        <div className="vs-record-scroll" id="project-record-panel" role="tabpanel" aria-labelledby={`project-record-tab-${mode}`}>
         {mode !== 'workflow' && (
         <div className="vs-record-body">
         <div className="vs-record-main">
         {mode === 'details' && (
           <div className="project-details-layout">
-            {project.access.canEdit ? (
-          <form className="project-manage-form" onSubmit={submitProjectEdit}>
-            <label className="full">
-              <span>Full project name</span>
-              <input
-                value={editDraft.title}
-                onChange={(event) => setEditDraft((current) => ({ ...current, title: event.target.value }))}
-              />
-            </label>
-            <label>
-              <span>Slug</span>
-              <input
-                value={editDraft.project}
-                onChange={(event) =>
-                  setEditDraft((current) => ({
-                    ...current,
-                    project: slugifyProjectName(event.target.value),
-                    watchPath: generatedWatchPath(current.ownerUsername, slugifyProjectName(event.target.value)),
-                  }))
-                }
-              />
-            </label>
-            <label>
-              <span>Owner</span>
-              <input
-                value={editDraft.ownerUsername}
-                disabled={!canSeeAllRole(viewer.role)}
-                onChange={(event) =>
-                  setEditDraft((current) => ({
-                    ...current,
-                    ownerUsername: event.target.value,
-                    watchPath: generatedWatchPath(event.target.value, slugifyProjectName(current.project || current.title)),
-                  }))
-                }
-              />
-            </label>
-            <CollaboratorInput
-              value={editDraft.collaboratorsText}
-              users={collaboratorUsers}
-              className="full"
-              onChange={(value) => setEditDraft((current) => ({ ...current, collaboratorsText: value }))}
+            <ProjectDetailsList
+              project={project}
+              status={<span className="vs-chip-row"><StatusChip status={project.status} />{projectInProgress(project) && <AttentionChip project={project} />}</span>}
+              lifecycle={lifecycleLabels[project.lifecycle]}
+              admin={viewer.role === 'administrator'}
+              onEdit={project.access.canEdit && project.lifecycle !== 'archived' ? () => setEditorOpen(true) : undefined}
             />
-            <label>
-              <span>Track</span>
-              <select value={editDraft.track} onChange={(event) => setEditDraft((current) => ({ ...current, track: event.target.value as ProjectTrack }))}>
-                {(Object.keys(projectTrackLabels) as ProjectTrack[]).map((track) => (
-                  <option key={track} value={track}>
-                    {projectTrackLabels[track]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Lifecycle</span>
-              <select value={editDraft.lifecycle} onChange={(event) => setEditDraft((current) => ({ ...current, lifecycle: event.target.value as ProjectLifecycle }))}>
-                {(Object.keys(lifecycleLabels) as ProjectLifecycle[]).map((lifecycle) => (
-                  <option key={lifecycle} value={lifecycle}>
-                    {lifecycleLabels[lifecycle]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <ProjectReviewerFields draft={editDraft} users={collaboratorUsers} onChange={patch => setEditDraft(current => ({ ...current, ...patch }))} />
-            <label>
-              <span>Venue</span>
-              <input value={editDraft.venue} onChange={(event) => setEditDraft((current) => ({ ...current, venue: event.target.value }))} />
-            </label>
-            <label>
-              <span>Deadline</span>
-              <input
-                type="date"
-                value={editDraft.submissionDeadline}
-                onChange={(event) => setEditDraft((current) => ({ ...current, submissionDeadline: event.target.value }))}
-              />
-            </label>
-            <label className="full">
-              <span>Watch path</span>
-              <input value={generatedWatchPath(editDraft.ownerUsername, slugifyProjectName(editDraft.project || editDraft.title))} readOnly />
-            </label>
-            <label className="full">
-              <span>Notes</span>
-              <textarea rows={3} value={editDraft.notes} onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} />
-            </label>
-            {error && <div className="form-message error full" role="alert">{error}</div>}
-            {notice?.kind === 'edit' && <p className="form-message full" role="status">{notice.text}</p>}
-            <div className="button-row full">
-              <button className="ops-primary" type="submit" disabled={busy === 'edit'}>
-                <Save aria-hidden="true" />
-                {busy === 'edit' ? 'Saving' : 'Save project'}
-              </button>
-              {project.access.canArchive && project.lifecycle !== 'archived' && (
-                <button className="ops-secondary vs-archive-button" type="button" onClick={() => void onArchive(project)}>
-                  <Archive aria-hidden="true" />
-                  Archive project
-                </button>
-              )}
-              {project.access.canArchive && project.lifecycle === 'archived' && (
-                <button className="ops-secondary" type="button" onClick={() => void onUnarchive(project)}>
-                  <RotateCcw aria-hidden="true" />
-                  Unarchive
-                </button>
-              )}
-            </div>
-          </form>
-            ) : (
-          <div className="project-detail-grid">
-            <div>
-              <span>Lifecycle</span>
-              <strong>{lifecycleLabels[project.lifecycle]}</strong>
-            </div>
-            <div>
-              <span>Status</span>
-              <StatusChip status={project.status} />
-            </div>
-            <div>
-              <span>Stage progress (%)</span>
-              <strong>{project.stageProgress}%</strong>
-            </div>
-            <div>
-              <span>Venue</span>
-              <strong>{project.venue || 'Not set'}</strong>
-            </div>
-            <div>
-              <span>Deadline</span>
-              <strong>{formatDate(project.submissionDeadline)}</strong>
-            </div>
-            <div>
-              <span>Collaborators</span>
-              <strong>{project.collaborators.join(', ') || 'None'}</strong>
-            </div>
-            <div>
-              <span>PI</span>
-              <strong>{project.piUsername ? `@${project.piUsername}` : 'Not assigned'}</strong>
-            </div>
-            <div>
-              <span>PDRA reviewer</span>
-              <strong>{project.pdraUsername ? `@${project.pdraUsername}` : 'Not assigned'}</strong>
-            </div>
-            <div>
-              <span>Watch path</span>
-              <strong>{project.watchPath || 'Not set'}</strong>
-            </div>
-          </div>
-            )}
+            {notice?.kind === 'edit' && <p className="form-message" role="status">{notice.text}</p>}
+            {error && <div className="form-message error" role="alert">{error}</div>}
 
         <ProjectIdeaOrigin projectId={project.id} />
 
@@ -3007,7 +2886,7 @@ function ProjectDetailModal({
           <div className="vs-section-head">
             <div>
               <h2>Materials</h2>
-              <p>Current summaries are what the agent reads by default.</p>
+              <p>VioScope reads the current summaries by default.</p>
             </div>
           </div>
           <div className="artifact-list">
@@ -3020,7 +2899,7 @@ function ProjectDetailModal({
                   </div>
                   {artifact.summary ? (
                     <details className="artifact-summary">
-                      <summary>Agent summary</summary>
+                      <summary>VioScope summary</summary>
                       <p>{artifact.summary}</p>
                     </details>
                   ) : (
@@ -3032,7 +2911,7 @@ function ProjectDetailModal({
                         className="ops-secondary icon-only-button"
                         href={`/api/project-artifacts/${artifact.id}/download`}
                         aria-label={`Download ${artifact.title}`}
-                        title="Download artifact"
+                        title="Download material"
                       >
                         <Download aria-hidden="true" />
                       </a>
@@ -3046,10 +2925,10 @@ function ProjectDetailModal({
                           onClick={() => void redigestArtifact(artifact)}
                           aria-label={
                             busy === `digest:${artifact.id}`
-                              ? `Regenerating digest for ${artifact.title}`
-                              : `Regenerate digest for ${artifact.title}`
+                              ? `Regenerating summary for ${artifact.title}`
+                              : `Regenerate summary for ${artifact.title}`
                           }
-                          title={busy === `digest:${artifact.id}` ? 'Regenerating digest' : 'Regenerate digest'}
+                          title={busy === `digest:${artifact.id}` ? 'Regenerating summary' : 'Regenerate summary'}
                         >
                           <RefreshCw aria-hidden="true" className={busy === `digest:${artifact.id}` ? 'spin' : undefined} />
                         </button>
@@ -3059,7 +2938,7 @@ function ProjectDetailModal({
                           disabled={busy === `remove:${artifact.id}`}
                           onClick={() => setArtifactToRemove(artifact)}
                           aria-label={`Remove ${artifact.title}`}
-                          title="Remove artifact"
+                          title="Remove material"
                         >
                           <Trash2 aria-hidden="true" />
                         </button>
@@ -3074,7 +2953,7 @@ function ProjectDetailModal({
                 </div>
               ))
             ) : (
-              <div className="ops-muted-line">No current artifacts yet</div>
+              <div className="ops-muted-line">No materials yet. Attach files from the Update tab.</div>
             )}
             {oldArtifacts.length > 0 && <div className="ops-muted-line">{oldArtifacts.length} previous versions retained</div>}
           </div>
@@ -3145,26 +3024,26 @@ function ProjectDetailModal({
             <div className="prompt-field full">
               <div className="prompt-field-head">
                 <label htmlFor={targetFieldId}>Target</label>
-                <PromptCopyButton prompt={projectTargetPrompt(uiCopyPrompts, project)} label="Copy target prompt" />
+                <PromptCopyButton prompt={projectTargetPrompt(uiCopyPrompts, project)} label="Copy AI prompt for target" />
               </div>
               <textarea id={targetFieldId} rows={2} value={draft.target} onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))} />
             </div>
             <div className="prompt-field full">
               <div className="prompt-field-head">
                 <label htmlFor={blockerFieldId}>Blocker</label>
-                <PromptCopyButton prompt={projectBlockerPrompt(uiCopyPrompts, project)} label="Copy blocker prompt" />
+                <PromptCopyButton prompt={projectBlockerPrompt(uiCopyPrompts, project)} label="Copy AI prompt for blocker" />
               </div>
               <textarea id={blockerFieldId} rows={2} value={draft.blocker} onChange={(event) => setDraft((current) => ({ ...current, blocker: event.target.value }))} />
             </div>
             <div className="prompt-field full">
               <div className="prompt-field-head">
                 <label htmlFor={progressFieldId}>Progress text ({countWords(draft.text)}/50 words)</label>
-                <PromptCopyButton prompt={projectProgressPrompt(uiCopyPrompts, project)} label="Copy progress text prompt" />
+                <PromptCopyButton prompt={projectProgressPrompt(uiCopyPrompts, project)} label="Copy AI prompt for progress" />
               </div>
               <textarea id={progressFieldId} rows={4} value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} />
             </div>
             <div className="full artifact-upload-field">
-              <span>{editingUpdateId ? 'Attach file or image' : 'New artifact or image'}</span>
+              <span>{editingUpdateId ? 'Attach file or image' : 'Attach material or image'}</span>
               <span className="artifact-upload-row">
                 <input
                   id={`artifact-upload-${project.id}`}
@@ -3174,7 +3053,7 @@ function ProjectDetailModal({
                     const file = event.currentTarget.files?.[0] || null;
                     if (file && file.size > projectArtifactMaxBytes) {
                       event.currentTarget.value = '';
-                      setError('Artifact file is too large. Limit is 20 MB.');
+                      setError('File is too large. The limit is 20 MB.');
                       setDraft((current) => ({ ...current, artifactFile: null, artifactFileName: '' }));
                       return;
                     }
@@ -3182,7 +3061,7 @@ function ProjectDetailModal({
                     setDraft((current) => ({ ...current, artifactFile: file, artifactFileName: file?.name || '' }));
                   }}
                 />
-                <label className="ops-secondary" htmlFor={`artifact-upload-${project.id}`} aria-label="Choose artifact or image" title="Choose artifact or image">
+                <label className="ops-secondary" htmlFor={`artifact-upload-${project.id}`} aria-label="Choose material or image" title="Choose material or image">
                   <Upload aria-hidden="true" />
                 </label>
                 <strong>{draft.artifactFileName || 'No file selected'}</strong>
@@ -3192,7 +3071,7 @@ function ProjectDetailModal({
             {uploadProgress !== null && (
               <div className="upload-progress full">
                 <span style={{ width: `${uploadProgress}%` }} />
-                <strong>{uploadProgress < 100 ? `Uploading ${uploadProgress}%` : 'Upload complete. Digesting...'}</strong>
+                <strong>{uploadProgress < 100 ? `Uploading ${uploadProgress}%` : 'Upload complete. Summarising…'}</strong>
               </div>
             )}
             {error && <div className="form-message error full" role="alert">{error}</div>}
@@ -3216,7 +3095,6 @@ function ProjectDetailModal({
           <div className="vs-section-head">
             <div>
               <h2>Timeline</h2>
-              <p>Progress updates, notes, decisions, blockers, and artifact summaries.</p>
             </div>
           </div>
           <div className="project-timeline">
@@ -3227,12 +3105,12 @@ function ProjectDetailModal({
                   <div className="timeline-body">
                     <div className="timeline-head">
                       <strong>{projectUpdateTypeLabels[update.type]}</strong>
-                      <span>{formatDate(update.date)} / {update.byUsername}</span>
+                      <span>{formatDate(update.date)} · @{update.byUsername}</span>
                     </div>
                     <div className="timeline-meta">
-                      {update.stage ? `Stage ${update.stage}${update.stageProgress !== null ? ` / ${update.stageProgress}%` : ''}` : 'Stage not recorded'}
-                      {update.status ? ` / ${statusLabels[update.status]}` : ''}
-                      {update.milestone ? ' / milestone' : ''}
+                      {update.stage ? `Stage ${update.stage}${update.stageProgress !== null ? ` · ${update.stageProgress}%` : ''}` : 'Stage not recorded'}
+                      {update.status ? ` · ${statusLabels[update.status]}` : ''}
+                      {update.milestone ? ' · Milestone reached' : ''}
                     </div>
                     <p className="timeline-update-text">{update.text}</p>
                     {project.artifacts
@@ -3301,7 +3179,7 @@ function ProjectDetailModal({
           </div>
         )}
         </div>
-        <ProjectRecordRail project={project} />
+        <ProjectRecordRail project={project} showPeople={mode !== 'details'} />
         </div>
         )}
 
@@ -3320,7 +3198,7 @@ function ProjectDetailModal({
       <ConfirmDialog
         id="remove-artifact-confirm"
         open={Boolean(artifactToRemove)}
-        title="Remove artifact?"
+        title="Remove material?"
         message={artifactToRemove ? `Remove ${artifactToRemove.title} from the current project record?` : ''}
         confirmLabel="Remove"
         busy={Boolean(artifactToRemove && busy === `remove:${artifactToRemove.id}`)}
@@ -3343,8 +3221,17 @@ function ProjectDetailModal({
       />
 
     </div>
+    {editorOpen && <ProjectEditorModal project={project} viewer={viewer} collaboratorUsers={collaboratorUsers} existingProjects={existingProjects} onClose={() => setEditorOpen(false)} onSaved={handleDetailsSaved} />}
+    </>
   );
 }
+
+// Meeting slot names with their reserved time, as members choose them.
+const themeSlotOptionLabels: Record<ThemeUpdateType, string> = {
+  short_update: 'Update (5 min)',
+  deep_dive: 'Deep Dive (20–30 min)',
+  nothing_to_report: 'Nothing to Report (0 min)',
+};
 
 function ProjectMeetingSuggestion({ project, onUseSlot, onUseDraft }: {
   project: ManagedProject;
@@ -3372,7 +3259,7 @@ function ProjectMeetingSuggestion({ project, onUseSlot, onUseDraft }: {
   return (
     <article className="theme-project-advice" aria-label={`Meeting suggestion for ${project.title}`} aria-busy={busy}>
       <div className="theme-advice-top">
-        <p className="theme-advice-head"><span className="vs-caps theme-advice-badge">Advisory</span> <strong>{suggestion ? 'AI suggested slot' : 'Suggested slot'}: {suggestedSlot ? updateTypeOptionLabels[suggestedSlot] : 'Update progress first'}</strong></p>
+        <p className="theme-advice-head"><span className="vs-caps theme-advice-badge">Advisory</span> <strong>{suggestion ? 'AI suggested slot' : 'Suggested slot'}: {suggestedSlot ? themeSlotOptionLabels[suggestedSlot] : 'Update progress first'}</strong></p>
         <div className="theme-advice-actions">
           <button className="ops-secondary" type="button" disabled={busy} aria-label="Suggest again with AI" onClick={() => void regenerate()}>{busy ? 'Generating…' : 'Suggest again'}</button>
           {suggestion && onUseDraft ? <button className="ops-secondary" type="button" aria-label="Use suggestion as your draft update" onClick={() => onUseDraft(suggestion)}>Use suggestion</button> : onUseSlot && suggestedSlot && (
@@ -3383,15 +3270,18 @@ function ProjectMeetingSuggestion({ project, onUseSlot, onUseDraft }: {
       {error && <p role="alert">{error}</p>}
       <details className="theme-advice-details">
         <summary>{suggestion ? 'Suggested draft and evidence' : 'Why this suggestion'}</summary>
-        <p className="theme-advice-note">Optional suggestion from your project record. You decide what to submit.</p>
+        <dl className="theme-advice-facts">
+          {suggestion ? <>
+            <div><dt>Reason</dt><dd>{suggestion.rationale}</dd></div>
+            <div><dt>Draft progress</dt><dd className="is-pre">{suggestion.progress}</dd></div>
+            {suggestion.questions && <div><dt>Draft questions</dt><dd className="is-pre">{suggestion.questions}</dd></div>}
+            <div><dt>Project evidence</dt><dd><ul>{suggestion.evidence.map((item, index) => <li key={index}>{item.source.startsWith('progress:') ? 'Progress update' : item.source}: “{item.quote}”</li>)}</ul></dd></div>
+          </> : <>
+            <div><dt>Evidence</dt><dd>{advice.evidence}</dd></div>
+            <div><dt>How to prepare</dt><dd>{advice.preparation}</dd></div>
+          </>}
+        </dl>
         <MeetingProjectSummary context={meetingProjectContext(project)} />
-        {suggestion ? <>
-          <p>{suggestion.rationale}</p>
-          <p style={{ whiteSpace: 'pre-wrap' }}>{suggestion.progress}</p>
-          {suggestion.questions && <p style={{ whiteSpace: 'pre-wrap' }}>{suggestion.questions}</p>}
-          <p className="theme-advice-note">Project evidence</p>
-          <ul>{suggestion.evidence.map((item, index) => <li key={index}>{item.source.startsWith('progress:') ? 'Progress update' : item.source}: “{item.quote}”</li>)}</ul>
-        </> : <><p>{advice.evidence}</p><p>{advice.preparation}</p></>}
       </details>
     </article>
   );
@@ -3431,6 +3321,14 @@ function ThemeMeetingPanel({
   const [skipError, setSkipError] = useState<string | null>(null);
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const [viewThemeId, setViewThemeId] = useState('');
+  const [remindTheme, setRemindTheme] = useState<ThemeMeetingPlan['meetings'][number] | null>(null);
+  const [remindBusy, setRemindBusy] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState<{ themeId: string; title: string; username: string; name: string } | null>(null);
+  const [meetingMenuOpen, setMeetingMenuOpen] = useState(false);
+  const meetingMenuRef = useRef<HTMLDivElement | null>(null);
+  const meetingMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  useMenuFocus(meetingMenuOpen, meetingMenuRef);
+  const [recordsRequest, setRecordsRequest] = useState<RecordsRequest | undefined>(undefined);
 
   const plan = payload?.plan;
   const overviewPlan = payload?.overviewPlan;
@@ -3520,16 +3418,6 @@ function ThemeMeetingPanel({
     setSourceProjectId(submittedUpdate?.project_context?.projectId || (submittedUpdate ? 'none' : ''));
   }, [selectedThemeId, submittedUpdate?.submitted_at]);
 
-  async function enableBrowserNotifications() {
-    if (!('Notification' in window)) {
-      setFormError('This browser does not support notifications.');
-      return;
-    }
-
-    const permission = await Notification.requestPermission();
-    setStatus(permission === 'granted' ? 'Browser notifications enabled.' : 'Browser notifications not enabled.');
-  }
-
   async function submitUpdate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
@@ -3614,6 +3502,9 @@ function ThemeMeetingPanel({
       await onChanged();
     } catch (caught) {
       setFormError(caught instanceof Error ? caught.message : 'Could not send reminders.');
+    } finally {
+      setRemindBusy(false);
+      setRemindTheme(null);
     }
   }
 
@@ -3650,7 +3541,7 @@ function ThemeMeetingPanel({
       });
       setMeetingToCancel(null);
       setSkipReason('');
-      setStatus(cancelled ? `Theme ${meeting.theme_id} meeting restored.` : `Theme ${meeting.theme_id} meeting skipped. No reminders, agenda or agenda emails will be sent.`);
+      setStatus(cancelled ? `${meeting.title} meeting restored.` : `${meeting.title} meeting skipped. No reminders, agenda or agenda emails will be sent.`);
       await onChanged();
     } catch (error) {
       // Skipping happens inside a modal dialog, so show its error there; restoring has no dialog.
@@ -3683,21 +3574,25 @@ function ThemeMeetingPanel({
     const subscription = payload?.agendaSubscriptions?.find((candidate) => candidate.theme_id === themeId);
     if (!subscription || viewer.role === 'service') return null;
     const helpId = `theme-${themeId}-subscription-help`;
+    const meeting = plan?.meetings.find((candidate) => candidate.theme_id === themeId);
+    const isViewer = (username?: string) => Boolean(username) && normalizedName(username || '') === normalizedName(viewer.username);
+    // Members, coordinators, PIs and the administrator always receive agenda emails; say why the box is locked.
+    const reason = !subscription.required ? ''
+      : personalUpdateMeetings.some((candidate) => candidate.theme_id === themeId) || meeting?.member_usernames.some(isViewer) ? 'Included as a member'
+        : isViewer(meeting?.coordinator_username) ? 'Included as coordinator' : 'Included for your role';
     return (
-      <div className="theme-agenda-subscription">
-        <button
-          className="ops-secondary"
-          type="button"
-          aria-label={`${subscription.required ? 'Subscribed to' : subscription.subscribed ? 'Unsubscribe from' : 'Subscribe to'} Theme ${themeId} agenda emails`}
-          aria-describedby={subscription.required ? helpId : undefined}
-          aria-pressed={subscription.subscribed}
+      <label className="theme-agenda-subscription">
+        <input
+          type="checkbox"
+          aria-label={`Agenda emails for ${subscription.title}`}
+          aria-describedby={reason ? helpId : undefined}
+          checked={subscription.subscribed}
           disabled={subscription.required || subscriptionBusy}
-          onClick={() => void changeAgendaSubscription(themeId, !subscription.subscribed)}
-        >
-          {subscription.required ? 'Subscribed' : subscription.subscribed ? 'Unsubscribe' : 'Subscribe'}
-        </button>
-        {subscription.required && <span id={helpId}>Automatic</span>}
-      </div>
+          onChange={(event) => void changeAgendaSubscription(themeId, event.target.checked)}
+        />
+        <span>Agenda emails</span>
+        {reason && <small id={helpId}>{reason}</small>}
+      </label>
     );
   }
 
@@ -3707,8 +3602,16 @@ function ThemeMeetingPanel({
   const activeMeeting = activeCard ? plan?.meetings.find((candidate) => candidate.theme_id === activeCard.theme_id) : undefined;
   const canManageActive = Boolean(activeMeeting && managedThemeIds.has(activeMeeting.theme_id));
   const canAccessActive = canManageActive || Boolean(activeMeeting?.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username)));
-  const nameList = (names: string[]) => new Intl.ListFormat('en-GB', { style: 'long', type: 'conjunction' }).format(names);
-  const slotMinutes = (type: ThemeUpdateType) => updateTypeOptionLabels[type].match(/\(([^)]+)\)/)?.[1] || '';
+  // Members see only their own draft row, so tell them how many updates are planned and when the draft is circulated.
+  const preview = payload?.agendaPreview;
+  const plannedCount = activeCard?.agenda_count || 0;
+  const draftNote = `${plannedCount ? `${plannedCount} ${plannedCount === 1 ? 'update' : 'updates'}` : 'No updates'} planned.${preview?.weekday ? ` The draft agenda is shared on ${preview.weekday}${preview.time ? ` at ${preview.time}` : ''}.` : ''}`;
+  const pastRows = pastPlans.flatMap((past) => past.meetings.filter((meeting) => meeting.theme_id === activeCard?.theme_id).map((meeting) => ({ date: past.meeting_date, meeting })));
+  const reminderKinds: Partial<Record<ThemeMeetingNotification['action'], string>> = {
+    manual_missing_update_reminder: 'Reminder sent',
+    gentle_missing_update_reminder: 'Gentle reminder sent',
+    first_reminder: 'First reminder sent',
+  };
   // The submission deadline is a Europe/London wall-clock time ("YYYY-MM-DDTHH:MM") supplied by the server.
   const deadline = payload?.submissionDeadline || null;
   const deadlineLabel = deadline
@@ -3716,22 +3619,14 @@ function ThemeMeetingPanel({
     : '';
   const londonNow = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()).replace(' ', 'T');
   const submissionsClosed = Boolean(deadline && londonNow >= deadline);
-  const submittedAtLabel = submittedUpdate
-    ? new Date(submittedUpdate.submitted_at).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-    : '';
+  const submittedAtLabel = submittedUpdate ? fmt.formatDayTime(submittedUpdate.submitted_at) : '';
   const progressRequired = updateType !== 'nothing_to_report';
 
   return (
     <section className="theme-meeting-panel mt-panel">
-      <div className="mt-toolbar">
-        {!viewer.notificationPreferences.theme_meeting_reminders.email && (
-          <p className="theme-meeting-message ops-muted-line">Email delivery is off. Enable Theme meeting reminders email in Settings to receive agendas.</p>
-        )}
-        <button className="ops-secondary" type="button" aria-label="Enable browser notifications" title="Enable browser notifications" onClick={enableBrowserNotifications}>
-          <Bell aria-hidden="true" />
-          Notifications
-        </button>
-      </div>
+      {!viewer.notificationPreferences.theme_meeting_reminders.email && (
+        <p className="theme-meeting-message ops-muted-line">Email delivery is off. Turn on Theme meeting reminders email in Settings to receive agendas.</p>
+      )}
 
       {formError && <div id="theme-update-error" className="theme-meeting-message form-message error" role="alert">{formError}</div>}
       {status && <div className="theme-meeting-message form-message" role="status">{status}</div>}
@@ -3751,16 +3646,24 @@ function ThemeMeetingPanel({
         <div className="ops-empty">No theme meetings are scheduled for this week</div>
       ) : (
         <div className="theme-meeting-content mt-content">
-          <div className="mt-cards" role="group" aria-label="Active themes">
+          {/* Cards are tabs; the agenda email checkboxes sit over each card's corner but stay outside the tablist. */}
+          <div className="mt-cards" data-cards={weekMeetings.length}>
+            <div className="mt-card-tabs" role="tablist" aria-label="Active themes" onKeyDown={tablistKeyDown}>
             {weekMeetings.map((summary) => {
               const selected = summary.theme_id === activeCard?.theme_id;
               const percent = Math.min(100, Math.round((summary.planned_minutes / Math.max(1, summary.duration_minutes)) * 100));
               return (
-                <article
-                  className={`theme-meeting-card mt-card${selected ? ' is-selected' : ''}${summary.cancelled ? ' is-cancelled' : ''}`}
-                  key={summary.theme_id}
-                >
-                  <button className="mt-card-select" type="button" aria-pressed={selected} onClick={() => setViewThemeId(summary.theme_id)}>
+                  <button
+                    key={summary.theme_id}
+                    id={`mt-tab-${summary.theme_id}`}
+                    className={`theme-meeting-card mt-card mt-card-select${selected ? ' is-selected' : ''}${summary.cancelled ? ' is-cancelled' : ''}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls="mt-agenda-panel"
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => { setViewThemeId(summary.theme_id); setMeetingMenuOpen(false); }}
+                  >
                     <span className="mt-card-title">
                       <span className="vs-mono mt-time">{summary.time}</span>
                       <strong>{summary.title}</strong>
@@ -3774,8 +3677,7 @@ function ThemeMeetingPanel({
                       <span className="mt-card-meter">
                         <span
                           className={`mt-meter${summary.overbooked ? ' is-over' : ''}`}
-                          role="img"
-                          aria-label={`${summary.planned_minutes} of ${summary.duration_minutes} minutes planned`}
+                          aria-hidden="true"
                         >
                           <span style={{ width: `${percent}%` }} />
                         </span>
@@ -3785,15 +3687,17 @@ function ThemeMeetingPanel({
                       </span>
                     )}
                   </button>
-                  {agendaSubscriptionButton(summary.theme_id)}
-                </article>
               );
             })}
+            </div>
+            <div className="mt-card-options">
+              {weekMeetings.map((summary) => <div className="mt-card-option" key={summary.theme_id}>{agendaSubscriptionButton(summary.theme_id)}</div>)}
+            </div>
           </div>
 
-          <div className={`mt-layout${showPersonalUpdateForm ? '' : ' planning-only'}`}>
+          <div className={`mt-layout${showPersonalUpdateForm ? '' : ' planning-only'}${canManageActive ? '' : ' is-member-first'}`}>
             {activeCard && (
-              <section className="mt-agenda" aria-labelledby="mt-agenda-title">
+              <section className="mt-agenda" id="mt-agenda-panel" role="tabpanel" aria-labelledby={`mt-tab-${activeCard.theme_id}`}>
                 <div className="mt-agenda-head">
                   <div>
                     <h2 id="mt-agenda-title">Agenda · {activeCard.title}</h2>
@@ -3803,7 +3707,7 @@ function ThemeMeetingPanel({
                           <span className="mt-skipped-state">Skipped</span> — {activeMeeting?.cancellation?.reason || 'No reason recorded.'}
                         </>
                       ) : (
-                        `${activeCard.time} · ${activeCard.duration_minutes} min · Coordinator ${activeCard.coordinator}`
+                        `${activeCard.time} · ${activeCard.duration_minutes} min`
                       )}
                     </p>
                   </div>
@@ -3821,15 +3725,24 @@ function ThemeMeetingPanel({
                           disabled={!activeMeeting.missing_members.length}
                           aria-label="Send reminder to members without an update"
                           title={activeMeeting.missing_members.length ? 'Send a reminder to members without an update' : 'All updates received'}
-                          onClick={() => sendMissingReminders(activeMeeting.theme_id)}
+                          onClick={() => setRemindTheme(activeMeeting)}
                         >
                           <Bell aria-hidden="true" />
                           Remind
                         </button>
-                        <button className="ops-secondary theme-meeting-cancel-action" type="button" aria-label="Skip this meeting" title="Skip this meeting" onClick={() => setMeetingToCancel(activeMeeting)}>
-                          <X aria-hidden="true" />
-                          Skip
+                        <button ref={meetingMenuTriggerRef} className="ops-secondary icon-only-button mt-more-button" type="button" aria-label={`More actions for ${activeCard.title}`} title="More actions" aria-haspopup="menu" aria-expanded={meetingMenuOpen} onClick={() => setMeetingMenuOpen((open) => !open)}>
+                          <Ellipsis aria-hidden="true" />
                         </button>
+                        {meetingMenuOpen && (
+                          <div ref={meetingMenuRef} className="row-menu mt-meeting-menu" role="menu" aria-label={`More actions for ${activeCard.title}`}
+                            onKeyDown={(event) => menuKeyDown(event, () => setMeetingMenuOpen(false), meetingMenuTriggerRef.current)}
+                            onBlur={(event) => { const next = event.relatedTarget as Node | null; if (!next || (!event.currentTarget.contains(next) && next !== meetingMenuTriggerRef.current)) setMeetingMenuOpen(false); }}>
+                            <button className="danger" type="button" role="menuitem" tabIndex={-1} onClick={() => { setMeetingMenuOpen(false); setMeetingToCancel(activeMeeting); }}>
+                              <X aria-hidden="true" />
+                              Skip this meeting
+                            </button>
+                          </div>
+                        )}
                       </>}
                     </div>
                   )}
@@ -3852,44 +3765,36 @@ function ThemeMeetingPanel({
                     openableProjectIds={projects.map((project) => project.id)}
                     prefetchThemeIds={plan.meetings.filter((meeting) => managedThemeIds.has(meeting.theme_id)
                       || meeting.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username))).map((meeting) => meeting.theme_id)}
+                    draftNote={draftNote}
+                    recordsRequest={recordsRequest}
                   >
-                    {!activeMeeting.cancelled && !canManageActive && (
-                      // Members receive a plan filtered to their own row, so counts come from the overview.
-                      <p className={`mt-awaiting${activeCard.submitted_count >= activeCard.member_count ? ' is-complete' : ''}`}>
-                        <Users aria-hidden="true" />
-                        <span>{activeCard.submitted_count} of {activeCard.member_count} updates submitted</span>
-                      </p>
-                    )}
                     {!activeMeeting.cancelled && canManageActive && (
-                      <p className={`mt-awaiting${activeMeeting.missing_members.length ? '' : ' is-complete'}`}>
-                        <Users aria-hidden="true" />
-                        {activeMeeting.missing_members.length ? (
-                          <span>Awaiting updates from <strong>{nameList(activeMeeting.missing_members)}</strong></span>
-                        ) : (
-                          <span>All updates received</span>
-                        )}
-                      </p>
-                    )}
-                    {!activeMeeting.cancelled && canManageActive && activeMeeting.missing_members.length > 0 && (
-                      <ul className="mt-reminder-status" aria-label="Reminder status for missing updates">
+                      <div className={`mt-awaiting${activeMeeting.missing_members.length ? '' : ' is-complete'}`}>
+                        <p id="mt-awaiting-title">
+                          <Users aria-hidden="true" />
+                          {activeMeeting.missing_members.length
+                            ? `Awaiting ${activeMeeting.missing_members.length} of ${activeMeeting.members.length} updates`
+                            : 'All updates received'}
+                        </p>
+                        {activeMeeting.missing_members.length > 0 && (
+                      <ul className="mt-reminder-status" aria-labelledby="mt-awaiting-title">
                         {activeMeeting.missing_members.map((name, index) => {
                           const username = normalizedName(activeMeeting.missing_member_usernames[index] || '');
                           const status = payload?.reminderStatus?.find((entry) => entry.theme_id === activeMeeting.theme_id && entry.member_username === username);
-                          const kind = status?.action === 'manual_missing_update_reminder' ? 'manual' : status?.action === 'gentle_missing_update_reminder' ? 'gentle' : 'first';
                           return (
                             <li key={`${activeMeeting.theme_id}-${username || name}`}>
                               <strong>{name}</strong>
-                              <span>{status
-                                ? `Reminded ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }).format(new Date(status.sent_at)).replace(',', '')} (${kind})`
-                                : 'Not reminded yet'}</span>
+                              <span>{status ? `${reminderKinds[status.action] || 'Reminder sent'} ${fmt.formatShortDay(status.sent_at)}, ${fmt.formatTime(status.sent_at)}` : 'Not reminded yet'}</span>
                             </li>
                           );
                         })}
                       </ul>
+                        )}
+                      </div>
                     )}
                   </ThemeMeetingWorkflow>
                 ) : !activeCard.cancelled && (
-                  <p className="mt-agenda-empty">{activeCard.agenda_count ? `${activeCard.agenda_count} planned updates` : 'No planned updates yet'}</p>
+                  <p className="mt-agenda-empty">{plannedCount ? `${plannedCount} ${plannedCount === 1 ? 'update' : 'updates'}` : 'No updates'} planned.</p>
                 )}
 
                 {activeMeeting && canManageActive && (
@@ -3904,7 +3809,8 @@ function ThemeMeetingPanel({
                             <button
                               aria-label={`Remove ${nextMember}`}
                               type="button"
-                              onClick={() => changeThemeMember(activeMeeting.theme_id, 'remove', username)}
+                              title={`Remove ${nextMember}`}
+                              onClick={() => setMemberToRemove({ themeId: activeMeeting.theme_id, title: activeMeeting.title, username, name: nextMember })}
                             >
                               <X aria-hidden="true" />
                             </button>
@@ -3914,13 +3820,13 @@ function ThemeMeetingPanel({
                     </ul>
                     <div className="mt-member-add">
                       <select
-                        aria-label={`Add a member to Theme ${activeMeeting.theme_id}`}
+                        aria-label={`Person to add to ${activeMeeting.title}`}
                         value={memberCandidateByTheme[activeMeeting.theme_id] || ''}
                         onChange={(event) =>
                           setMemberCandidateByTheme((current) => ({ ...current, [activeMeeting.theme_id]: event.target.value }))
                         }
                       >
-                        <option value="">Add user</option>
+                        <option value="">Choose a person</option>
                         {userDirectory
                           .filter((userOption) => !activeMeeting.member_usernames.includes(userOption.username))
                           .map((userOption) => (
@@ -3936,7 +3842,7 @@ function ThemeMeetingPanel({
                         onClick={() => changeThemeMember(activeMeeting.theme_id, 'add', memberCandidateByTheme[activeMeeting.theme_id])}
                       >
                         <Plus aria-hidden="true" />
-                        Add
+                        Add member
                       </button>
                     </div>
                   </div>
@@ -3949,7 +3855,6 @@ function ThemeMeetingPanel({
                 <div className="mt-form-head">
                   <div className="mt-form-title-row">
                     <h2 id="mt-form-title">{submittedUpdate ? 'Your submitted update' : 'Your update'}</h2>
-                    {updatePlan && <p className="mt-form-date">For {formatDate(updatePlan.meeting_date)}</p>}
                   </div>
                   <p className={`mt-form-status ${submittedUpdate ? 'is-submitted' : submissionsClosed ? 'is-closed' : 'is-pending'}`} id="mt-form-status">
                     <strong>{submittedUpdate ? 'Submitted' : 'Not submitted'}</strong>
@@ -3979,29 +3884,26 @@ function ThemeMeetingPanel({
                   />
                 )}
                 <div className="mt-form-row">
-                  <label>
-                    <span>Theme</span>
-                    <select value={themeId} onChange={(event) => setThemeId(event.target.value)}>
-                      {personalUpdateMeetings.map((meeting) => (
-                        <option key={meeting.theme_id} value={meeting.theme_id}>
-                          Theme {meeting.theme_id}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span>Member</span>
-                    <select value={member} onChange={(event) => setMember(event.target.value)}>
-                      {submitMembers.map((nextMember) => (
-                        <option key={nextMember.username} value={nextMember.username}>
-                          {nextMember.displayName}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {(sourceProjects.length > 0 || (sourceProjectId && sourceProjectId !== 'none')) && (
+                  {/* A single choice is shown as text rather than a one-option select. */}
+                  {personalUpdateMeetings.length > 1 ? (
                     <label>
-                      <span>Project source</span>
+                      <span>Theme</span>
+                      <select value={themeId} onChange={(event) => setThemeId(event.target.value)}>
+                        {personalUpdateMeetings.map((meeting) => <option key={meeting.theme_id} value={meeting.theme_id}>{meeting.title}</option>)}
+                      </select>
+                    </label>
+                  ) : <div className="mt-static-field"><span>Theme</span><strong>{selectedMeeting?.title}</strong></div>}
+                  {submitMembers.length > 1 ? (
+                    <label>
+                      <span>Member</span>
+                      <select value={member} onChange={(event) => setMember(event.target.value)}>
+                        {submitMembers.map((nextMember) => <option key={nextMember.username} value={nextMember.username}>{nextMember.displayName}</option>)}
+                      </select>
+                    </label>
+                  ) : <div className="mt-static-field"><span>Member</span><strong>{submitMembers[0]?.displayName}</strong></div>}
+                  {(sourceProjects.length > 0 || (sourceProjectId && sourceProjectId !== 'none')) && (
+                    <label className="mt-form-wide">
+                      <span>Project</span>
                       <select value={sourceProject?.id || sourceProjectId || 'none'} onChange={(event) => setSourceProjectId(event.target.value)}>
                         {sourceProjectId && sourceProjectId !== 'none' && !sourceProject && <option value={sourceProjectId} disabled>Previously linked project unavailable</option>}
                         <option value="none">No linked project</option>
@@ -4018,7 +3920,7 @@ function ThemeMeetingPanel({
                     <select name="theme-update-type" value={updateType} onChange={(event) => setUpdateType(event.target.value as ThemeUpdateType)}>
                       {themeMeetingSlotTypes.map((nextType) => (
                         <option key={nextType} value={nextType}>
-                          {updateTypeLabels[nextType]} · {slotMinutes(nextType).replace('-', '–')}
+                          {themeSlotOptionLabels[nextType]}
                         </option>
                       ))}
                     </select>
@@ -4028,7 +3930,15 @@ function ThemeMeetingPanel({
                 <div className="prompt-field">
                   <div className="prompt-field-head">
                     <label htmlFor={progressFieldId}>Progress since the last meeting{!progressRequired && <span className="mt-field-note"> · optional</span>}</label>
-                    <PromptCopyButton prompt={themeProgressPrompt(uiCopyPrompts, sourceProject)} label="Copy theme progress prompt" />
+                    <span className="prompt-field-actions">
+                      {sourceProject && (
+                        <button className="mt-link-btn" type="button" onClick={prefillFromProject} title={`Fill the draft from the latest update of ${sourceProject.title}`}>
+                          <RefreshCw aria-hidden="true" />
+                          Fill from project
+                        </button>
+                      )}
+                      <PromptCopyButton prompt={themeProgressPrompt(uiCopyPrompts, sourceProject)} label="Copy AI prompt for progress" />
+                    </span>
                   </div>
                   <textarea
                     id={progressFieldId}
@@ -4041,21 +3951,15 @@ function ThemeMeetingPanel({
                     rows={4}
                   />
                   <p id="theme-meeting-progress-hint" role="status" className={`mt-word-count ${progressWordCount > 75 ? 'ops-error' : progressWordCount > 50 ? 'is-warn' : 'muted'}`}>
-                    <span className="mt-word-meter" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.round((progressWordCount / 75) * 100))}%` }} /></span>
-                    <span className="mt-num vs-mono">{progressWordCount}/75 words</span>
-                    <span>
-                      {progressWordCount > 75
-                        ? 'Over the 75-word maximum. Shorten your progress before submitting.'
-                        : progressWordCount > 50
-                          ? 'Over the recommended 50 words. Consider shortening; you can still submit up to 75 words.'
-                          : 'Aim for 50 words; maximum 75 words.'}
-                    </span>
+                    <span className="mt-num">{progressWordCount} of 75 words</span>
+                    {' · '}
+                    {progressWordCount > 75 ? 'over the maximum; shorten before submitting' : progressWordCount > 50 ? 'over the 50-word aim' : 'aim for 50'}
                   </p>
                 </div>
                 <div className="prompt-field">
                   <div className="prompt-field-head">
                     <label htmlFor={questionsFieldId}>Questions for the group <span className="mt-field-note">· optional</span></label>
-                    <PromptCopyButton prompt={themeQuestionsPrompt(uiCopyPrompts, sourceProject)} label="Copy theme questions prompt" />
+                    <PromptCopyButton prompt={themeQuestionsPrompt(uiCopyPrompts, sourceProject)} label="Copy AI prompt for questions" />
                   </div>
                   <textarea
                     id={questionsFieldId}
@@ -4066,22 +3970,16 @@ function ThemeMeetingPanel({
                   />
                 </div>
                 <div className="mt-form-footer">
-                  <p>Submitting adds your item to the draft agenda. The coordinator orders and confirms the final agenda.</p>
+                  <p>The coordinator confirms the final agenda.</p>
                   {submitNotice && (
                     <p id="mt-submit-notice" className={`mt-submit-notice form-message${submitNotice.error ? ' error' : ''}`} role={submitNotice.error ? 'alert' : 'status'}>
                       {submitNotice.text}
                     </p>
                   )}
                   <div className="mt-form-buttons">
-                    {sourceProject && (
-                      <button className="ops-secondary" type="button" onClick={prefillFromProject} aria-label="Use project update" title={`Fill the draft from the latest update of ${sourceProject.title}`}>
-                        <RefreshCw aria-hidden="true" />
-                        Use project update
-                      </button>
-                    )}
                     <button className="ops-primary" type="submit" disabled={submissionsClosed} aria-label={submittedUpdate ? 'Save changes' : 'Submit update'} aria-describedby="mt-form-status">
                       {submittedUpdate ? <Save aria-hidden="true" /> : <Check aria-hidden="true" />}
-                      {submittedUpdate ? 'Save' : 'Submit'}
+                      {submittedUpdate ? 'Save changes' : 'Submit'}
                     </button>
                   </div>
                 </div>
@@ -4093,22 +3991,19 @@ function ThemeMeetingPanel({
             <section className="mt-past" aria-labelledby="mt-past-title">
               <div className="mt-section-head">
                 <h2 id="mt-past-title">Past meetings</h2>
-                <span>{pastPlans.length} recent</span>
               </div>
+              {pastRows.length === 0 && <p className="ops-muted-line">No earlier {activeCard?.title} meetings in the last three weeks.</p>}
               <ul className="mt-past-list">
-                {pastPlans.map((past) => {
-                  const submitted = past.meetings.reduce((total, meeting) => total + meeting.submitted_count, 0);
-                  const members = past.meetings.reduce((total, meeting) => total + meeting.member_count, 0);
-                  return (
-                    <li key={past.meeting_date}>
-                      <span className="vs-mono">{formatDate(past.meeting_date)}</span>
-                      <span>
-                        Group {past.cycle_group} ·{' '}
-                        {past.meetings.map((meeting) => `Theme ${meeting.theme_id}: ${meeting.agenda_count || 0} planned`).join(' · ')}
-                      </span>
-                      <span className="mt-num">{submitted}/{members} submitted</span>
-                    </li>
-                  );
+                {pastRows.map(({ date, meeting }) => {
+                  const cells = <>
+                    <span>{fmt.formatDay(date)}</span>
+                    <span>{meeting.title} · {meeting.cancelled ? 'Skipped' : `${meeting.agenda_count || 0} ${meeting.agenda_count === 1 ? 'update' : 'updates'} planned`}</span>
+                    <span className="mt-num">{meeting.submitted_count} of {meeting.member_count} submitted</span>
+                  </>;
+                  // Rows open that meeting's confirmed agenda and actions in Decisions & actions above.
+                  return <li key={date}>{canAccessActive
+                    ? <button className="mt-past-row" type="button" title="Show this meeting’s decisions and actions" onClick={() => setRecordsRequest({ date, nonce: Date.now() })}>{cells}</button>
+                    : <div className="mt-past-row">{cells}</div>}</li>;
                 })}
               </ul>
             </section>
@@ -4119,7 +4014,7 @@ function ThemeMeetingPanel({
         id="cancel-theme-meeting-confirm"
         open={Boolean(meetingToCancel)}
         title="Skip this meeting?"
-        message={meetingToCancel ? `Skip Theme ${meetingToCancel.theme_id} on ${formatDate(plan?.meeting_date || '')}? Reminders, agenda generation, agenda confirmation and agenda emails for this meeting will stop. You can restore it later.` : ''}
+        message={meetingToCancel ? `Skip ${meetingToCancel.title} on ${fmt.formatDay(plan?.meeting_date)}? Reminders, the agenda and agenda emails for this meeting will stop. You can restore it later.` : ''}
         confirmLabel="Skip meeting"
         busy={cancellationBusy}
         onCancel={() => { setMeetingToCancel(null); setSkipReason(''); setSkipError(null); }}
@@ -4134,6 +4029,28 @@ function ThemeMeetingPanel({
           <input value={skipReason} maxLength={1000} placeholder="For example, conference week" onChange={(event) => setSkipReason(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
         </label>
       </ConfirmDialog>
+      <ConfirmDialog
+        id="remind-theme-members-confirm"
+        open={Boolean(remindTheme)}
+        tone="default"
+        title="Send reminders?"
+        message={remindTheme ? `Remind ${remindTheme.missing_members.length === 1 ? 'this member' : `these ${remindTheme.missing_members.length} members`} to submit an update for ${remindTheme.title}:` : ''}
+        confirmLabel="Send reminders"
+        busy={remindBusy}
+        onCancel={() => setRemindTheme(null)}
+        onConfirm={() => { if (remindTheme) { setRemindBusy(true); void sendMissingReminders(remindTheme.theme_id); } }}
+      >
+        <ul className="mt-remind-list">{remindTheme?.missing_members.map((name) => <li key={name}>{name}</li>)}</ul>
+      </ConfirmDialog>
+      <ConfirmDialog
+        id="remove-theme-member-confirm"
+        open={Boolean(memberToRemove)}
+        title="Remove member?"
+        message={memberToRemove ? `Remove ${memberToRemove.name} from ${memberToRemove.title}? They will no longer be asked for updates for this theme. You can add them again later.` : ''}
+        confirmLabel="Remove member"
+        onCancel={() => setMemberToRemove(null)}
+        onConfirm={() => { if (memberToRemove) void changeThemeMember(memberToRemove.themeId, 'remove', memberToRemove.username).finally(() => setMemberToRemove(null)); }}
+      />
     </section>
   );
 }
@@ -4168,8 +4085,7 @@ function BriefingView({
     const age = daysSinceDate(project.lastUpdate);
     return age !== null && age <= 14;
   });
-  const currentArtifacts = activeProjects.reduce((count, project) => count + currentProjectArtifacts(project).length, 0);
-  const unreadChatNotifications = chatNotifications.filter((notification) => !notification.readAt);
+  const updatesDue = activeProjects.filter((project) => project.needsUpdate).length;
   const themeNotifications = (themePayload?.notifications || []).filter((notification) => !notification.read);
   const nextMeetingDate = themePayload?.overviewPlan?.meeting_date || themePayload?.plan.meeting_date || null;
   const meetings = themePayload?.overviewPlan?.meetings || (themePayload?.plan.meetings || []).map((meeting) => ({
@@ -4186,12 +4102,8 @@ function BriefingView({
   }));
   const ledgerProjects = (attentionProjects.length ? attentionProjects : activeProjects).slice(0, 4);
   const meetingPlan = themePayload?.overviewPlan || themePayload?.plan || null;
-  const meetingDay = nextMeetingDate
-    ? new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }).format(dateValue(nextMeetingDate))
-    : null;
-  const todayLabel = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/London' })
-    .format(new Date())
-    .replace(',', '');
+  const meetingDay = nextMeetingDate ? fmt.formatLongDay(nextMeetingDate) : null;
+  const todayLabel = fmt.formatLongDay(new Date());
   const plural = (count: number, word: string, many = `${word}s`) => `${count} ${count === 1 ? word : many}`;
   const focusLine = projectsPayload
     ? attentionProjects.length
@@ -4207,15 +4119,14 @@ function BriefingView({
     ...chatNotifications.map((notification) => ({ id: notification.id, title: notification.title, source: 'Chat', at: notification.createdAt, unread: !notification.readAt })),
     ...(themePayload?.notifications || []).map((notification) => ({ id: notification.id, title: notification.title, source: 'Meetings', at: notification.created_at, unread: !notification.read })),
   ]
-    .sort((left, right) => Number(right.unread) - Number(left.unread) || right.at.localeCompare(left.at))
-    .slice(0, 4);
+    .sort((left, right) => right.at.localeCompare(left.at))
+    .slice(0, 3);
   const projectTitles = new Map(activeProjects.map((project) => [project.id, project.title]));
   const recentActivity = activeProjects
     .flatMap((project) => project.updates.map((update) => ({ projectId: project.id, update })))
     .sort((left, right) => right.update.createdAt.localeCompare(left.update.createdAt))
     .slice(0, 5);
-  const activityTime = (value: string) =>
-    new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }).format(new Date(value)).replace(',', '');
+  const activityTime = fmt.formatDayTime;
 
   return (
     <ConsolePageFrame
@@ -4245,15 +4156,15 @@ function BriefingView({
           </div>
           <div className={attentionProjects.length ? 'bf-stat-warn' : undefined}>
             <strong>{attentionProjects.length}</strong>
-            <span>Need attention</span>
+            <span>Needs attention</span>
           </div>
           <div>
             <strong>{recentProjects.length}</strong>
             <span>Updated this two-week cycle</span>
           </div>
-          <div>
-            <strong>{unreadChatNotifications.length + themeNotifications.length}</strong>
-            <span>Unread notifications</span>
+          <div className={updatesDue ? 'bf-stat-warn' : undefined}>
+            <strong>{updatesDue}</strong>
+            <span>Updates due</span>
           </div>
         </section>
 
@@ -4265,9 +4176,6 @@ function BriefingView({
                   <h2 id="bf-ledger-title">Needs a decision or follow-up</h2>
                   <p>Items most likely to need a coordinator or PI before the next meeting.</p>
                 </div>
-                <button className="bf-link" type="button" onClick={() => onOpenProjects()}>
-                  All projects
-                </button>
               </div>
               {!projectsPayload ? (
                 <div className="ops-empty bf-empty">
@@ -4294,23 +4202,23 @@ function BriefingView({
                     </thead>
                     <tbody>
                       {ledgerProjects.map((project) => {
-                        const note = project.attentionReason || project.blocker || `Last update ${formatAge(daysSinceDate(project.lastUpdate))}`;
+                        const note = project.blocker ? `Blocker: ${project.blocker}` : project.lastUpdate ? `Last update ${formatAge(daysSinceDate(project.lastUpdate))}` : 'No update recorded';
                         return (
                           <tr key={project.id}>
-                            <td>
+                            <td className="bf-project-cell">
                               <button className="bf-project-link" type="button" onClick={() => onOpenProject(project.id)}>
                                 <strong>{project.title}</strong>
                               </button>
                               <span>{note}</span>
                             </td>
                             <td className="bf-owner">@{project.ownerUsername}</td>
-                            <td>
+                            <td className="bf-stage-cell">
                               <span className="bf-stage">
                                 <StageBar stage={project.stage} />
                                 <span className="mt-num">{project.stage}/5</span>
                               </span>
                             </td>
-                            <td><StatusChip status={project.status} /></td>
+                            <td className="bf-status-cell"><span className="vs-chip-row"><StatusChip status={project.status} /><AttentionChip project={project} /></span></td>
                             <td className="bf-slot">{projectSlotLabels[project.recommendation]}</td>
                           </tr>
                         );
@@ -4320,17 +4228,15 @@ function BriefingView({
                   {(() => {
                     const ledgerSource = attentionProjects.length ? attentionProjects : activeProjects;
                     return ledgerSource.length > ledgerProjects.length ? (
-                      <p className="bf-ledger-more">
-                        Showing {ledgerProjects.length} of {ledgerSource.length} ·{' '}
-                        <button className="bf-link" type="button" onClick={() => onOpenProjects(attentionProjects.length ? 'attention' : 'active')}>
-                          See all
-                        </button>
-                      </p>
+                      <p className="bf-ledger-more">Showing {ledgerProjects.length} of {ledgerSource.length}. Review projects lists them all.</p>
                     ) : null;
                   })()}
                 </div>
               ) : (
-                <p className="ops-muted-line">No visible projects yet.</p>
+                <div className="vs-table-empty">
+                  <strong>No projects yet</strong>
+                  <span>Projects you own or collaborate on appear here.</span>
+                </div>
               )}
             </section>
 
@@ -4345,7 +4251,7 @@ function BriefingView({
                 <ol className="bf-activity">
                   {recentActivity.map(({ projectId, update }) => (
                     <li key={update.id}>
-                      <time className="vs-mono" dateTime={update.createdAt}>{activityTime(update.createdAt)}</time>
+                      <time dateTime={update.createdAt}>{activityTime(update.createdAt)}</time>
                       <span>
                         <strong>@{update.byUsername}</strong> recorded a {projectUpdateTypeLabels[update.type].toLowerCase()} update for{' '}
                         <strong>{projectTitles.get(projectId)}</strong>.
@@ -4362,9 +4268,7 @@ function BriefingView({
               <div className="bf-section-head">
                 <h2 id="bf-meetings-title">Theme meetings</h2>
                 {nextMeetingDate && (
-                  <span className="bf-meta">
-                    {new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(dateValue(nextMeetingDate))}
-                  </span>
+                  <span className="bf-meta">{fmt.formatShortDay(nextMeetingDate)}</span>
                 )}
               </div>
               {themeMeetingsLoading && !themePayload ? (
@@ -4380,7 +4284,7 @@ function BriefingView({
                     return (
                       <li key={meeting.theme_id}>
                         <div className="bf-meeting-title">
-                          <time className="vs-mono">{meeting.time}</time>
+                          <time className="mt-num">{meeting.time}</time>
                           <strong>{meeting.title}</strong>
                         </div>
                         <span className="bf-meeting-detail">
@@ -4407,13 +4311,10 @@ function BriefingView({
               ) : (
                 <p className="ops-muted-line">No meeting plan loaded.</p>
               )}
-              {meetingPlan && <p className="bf-meta">Times in {meetingPlan.timezone} ({londonZoneLabel(meetingPlan.meeting_date)})</p>}
-              <button className="bf-link" type="button" onClick={onOpenMeeting}>
-                Open meetings
-              </button>
+              {meetingPlan && <p className="bf-meta">Times are UK time ({londonZoneLabel(meetingPlan.meeting_date)}).</p>}
             </section>
 
-            <section className="bf-section" aria-labelledby="bf-notifications-title">
+            {recentNotifications.length > 0 && <section className="bf-section" aria-labelledby="bf-notifications-title">
               <div className="bf-section-head">
                 <h2 id="bf-notifications-title">Notifications</h2>
                 <button className="bf-link" type="button" onClick={onOpenNotifications}>
@@ -4428,25 +4329,14 @@ function BriefingView({
                       {notification.unread && <span className="vs-sr-only">Unread: </span>}
                       {notification.title}
                       <small>
-                        {notification.source} · <span className="vs-mono">{compactNotificationTime(notification.at)}</span>
+                        {notification.source} · {compactNotificationTime(notification.at)}
                       </small>
                     </span>
                   </li>
                 ))}
-                {!recentNotifications.length && <li className="bf-none">No notifications yet.</li>}
               </ul>
-            </section>
+            </section>}
 
-            <section className="bf-section" aria-labelledby="bf-evidence-title">
-              <h2 id="bf-evidence-title">Evidence</h2>
-              <p className="bf-evidence">
-                <strong className="mt-num">{currentArtifacts}</strong> current {currentArtifacts === 1 ? 'material' : 'materials'} across {plural(activeProjects.length, 'project')}.{' '}
-                {plural(recentProjects.length, 'project')} updated in this two-week cycle.
-              </p>
-              <button className="bf-link" type="button" onClick={() => onOpenProjects()}>
-                Open projects
-              </button>
-            </section>
           </aside>
         </div>
       </div>
@@ -4500,6 +4390,8 @@ function ProjectsView({
   const attentionProjects = activeProjects.filter(projectNeedsAttention);
   const filterLists: Record<ProjectListFilter, ManagedProject[]> = { active: activeProjects, attention: attentionProjects, finished: finishedProjects, archived: archivedProjects };
   const filterLabels: Record<ProjectListFilter, string> = { active: 'Active', attention: 'Needs attention', finished: 'Finished', archived: 'Archived' };
+  // Lifecycle is the tab; "Needs attention" is a toggle filter within Active.
+  const lifecycleTab = projectFilter === 'attention' ? 'active' : projectFilter;
   const matchingProjects = filterLists[projectFilter]
     .filter((project) => !trackFilter || project.track === trackFilter)
     .filter((project) => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(projectQuery.trim().toLowerCase()));
@@ -4610,23 +4502,39 @@ function ProjectsView({
       ) : (
         <div className="vs-projects-stack">
           <section className="vs-project-list" aria-label="Project list">
-            <div className="vs-project-toolbar">
-              <div className="ops-segmented" role="tablist" aria-label="Project filter" onKeyDown={tablistKeyDown}>
-                {(['active', 'attention', 'finished', 'archived'] as const).map((key) => (
+            <div className="console-page-tabs vs-project-tabs" role="tablist" aria-label="Project lifecycle" onKeyDown={tablistKeyDown}>
+              {(['active', 'finished', 'archived'] as const).map((key) => {
+                const selected = lifecycleTab === key;
+                return (
                   <button
                     key={key}
+                    className={selected ? 'active' : ''}
                     type="button"
                     role="tab"
-                    aria-selected={projectFilter === key}
+                    id={`project-tab-${key}`}
+                    aria-selected={selected}
                     aria-label={`${filterLabels[key]}, ${filterLists[key].length}`}
-                    tabIndex={projectFilter === key ? 0 : -1}
+                    tabIndex={selected ? 0 : -1}
                     aria-controls="project-list-panel"
                     onClick={() => setProjectFilter(key)}
                   >
                     {filterLabels[key]} <span className="vs-tab-count">{filterLists[key].length}</span>
                   </button>
-                ))}
-              </div>
+                );
+              })}
+            </div>
+            <div className="vs-project-toolbar">
+              {lifecycleTab === 'active' && (
+                <button
+                  className="vs-filter-chip"
+                  type="button"
+                  aria-pressed={projectFilter === 'attention'}
+                  onClick={() => setProjectFilter(projectFilter === 'attention' ? 'active' : 'attention')}
+                >
+                  {projectFilter === 'attention' && <Check aria-hidden="true" />}
+                  Needs attention <span className="vs-tab-count">{attentionProjects.length}</span>
+                </button>
+              )}
               <label className="ops-search vs-project-search">
                 <Search aria-hidden="true" />
                 <input type="search" aria-label="Search projects" placeholder="Search projects or owners" value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} />
@@ -4641,8 +4549,8 @@ function ProjectsView({
                 </select>
               </label>
             </div>
-            <div className="ops-table-wrap" id="project-list-panel" role="tabpanel" aria-label={`${filterLabels[projectFilter]} projects`}>
-              <table className="ops-table vs-project-table">
+            <div className="ops-table-wrap" id="project-list-panel" role="tabpanel" aria-labelledby={`project-tab-${lifecycleTab}`}>
+              {matchingProjects.length > 0 && <table className="ops-table vs-project-table">
                 <thead>
                   <tr>
                     <th scope="col">Project</th>
@@ -4680,22 +4588,23 @@ function ProjectsView({
                           </div>
                           <div className="vs-cell-sub">{project.stageProgress}% progress</div>
                         </td>
-                        <td>
-                          <StatusChip status={project.status} />
+                        <td className="vs-status-cell">
+                          <span className="vs-chip-row">
+                            <StatusChip status={project.status} />
+                            {project.lifecycle !== 'archived' && project.lifecycle !== 'finished' && <AttentionChip project={project} />}
+                          </span>
                         </td>
                         <td className="vs-target-cell">
                           <div>{project.venue || 'Not set'}</div>
                           <div className="vs-cell-sub">{project.submissionDeadline ? `Deadline ${formatShortDate(project.submissionDeadline)}` : 'No deadline set'}</div>
                           {project.target && <div className="vs-cell-sub project-target-summary" title={project.target}>{project.target}</div>}
                         </td>
-                        <td>
+                        <td className="vs-actions-cell">
                           <div className="project-table-actions">
-                            <button className="vs-row-action" type="button" onClick={() => openProject(project, 'details')} aria-label={`Project details for ${project.title}`}>
-                              <FileText aria-hidden="true" />
+                            <button className="vs-row-link vs-row-secondary" type="button" onClick={() => openProject(project, 'details')} aria-label={`Project details for ${project.title}`}>
                               Details
                             </button>
-                            <button className="vs-row-action" type="button" onClick={() => openProject(project, 'workflow')} aria-label={`Research workflow for ${project.title}`}>
-                              <Workflow aria-hidden="true" />
+                            <button className="vs-row-link vs-row-secondary" type="button" onClick={() => openProject(project, 'workflow')} aria-label={`Research workflow for ${project.title}`}>
                               Research workflow
                             </button>
                             {archived
@@ -4717,7 +4626,7 @@ function ProjectsView({
                     );
                   })}
                 </tbody>
-              </table>
+              </table>}
               {!matchingProjects.length && (
                 <div className="vs-table-empty">
                   {projectQuery.trim() ? (
@@ -4726,23 +4635,20 @@ function ProjectsView({
                       <span>Search covers project titles and owner usernames.</span>
                       <button className="ops-secondary" type="button" onClick={() => setProjectQuery('')}>Clear search</button>
                     </>
+                  ) : projectFilter === 'archived' ? (
+                    <><strong>No archived projects</strong><span>Archived projects keep their history and can be restored.</span></>
+                  ) : projectFilter === 'finished' ? (
+                    <><strong>No finished projects</strong><span>Projects marked as finished appear here.</span></>
+                  ) : projectFilter === 'attention' ? (
+                    <><strong>No projects need attention</strong><span>Every active project is up to date.</span></>
+                  ) : trackFilter ? (
+                    <><strong>No active projects in Track {trackFilter}</strong><span>Choose another track to see more projects.</span></>
                   ) : (
-                    <strong>
-                      {projectFilter === 'archived'
-                        ? 'No archived projects'
-                        : projectFilter === 'finished'
-                          ? 'No finished projects'
-                        : projectFilter === 'attention'
-                          ? 'No projects currently need attention'
-                          : trackFilter
-                            ? `No active projects in Track ${trackFilter}`
-                            : 'No visible projects yet. Add one to start tracking work.'}
-                    </strong>
+                    <><strong>No projects yet</strong><span>Use Add project to start tracking work.</span></>
                   )}
                 </div>
               )}
             </div>
-            <p className="vs-table-note">Stage shows the recorded project stage. Workflow phase and checkpoint approvals are kept separately in each project’s research workflow.</p>
           </section>
 
           {mode === 'member' && (
@@ -4760,11 +4666,11 @@ function ProjectsView({
                   <ProjectMeetingSuggestion key={project.id} project={project} />
                 ))}
                 {!activeProjects.some((project) => project.lifecycle === 'active' && normalizedName(project.ownerUsername) === normalizedName(viewer.username)) && (
-                  <p className="ops-muted-line">No active owned project is available for suggestions. You can still choose a slot in Meeting.</p>
+                  <p className="ops-muted-line">No active owned project is available for suggestions. You can still choose a slot in Meetings.</p>
                 )}
                 <p className="ops-muted-line">Suggestions do not submit an update or reserve agenda time. The coordinator confirms the final agenda.</p>
               </div>
-              <button className="vs-link-button" type="button" onClick={onOpenMeeting}>Open meeting</button>
+              <button className="vs-link-button" type="button" onClick={onOpenMeeting}>Open Meetings</button>
 
               <div className="vs-section-head">
                 <div>
@@ -4781,7 +4687,7 @@ function ProjectsView({
                     </a>
                   ))
                 ) : (
-                  <div className="ops-muted-line">No artifacts linked yet</div>
+                  <div className="ops-muted-line">No materials linked yet.</div>
                 )}
               </div>
             </section>
@@ -4835,6 +4741,20 @@ function ProjectsView({
   );
 }
 
+// Offers browser notifications only while the browser has not decided; Settings → Notifications covers the rest.
+function BrowserNotificationsButton() {
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported' | null>(null);
+  useEffect(() => setPermission('Notification' in window ? Notification.permission : 'unsupported'), []);
+  if (permission !== 'default') return null;
+  return (
+    <button className="ops-secondary" type="button" title="Show a browser notification when your update is saved"
+      onClick={() => void Notification.requestPermission().then(setPermission)}>
+      <Bell aria-hidden="true" />
+      Turn on browser notifications
+    </button>
+  );
+}
+
 function MeetingView({
   payload,
   loading,
@@ -4853,14 +4773,13 @@ function MeetingView({
   onOpenProject?: (projectId: string, workflowTab?: WorkflowTab) => void;
 }) {
   const plan = payload?.overviewPlan || payload?.plan || null;
-  const eyebrow = plan
-    ? `${new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(dateValue(plan.meeting_date)).replace(',', '')} · ${plan.timezone} (${londonZoneLabel(plan.meeting_date)})`
-    : undefined;
+  const eyebrow = plan ? `${fmt.formatLongDay(plan.meeting_date)} · UK time (${londonZoneLabel(plan.meeting_date)})` : undefined;
   return (
     <ConsolePageFrame
       title="Theme meetings"
       eyebrow={eyebrow}
-      subtitle={plan ? `This cycle’s active pair of themes (group ${plan.cycle_group}). Submitting an update and confirming the agenda are separate steps.` : undefined}
+      subtitle={plan ? 'Submitting your update and confirming the agenda are separate steps.' : undefined}
+      actions={<BrowserNotificationsButton />}
       className="meeting-page"
       wide
     >
@@ -4911,6 +4830,8 @@ function ChatView({
   const [mentionIndex, setMentionIndex] = useState(0);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [sessionsAttempt, setSessionsAttempt] = useState(0);
+  // Narrow screens show the session list as a collapsible sheet above the conversation.
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const loadServerSessions = useCallback(async () => {
     const body = await requestJson<ChatSessionsPayload>('/api/chat/sessions', 'Could not load chat sessions.');
@@ -5020,6 +4941,7 @@ function ChatView({
   }
 
   function restoreChat(session: ChatSession) {
+    setHistoryOpen(false);
     setThreadId(session.threadId);
     setMessages(session.messages);
     setDraft('');
@@ -5232,6 +5154,12 @@ function ChatView({
             <Plus aria-hidden="true" />
             New conversation
           </button>
+          <button className="ops-secondary chat-history-toggle" type="button" aria-expanded={historyOpen} aria-controls="chat-history-panel" onClick={() => setHistoryOpen((open) => !open)}>
+            <History aria-hidden="true" />
+            Conversations{sessions.length ? ` (${sessions.length})` : ''}
+            <ChevronDown aria-hidden="true" />
+          </button>
+          <div id="chat-history-panel" className={`chat-history-panel${historyOpen ? ' is-open' : ''}`}>
           <div className="ops-segmented chat-history-tabs" role="tablist" aria-label="Chat session lists" onKeyDown={tablistKeyDown}>
             <button
               className={historyMode === 'owned' ? 'active' : ''}
@@ -5298,15 +5226,12 @@ function ChatView({
               {historyMode === 'shared' ? 'No shared chat sessions yet.' : 'No saved chat sessions yet.'}
             </p>
           )}
-          {historyMode === 'shared' && (
-            <p className="chat-history-note">
-              Shared sessions contain only the conversation you were mentioned in. They never include the sender’s memory or project access.
-            </p>
-          )}
+          </div>
         </aside>
 
         <section className="chat-main" aria-label="Conversation">
-          <header className="chat-main-head">
+          {/* A new, empty conversation needs no header: the greeting below introduces it. */}
+          {(activeSession || messages.length > 0) && <header className="chat-main-head">
             <div className="chat-main-title">
               <h2>{activeSession?.title || (messages.length ? 'VioScope session' : 'New conversation')}</h2>
               {activeSession && (
@@ -5334,7 +5259,7 @@ function ChatView({
                 <Trash2 aria-hidden="true" />
               </button>
             )}
-          </header>
+          </header>}
 
           <div className="chat-scroll" ref={scrollRef}>
             {messages.length === 0 && (
@@ -5377,7 +5302,7 @@ function ChatView({
                       </span>
                       <div className="chat-turn-body">
                       <div className="chat-turn-meta">
-                        <strong>VioScope advisor</strong>
+                        <strong>VioScope</strong>
                         {message.createdAt && <time className="vs-mono" dateTime={message.createdAt}>{chatClockTime(message.createdAt)}</time>}
                         <span className="chat-advice-tag">Advice</span>
                       </div>
@@ -5492,7 +5417,7 @@ function ChatView({
             </form>
             {sendStatus && <small className="chat-send-status" role="status">{sendStatus}</small>}
             <p className="chat-footnote">
-              Mentioning someone shares this conversation only. It does not share your memory or grant project access.
+              Mentioning someone shares this conversation only, never your memory or project access.
             </p>
           </div>
         </section>
@@ -5593,6 +5518,7 @@ function TopbarNotificationCenter({
   attentionProjects,
   onToggle,
   onOpenChatSession,
+  onOpenProject,
   onMarkAllMessagesRead,
   onOpenMeetingNotification,
   onMarkAllEventsRead,
@@ -5604,6 +5530,7 @@ function TopbarNotificationCenter({
   attentionProjects: ManagedProject[];
   onToggle: () => void;
   onOpenChatSession: (sessionId: string, notificationId?: string) => void;
+  onOpenProject: (projectId: string) => void;
   onMarkAllMessagesRead: () => void;
   onOpenMeetingNotification: (notification: ThemeMeetingNotification) => void;
   onMarkAllEventsRead: () => void;
@@ -5641,12 +5568,14 @@ function TopbarNotificationCenter({
     };
   }, [onToggle, open]);
 
-  const tabProps = (id: TopbarNotificationTab, label: string, unread = 0) => ({
+  const tabProps = (id: TopbarNotificationTab, label: string, count = 0, noun = 'unread') => ({
     className: tab === id ? 'active' : '',
     type: 'button' as const,
     role: 'tab',
+    id: `notification-tab-${id}`,
+    'aria-controls': 'notification-panel',
     'aria-selected': tab === id,
-    'aria-label': unread > 0 ? `${label}, ${unread} unread` : undefined,
+    'aria-label': count > 0 ? `${label}, ${count} ${noun}` : undefined,
     tabIndex: tab === id ? 0 : -1,
     onClick: () => setTab(id),
   });
@@ -5684,11 +5613,11 @@ function TopbarNotificationCenter({
             <button {...tabProps('events', 'Events', unreadEvents.length)}>
               Events{unreadEvents.length > 0 && <span className="vs-tab-count">{unreadEvents.length}</span>}
             </button>
-            <button {...tabProps('logs', 'Logs')}>
-              Logs
+            <button {...tabProps('logs', 'Projects', visibleLogs.length, 'need attention')}>
+              Projects{visibleLogs.length > 0 && <span className="vs-tab-count">{visibleLogs.length}</span>}
             </button>
           </div>
-          <div className="notification-list">
+          <div className="notification-list" id="notification-panel" role="tabpanel" aria-labelledby={`notification-tab-${tab}`}>
             {tab === 'messages' &&
               (visibleMessages.length ? (
                 visibleMessages.map((notification) => (
@@ -5745,19 +5674,19 @@ function TopbarNotificationCenter({
             {tab === 'logs' &&
               (visibleLogs.length ? (
                 visibleLogs.map((project) => (
-                  <div className="notification-row" key={project.id}>
+                  <button className="notification-row" key={project.id} type="button" onClick={() => onOpenProject(project.id)}>
                     <span className="notification-glyph">
                       <AlertCircle aria-hidden="true" />
                     </span>
                     <span>
                       <strong>{project.title}</strong>
-                      <small>{projectSlotLabels[project.recommendation]} · {project.attentionReason || project.blocker || statusLabels[project.status]}</small>
+                      <small>{[project.status !== 'on_track' ? statusLabels[project.status] : null, ...projectAttentionReasons(project)].filter(Boolean).join(' · ')}</small>
                     </span>
-                    <em>{project.ownerUsername}</em>
-                  </div>
+                    <em>@{project.ownerUsername}</em>
+                  </button>
                 ))
               ) : (
-                <p className="notification-empty">No project logs right now.</p>
+                <p className="notification-empty">No projects need attention.</p>
               ))}
           </div>
         </section>
@@ -5882,7 +5811,7 @@ function AdminConfigurationPanel() {
       });
       if (!body.settings) throw new Error('Could not save configuration.');
       applyPayload(body);
-      setMessage('Configuration saved. Restart required for runtime changes.');
+      setMessage('Configuration saved. Settings marked “Needs restart” apply after a service restart.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save configuration.');
     } finally {
@@ -5902,7 +5831,7 @@ function AdminConfigurationPanel() {
       });
       if (!body.settings) throw new Error('Could not reset configuration.');
       applyPayload(body);
-      setMessage('Configuration reset. Restart required for runtime changes.');
+      setMessage('Setting reset to its default. Settings marked “Needs restart” apply after a service restart.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not reset configuration.');
     } finally {
@@ -5932,7 +5861,7 @@ function AdminConfigurationPanel() {
     <section className="settings-section settings-section-config">
       <div className="settings-section-heading">
         <h2>Configuration</h2>
-        <p>Runtime settings and service restart controls.</p>
+        <p>Runtime settings for the VioScope service.</p>
       </div>
       {error && <div className="form-message error">{error}</div>}
       {message && <div className="form-message">{message}</div>}
@@ -5977,17 +5906,16 @@ function AdminConfigurationPanel() {
             <div className="config-groups">
               {activeConfigGroup ? (
                 <section className="config-group" key={activeConfigGroup.section}>
-                  <h3>{activeConfigGroup.label}</h3>
                   {activeConfigGroup.settings.map((setting) => (
                     <div className="config-row" key={setting.key}>
                       <div>
-                        <strong>{setting.label}</strong>
+                        <strong>{configSettingLabel(setting)}</strong>
                         <p>{setting.description}</p>
                         <div className="config-badges">
-                          <span className={`config-source source-${setting.source}`}>{setting.source}</span>
-                          {setting.restartRequired && <span className="config-restart">Restart required</span>}
+                          <span className={`config-source source-${setting.source}`}>{configSourceLabels[setting.source]}</span>
+                          {setting.restartRequired && <span className="config-restart">Needs restart</span>}
                           {setting.status && (
-                            <span className={`config-status status-${setting.status.state}`}>{setting.status.detail}</span>
+                            <span className={`config-status status-${setting.status.state}`} title={setting.status.detail}>{configStatusLabels[setting.status.state]}</span>
                           )}
                         </div>
                       </div>
@@ -6004,13 +5932,22 @@ function AdminConfigurationPanel() {
                               </option>
                             ))}
                           </select>
+                        ) : isByteSetting(setting) ? (
+                          <input
+                            aria-label={configSettingLabel(setting)}
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={bytesToMegabytes(drafts[setting.key] ?? '')}
+                            onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: megabytesToBytes(event.target.value) }))}
+                          />
                         ) : (
                           <input
                             aria-label={setting.label}
                             type={setting.valueType === 'number' || setting.valueType === 'time' ? setting.valueType : 'text'}
                             value={drafts[setting.key] ?? ''}
                             onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
-                            placeholder={setting.optional ? 'optional' : undefined}
+                            placeholder={setting.optional ? 'Optional' : undefined}
                           />
                         )}
                         <button
@@ -6034,23 +5971,20 @@ function AdminConfigurationPanel() {
             </div>
           </section>
 
-          <section className="ops-panel config-panel">
-            <div className="ops-panel-head config-restart-head">
-              <div>
-                <h2>Service restart</h2>
-                <p>{payload?.restart?.configured ? 'Restart command configured.' : 'Restart command not configured.'}</p>
+          {payload?.restart?.configured && (
+            <section className="ops-panel config-panel">
+              <div className="ops-panel-head config-restart-head">
+                <div>
+                  <h2>Service restart</h2>
+                  <p>Applies settings marked “Needs restart”.</p>
+                </div>
+                <button className="ops-secondary" type="button" disabled={restartBusy} onClick={() => setRestartConfirmOpen(true)}>
+                  <Power aria-hidden="true" />
+                  {restartBusy ? 'Requesting' : 'Restart'}
+                </button>
               </div>
-              <button
-                className="ops-secondary"
-                type="button"
-                disabled={restartBusy || !payload?.restart?.configured}
-                onClick={() => setRestartConfirmOpen(true)}
-              >
-                <Power aria-hidden="true" />
-                {restartBusy ? 'Requesting' : 'Restart'}
-              </button>
-            </div>
-          </section>
+            </section>
+          )}
           <ConfirmDialog
             id="restart-service-confirm"
             open={restartConfirmOpen}
@@ -6081,6 +6015,18 @@ function ThemeMeetingSettingsPanel() {
   const userByUsername = useMemo(() => new Map(users.map((nextUser) => [nextUser.username, nextUser])), [users]);
   const canEditGlobal = Boolean(payload?.access?.canEditGlobal);
   const editableThemeIds = payload?.access?.editableThemeIds || [];
+  // Flag (never rewrite) themes that share a title, so the admin can tell them apart.
+  const duplicateTitleGroups = useMemo(() => {
+    const groups = new Map<string, { title: string; ids: string[] }>();
+    for (const theme of draft?.themes || []) {
+      const key = theme.title.trim().toLowerCase();
+      if (!key) continue;
+      const group = groups.get(key) || { title: theme.title.trim(), ids: [] };
+      group.ids.push(theme.theme_id);
+      groups.set(key, group);
+    }
+    return [...groups.values()].filter((group) => group.ids.length > 1);
+  }, [draft?.themes]);
 
   const applyPayload = useCallback((nextPayload: ThemeMeetingSettingsPayload) => {
     setPayload(nextPayload);
@@ -6149,10 +6095,6 @@ function ThemeMeetingSettingsPanel() {
     return typeof value === 'string' ? value : fallback;
   }
 
-  function memberNames(usernames: string[] = []) {
-    return usernames.map((username) => userByUsername.get(username)?.displayName || username).join(', ') || 'No members';
-  }
-
   function addMember(theme: ThemeMeetingConfig['themes'][number], username: string) {
     const normalized = username.trim().toLowerCase();
     if (!normalized) return;
@@ -6194,9 +6136,23 @@ function ThemeMeetingSettingsPanel() {
 
   return (
     <section className="settings-section">
-      <div className="settings-section-heading">
-        <h2>Theme meeting</h2>
-        <p>Manage theme groups, coordinators, slot durations, and reminder timing.</p>
+      <div className="settings-section-heading with-action">
+        <div>
+          <h2>Theme meeting</h2>
+          {payload && <p>{canEditGlobal ? 'Schedule, reminders, slot lengths and theme membership.' : 'Members of the themes you coordinate.'}</p>}
+        </div>
+        {loaded && draft && (
+          <div className="button-row">
+            <button className="ops-secondary" type="button" disabled={busy || !payload} onClick={() => payload && applyPayload(payload)}>
+              <RotateCcw aria-hidden="true" />
+              Discard changes
+            </button>
+            <button className="ops-primary" type="button" disabled={busy} onClick={() => void saveSettings()}>
+              <Save aria-hidden="true" />
+              {busy ? 'Saving' : 'Save changes'}
+            </button>
+          </div>
+        )}
       </div>
       {error && <div className="form-message error">{error}</div>}
       {message && <div className="form-message">{message}</div>}
@@ -6204,25 +6160,6 @@ function ThemeMeetingSettingsPanel() {
         <SettingsLoading label="Loading theme meeting settings" />
       ) : (
         <div className="theme-settings-shell">
-          <section className="ops-panel theme-settings-toolbar">
-            <div className="ops-panel-head">
-              <div>
-                <h2>Meeting configuration</h2>
-                <p>{canEditGlobal ? 'PI or administrator access' : 'Coordinator access'} · <span className="vs-mono">{payload?.paths?.config || 'configured path'}</span></p>
-              </div>
-              <div className="button-row">
-                <button className="ops-secondary" type="button" disabled={busy || !payload} onClick={() => payload && applyPayload(payload)}>
-                  <RotateCcw aria-hidden="true" />
-                  Reset
-                </button>
-                <button className="ops-primary" type="button" disabled={busy} onClick={() => void saveSettings()}>
-                  <Save aria-hidden="true" />
-                  {busy ? 'Saving' : 'Save changes'}
-                </button>
-              </div>
-            </div>
-          </section>
-
           {canEditGlobal && (
             <div className="theme-settings-config-grid">
               <section className="ops-panel theme-settings-section">
@@ -6256,7 +6193,7 @@ function ThemeMeetingSettingsPanel() {
                   <div className="theme-settings-row" key={row.name}>
                     <div>
                       <strong>{row.label}</strong>
-                      <p>{row.name}</p>
+                      <p>{row.help}</p>
                     </div>
                     <div className="theme-settings-control split">
                       <select
@@ -6271,7 +6208,7 @@ function ThemeMeetingSettingsPanel() {
                         ))}
                       </select>
                       <input
-                        type="time"
+                        {...time24InputProps}
                         aria-label={`${row.label} time`}
                         value={reminderValue(row.name, 'time', row.time)}
                         onChange={(event) => updateReminder(row.name, { time: event.target.value })}
@@ -6307,7 +6244,7 @@ function ThemeMeetingSettingsPanel() {
                   <div className="theme-settings-row" key={type}>
                     <div>
                       <strong>{updateTypeLabels[type]}</strong>
-                      <p>{updateTypeOptionLabels[type]}</p>
+                      <p>Minutes reserved on the agenda.</p>
                     </div>
                     <div className="theme-settings-control">
                       <input
@@ -6326,12 +6263,14 @@ function ThemeMeetingSettingsPanel() {
 
           <section className="ops-panel theme-settings-themes">
             <div className="theme-settings-section-head themes-head">
-              <div>
-                <h3>Themes</h3>
-                <p>{canEditGlobal ? 'All theme groups' : 'Your managed theme groups'}</p>
-              </div>
-              <span>{draft.themes.length} visible</span>
+              <h3>Themes</h3>
             </div>
+            {duplicateTitleGroups.map((group) => (
+              <p className="theme-duplicate-warning" role="status" key={group.title}>
+                <TriangleAlert aria-hidden="true" />
+                Themes {group.ids.join(' and ')} share the title “{group.title}”. Give each theme a distinct title.
+              </p>
+            ))}
             <div className="theme-settings-list">
               {draft.themes.map((theme) => {
                 const canEditTheme = canEditGlobal || editableThemeIds.includes(theme.theme_id);
@@ -6340,11 +6279,8 @@ function ThemeMeetingSettingsPanel() {
                 return (
                   <article className="theme-settings-card" key={theme.theme_id}>
                     <div className="theme-settings-card-head">
-                      <div>
-                        <span className="track-chip">Theme {theme.theme_id}</span>
-                        <h4>{theme.title}</h4>
-                      </div>
-                      <span className="status-pill">{theme.cycle_group}</span>
+                      <span className="track-chip">Theme {theme.theme_id}</span>
+                      {!canEditGlobal && <h4>{theme.title}</h4>}
                     </div>
 
                     {canEditGlobal ? (
@@ -6363,7 +6299,7 @@ function ThemeMeetingSettingsPanel() {
                         </label>
                         <label className="theme-settings-field">
                           <span>Time</span>
-                          <input type="time" value={theme.time} onChange={(event) => updateTheme(theme.theme_id, { time: event.target.value })} />
+                          <input {...time24InputProps} value={theme.time} onChange={(event) => updateTheme(theme.theme_id, { time: event.target.value })} />
                         </label>
                         <label className="theme-settings-field">
                           <span>Duration</span>
@@ -6398,7 +6334,7 @@ function ThemeMeetingSettingsPanel() {
                     ) : (
                       <div className="theme-settings-readonly-grid">
                         <div className="theme-settings-readonly"><span>Coordinator</span><strong>{theme.coordinator}</strong></div>
-                        <div className="theme-settings-readonly"><span>Time</span><strong>{theme.weekday} {theme.time}</strong></div>
+                        <div className="theme-settings-readonly"><span>Time</span><strong>{theme.weekday} {theme.time}, {theme.cycle_group} weeks</strong></div>
                       </div>
                     )}
 
@@ -6427,12 +6363,11 @@ function ThemeMeetingSettingsPanel() {
                               disabled={!canEditTheme || username === coordinatorUsername}
                               onClick={() => removeMember(theme, username)}
                             >
-                              <Trash2 aria-hidden="true" />
+                              <X aria-hidden="true" />
                             </button>
                           </div>
                         ))}
                       </div>
-                      <p className="settings-footnote">{memberNames(theme.member_users)}</p>
                     </div>
                   </article>
                 );
@@ -6449,17 +6384,30 @@ function AuditLogSettingsPanel() {
   const [day, setDay] = useState(() => auditLogDateKey());
   const [logs, setLogs] = useState<AuditLogRecord[]>([]);
   const [days, setDays] = useState<AuditLogDay[]>([]);
-  const [fileName, setFileName] = useState(`audit-${day}.jsonl`);
   const [loaded, setLoaded] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [actorFilter, setActorFilter] = useState('');
+  const [actionFilter, setActionFilter] = useState('');
+  const [page, setPage] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<AuditLogRecord | null>(null);
   const auditCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const logGroups = useMemo(() => groupedAuditDays(days), [days]);
+  const actorOptions = useMemo(() => [...new Set(logs.map((log) => log.actorUsername || 'System'))].sort(), [logs]);
+  const actionOptions = useMemo(() => [...new Set(logs.map((log) => log.action))].sort(), [logs]);
+  const filteredLogs = useMemo(() => logs.filter((log) => (
+    (!actorFilter || (log.actorUsername || 'System') === actorFilter) && (!actionFilter || log.action === actionFilter)
+  )), [actionFilter, actorFilter, logs]);
+  const pageCount = Math.max(1, Math.ceil(filteredLogs.length / auditPageSize));
+  const pageLogs = filteredLogs.slice(page * auditPageSize, (page + 1) * auditPageSize);
   useCustomDialogFocus(Boolean(selectedLog), auditCloseButtonRef);
 
+  useEffect(() => {
+    setActorFilter('');
+    setActionFilter('');
+  }, [day]);
+  useEffect(() => setPage(0), [day, actorFilter, actionFilter]);
+
   const loadLogs = useCallback(async () => {
-    setBusy(true);
     setError(null);
     try {
       const body = await requestJson<AuditLogPayload>(
@@ -6469,13 +6417,10 @@ function AuditLogSettingsPanel() {
       if (!body.logs) throw new Error('Could not load audit log.');
       setLogs(body.logs);
       setDays(body.days || []);
-      setFileName(body.fileName || `audit-${day}.jsonl`);
       setLoaded(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load audit log.');
       setLoaded(true);
-    } finally {
-      setBusy(false);
     }
   }, [day]);
 
@@ -6487,20 +6432,17 @@ function AuditLogSettingsPanel() {
     <section className="settings-section settings-section-audit">
       <div className="settings-section-heading">
         <h2>Audit log</h2>
-        <p>Administrative trace of account, chat, meeting, notification, and review actions.</p>
+        <p>Recorded account, chat, meeting, notification and review actions.</p>
       </div>
       <div className="audit-browser">
-        <aside className="ops-panel audit-file-list" aria-label="Audit log files">
+        <aside className="ops-panel audit-file-list" aria-label="Days with audit entries">
           <div className="ops-panel-head">
-            <div>
-              <h2>Log files</h2>
-              <p>{days.length} days</p>
-            </div>
+            <h2>Days</h2>
           </div>
           {!loaded ? (
-            <SettingsLoading label="Loading files" />
+            <SettingsLoading label="Loading days" />
           ) : !logGroups.length ? (
-            <p className="audit-file-empty">No audit log files yet.</p>
+            <p className="audit-file-empty">No audited actions yet.</p>
           ) : (
             <div className="audit-file-groups">
               {logGroups.map((group) => (
@@ -6511,10 +6453,11 @@ function AuditLogSettingsPanel() {
                       className={logDay.day === day ? 'active' : ''}
                       type="button"
                       key={logDay.day}
+                      aria-current={logDay.day === day ? 'date' : undefined}
+                      aria-label={`${fmt.formatDay(logDay.day)}, ${logDay.count} ${logDay.count === 1 ? 'entry' : 'entries'}`}
                       onClick={() => setDay(logDay.day)}
                     >
-                      <FileText aria-hidden="true" />
-                      <span>{logDay.fileName}</span>
+                      <span>{fmt.formatShortDay(logDay.day)}</span>
                       <small>{logDay.count}</small>
                     </button>
                   ))}
@@ -6526,28 +6469,46 @@ function AuditLogSettingsPanel() {
         <section className="ops-panel audit-panel">
           <div className="ops-panel-head audit-panel-head">
             <div>
-              <h2>Daily log</h2>
-              <p>{fileName}</p>
+              <h2>{fmt.formatLongDay(day)}</h2>
+              <p>
+                {filteredLogs.length === logs.length ? `${logs.length} ${logs.length === 1 ? 'entry' : 'entries'}` : `${filteredLogs.length} of ${logs.length} entries`}
+                {(days.find((logDay) => logDay.day === day)?.count || 0) > logs.length ? ` · latest ${logs.length} of ${days.find((logDay) => logDay.day === day)?.count} shown` : ''}
+              </p>
             </div>
             <div className="audit-toolbar">
               <label>
                 <span>Date</span>
-                <input type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+                <input type="date" value={day} max={auditLogDateKey()} onChange={(event) => setDay(event.target.value || auditLogDateKey())} />
               </label>
-              <button className="ops-secondary" type="button" onClick={() => void loadLogs()} disabled={busy}>
-                <History aria-hidden="true" />
-                {busy ? 'Loading' : 'Refresh'}
-              </button>
+              <label>
+                <span>Actor</span>
+                <select value={actorFilter} onChange={(event) => setActorFilter(event.target.value)}>
+                  <option value="">All actors</option>
+                  {actorOptions.map((actor) => <option key={actor} value={actor}>{actor}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Action</span>
+                <select value={actionFilter} onChange={(event) => setActionFilter(event.target.value)}>
+                  <option value="">All actions</option>
+                  {actionOptions.map((action) => <option key={action} value={action}>{action}</option>)}
+                </select>
+              </label>
             </div>
           </div>
-          {error && <div className="form-message error">{error}</div>}
+          {error && (
+            <div className="form-message error vs-retry-notice" role="alert">
+              <span>{error}</span>
+              <button className="ops-secondary" type="button" onClick={() => void loadLogs()}>Retry</button>
+            </div>
+          )}
           {!loaded ? (
             <SettingsLoading label="Loading audit log" />
-          ) : !logs.length ? (
+          ) : !filteredLogs.length ? (
             <div className="members-empty audit-empty">
               <ClipboardList aria-hidden="true" />
-              <h3>No log entries</h3>
-              <p>No audited actions were recorded for this day.</p>
+              <h3>No entries</h3>
+              <p>{logs.length ? 'No entries match these filters.' : 'No actions were recorded on this day.'}</p>
             </div>
           ) : (
             <div className="ops-table-wrap">
@@ -6563,7 +6524,7 @@ function AuditLogSettingsPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {logs.map((log) => (
+                  {pageLogs.map((log) => (
                     <tr
                       className="audit-log-row"
                       key={log.id}
@@ -6576,7 +6537,7 @@ function AuditLogSettingsPanel() {
                       }}
                       tabIndex={0}
                     >
-                      <td>{auditLogTime(log.eventTime)}</td>
+                      <td>{fmt.formatTime(log.eventTime)}</td>
                       <td>
                         {log.actorUsername ? (
                           <span>
@@ -6588,7 +6549,7 @@ function AuditLogSettingsPanel() {
                         )}
                       </td>
                       <td className="mono-cell">{log.action}</td>
-                      <td className="mono-cell">{log.targetId ? `${log.targetType}/${log.targetId}` : log.targetType}</td>
+                      <td className="mono-cell audit-target-cell">{log.targetId ? `${log.targetType}/${log.targetId}` : log.targetType}</td>
                       <td>{log.summary || '-'}</td>
                       <td className="audit-json-cell">
                         <button
@@ -6610,11 +6571,15 @@ function AuditLogSettingsPanel() {
               </table>
             </div>
           )}
+          {pageCount > 1 && (
+            <nav className="audit-pagination" aria-label="Audit log pages">
+              <button className="ops-secondary" type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button>
+              <span>Page {page + 1} of {pageCount}</span>
+              <button className="ops-secondary" type="button" disabled={page >= pageCount - 1} onClick={() => setPage(page + 1)}>Next</button>
+            </nav>
+          )}
         </section>
       </div>
-      <p className="settings-footnote">
-        The daily filename is for review/export naming; Postgres remains the source of truth for filtering and access control.
-      </p>
       {selectedLog && (
         <div className="audit-modal-backdrop" role="presentation" onClick={() => setSelectedLog(null)}>
           <section
@@ -6654,17 +6619,19 @@ function MarkdownEditorPanel({
   saveLabel,
   importLabel,
   importFlag,
+  importHelp,
 }: {
   title: string;
   description: string;
   endpoint: string;
   saveLabel: string;
   importLabel?: string;
-  importFlag?: 'importProfiles' | 'importMemory';
+  importFlag?: 'importProfiles';
+  importHelp?: string;
 }) {
   const [markdown, setMarkdown] = useState('');
-  const [path, setPath] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [savedMarkdown, setSavedMarkdown] = useState('');
   const dirty = markdown !== savedMarkdown;
@@ -6679,10 +6646,11 @@ function MarkdownEditorPanel({
       if (typeof body.markdown !== 'string') throw new Error('Could not load markdown.');
       setMarkdown(body.markdown);
       setSavedMarkdown(body.markdown);
-      setPath(body.path || '');
+      setLoadFailed(false);
       setLoaded(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load markdown.');
+      setLoadFailed(true);
       setLoaded(true);
     } finally {
       setBusy(false);
@@ -6710,11 +6678,8 @@ function MarkdownEditorPanel({
       if (typeof body.markdown !== 'string') throw new Error('Could not save markdown.');
       setMarkdown(body.markdown);
       setSavedMarkdown(body.markdown);
-      setPath(body.path || path);
       if (importAfterSave && typeof body.importedCount === 'number') {
         setMessage(`Saved and imported ${body.importedCount} profiles.`);
-      } else if (importAfterSave) {
-        setMessage(body.importNote || 'Saved and imported for the next chat turn.');
       } else {
         setMessage('Saved.');
       }
@@ -6731,17 +6696,7 @@ function MarkdownEditorPanel({
         <h2>{title}</h2>
         <p>{description}</p>
       </div>
-      <section className="ops-panel markdown-editor-panel">
-        <div className="ops-panel-head">
-          <div>
-            <h2>Markdown</h2>
-            <p>{path || 'Default path'}</p>
-          </div>
-          <button className="ops-secondary" type="button" disabled={busy} onClick={() => void loadMarkdown()}>
-            <RefreshCw aria-hidden="true" />
-            Refresh
-          </button>
-        </div>
+      <section className="markdown-editor-panel">
         {!loaded ? (
           <SettingsLoading label="Loading markdown" />
         ) : (
@@ -6757,10 +6712,16 @@ function MarkdownEditorPanel({
             aria-label={title}
           />
         )}
-        {error && <div className="form-message error">{error}</div>}
-        {message && <div className="form-message">{message}</div>}
+        {error && (
+          <div className="form-message error vs-retry-notice" role="alert">
+            <span>{error}</span>
+            {loadFailed && <button className="ops-secondary" type="button" disabled={busy} onClick={() => void loadMarkdown()}>Retry</button>}
+          </div>
+        )}
+        {message && <div className="form-message" role="status">{message}</div>}
+        {importHelp && <p className="settings-footnote markdown-import-help">{importHelp}</p>}
         <div className="button-row">
-          <button className="ops-primary" type="button" disabled={busy || !dirty} onClick={() => void saveMarkdown()}>
+          <button className="ops-primary" type="button" disabled={busy || !dirty || loadFailed} onClick={() => void saveMarkdown()}>
             <Save aria-hidden="true" />
             {busy ? 'Saving' : saveLabel}
           </button>
@@ -6784,12 +6745,10 @@ function MarkdownEditorPanel({
 function UserMemorySettingsPanel() {
   return (
     <MarkdownEditorPanel
-      title="My memory"
-      description="Private markdown used only in your own chat context."
+      title="Notes for VioScope"
+      description="Private notes VioScope reads in your own chats only. Markdown is supported."
       endpoint="/api/user-memory"
-      saveLabel="Save memory"
-      importLabel="Save and import"
-      importFlag="importMemory"
+      saveLabel="Save notes"
     />
   );
 }
@@ -6798,11 +6757,12 @@ function TeamProfilesSettingsPanel() {
   return (
     <MarkdownEditorPanel
       title="Public team"
-      description="Editable cache for public VIOS team profile markdown."
+      description="The lab's public team profiles, used for names and roles in VioScope."
       endpoint="/api/team-profile-markdown"
-      saveLabel="Save team markdown"
+      saveLabel="Save changes"
       importLabel="Save and import"
       importFlag="importProfiles"
+      importHelp="Save and import also updates team member profiles from this text."
     />
   );
 }
@@ -6811,12 +6771,14 @@ function UsersView({
   user,
   onUserChanged,
   personalDetailsSignal,
+  appInfo,
   canManageUsers,
   canManageThemeSettings,
 }: {
   user: CurrentUser;
   onUserChanged: (user: CurrentUser) => void;
   personalDetailsSignal: number;
+  appInfo?: AppInfo;
   canManageUsers: boolean;
   canManageThemeSettings: boolean;
 }) {
@@ -7165,6 +7127,17 @@ function UsersView({
           ))}
         </select>
       </label>
+      <details className="role-help">
+        <summary>What each role can do</summary>
+        <dl className="role-help-popover">
+          {roleDescriptions.map(([role, description]) => (
+            <div key={role}>
+              <dt>{roleLabel(role)}</dt>
+              <dd>{description}</dd>
+            </div>
+          ))}
+        </dl>
+      </details>
       <span className="users-count">
         {users.length} {users.length === 1 ? 'member' : 'members'} · {activeUserCount} active
         {filteredUsers.length !== users.length ? ` · ${filteredUsers.length} shown` : ''}
@@ -7183,13 +7156,20 @@ function UsersView({
     </button>
   );
 
-  const integrationRows = [
-    { mark: 'OL', name: 'Overleaf', desc: 'Import LaTeX drafts for checklist runs.', status: 'Backlog' },
-  ];
+  const settingsSubtitle = user.role === 'administrator'
+    ? 'Your profile and preferences, lab administration and service configuration.'
+    : user.role === 'pi'
+      ? 'Your profile and preferences, and lab administration.'
+      : canManageThemeSettings
+        ? 'Your profile and preferences, and the themes you coordinate.'
+        : 'Your profile, notes for VioScope and notifications.';
+  // PIs may only assign member-level roles; the API enforces the same rule.
+  const assignableRoles = user.role === 'administrator' ? userPermissionOptions : userPermissionOptions.filter((role) => role === 'organizer' || role === 'member' || role === 'viewer');
+  const creatableRoles = user.role === 'administrator' ? userPermissionOptions : ['organizer', 'member'] as CurrentUser['role'][];
   return (
     <ConsolePageFrame
       title="Settings"
-      subtitle="Personal preferences, and lab administration for administrators."
+      subtitle={settingsSubtitle}
       className="users-page settings-page"
       wide
     >
@@ -7199,7 +7179,6 @@ function UsersView({
           {settingsNavItem('general', 'General')}
           {settingsNavItem('memory', 'My memory')}
           {settingsNavItem('notifications', 'Notifications')}
-          {settingsNavItem('integrations', 'Integrations')}
           {(canManageThemeSettings || canManageUsers || canViewAudit || canViewConfig) && (
             <>
               <span className="settings-sidebar-label">Administration</span>
@@ -7219,7 +7198,7 @@ function UsersView({
             <div className="settings-section">
               <div className="settings-section-heading">
                 <h2>General</h2>
-                <p>Your profile and how VioScope behaves for you.</p>
+                <p>Your profile and password.</p>
               </div>
               <AccountDetailsPanel user={user} onUserChanged={onUserChanged} />
             </div>
@@ -7237,7 +7216,7 @@ function UsersView({
                   <span>Web</span>
                   <span>Email</span>
                 </div>
-                {notificationPreferenceRows.map((row) => {
+                {notificationPreferenceRows.filter((row) => !row.managersOnly || user.role === 'pi' || user.role === 'administrator').map((row) => {
                   const prefs = notificationPrefs[row.key];
                   return (
                     <div className="settings-list-row notification-preference-row" key={row.key}>
@@ -7278,22 +7257,23 @@ function UsersView({
               <section className="settings-panel">
                 <div className="preference-row">
                   <div>
-                    <strong>Browser permission</strong>
+                    <strong>Desktop notifications</strong>
                     <p>
                       {notificationPermission === 'unsupported'
-                        ? 'This browser does not support system notifications.'
-                        : `Current browser permission: ${notificationPermission}.`}
+                        ? 'This browser does not support desktop notifications.'
+                        : notificationPermission === 'granted'
+                          ? 'Allowed in this browser.'
+                          : notificationPermission === 'denied'
+                            ? 'Blocked in this browser. Allow notifications for this site in your browser settings.'
+                            : 'Show web notifications on your desktop as well as in VioScope.'}
                     </p>
                   </div>
-                  <button
-                    className="ops-secondary"
-                    type="button"
-                    disabled={notificationPermission === 'unsupported' || notificationPermission === 'granted'}
-                    onClick={() => void enableBrowserNotifications()}
-                  >
-                    <Bell aria-hidden="true" />
-                    {notificationPermission === 'granted' ? 'Enabled' : 'Enable'}
-                  </button>
+                  {notificationPermission === 'default' && (
+                    <button className="ops-secondary" type="button" onClick={() => void enableBrowserNotifications()}>
+                      <Bell aria-hidden="true" />
+                      Allow
+                    </button>
+                  )}
                 </div>
               </section>
               {notificationError && <div className="form-message error">{notificationError}</div>}
@@ -7301,28 +7281,8 @@ function UsersView({
               <div className="button-row">
                 <button className="ops-primary" type="button" disabled={busyNotifications} onClick={() => void saveNotificationPreferences()}>
                   <Save aria-hidden="true" />
-                  {busyNotifications ? 'Saving' : 'Save notification settings'}
+                  {busyNotifications ? 'Saving' : 'Save changes'}
                 </button>
-              </div>
-              <p className="settings-footnote">In-app notifications appear in the top bar notification centre. Chat mentions are web-only; email is reserved for reminders and operational summaries.</p>
-            </section>
-          ) : settingsTab === 'integrations' ? (
-            <section className="settings-section">
-              <div className="settings-section-heading">
-                <h2>Integrations</h2>
-                <p>Track the Overleaf draft import planned for checklist runs.</p>
-              </div>
-              <div className="settings-list-panel">
-                {integrationRows.map((row) => (
-                  <div className="settings-list-row integration-row" key={row.name}>
-                    <span className="integration-mark">{row.mark}</span>
-                    <div>
-                      <strong>{row.name}</strong>
-                      <p>{row.desc}</p>
-                    </div>
-                    <span className="integration-status">{row.status}</span>
-                  </div>
-                ))}
               </div>
             </section>
           ) : settingsTab === 'themeMeeting' ? (
@@ -7337,21 +7297,20 @@ function UsersView({
             <section className="settings-section">
               <div className="settings-section-heading">
                 <h2>About</h2>
-                <p>VioScope, the VIOS lab assistant and operations console.</p>
+                <p>VioScope is advisory: it surfaces evidence and citations, and a person always decides.</p>
               </div>
-              <div className="about-panel">
-                <div><span>Version</span><strong>0.1.0 · internal preview</strong></div>
-                <div><span>Wiki index</span><strong>Configured from DATASTORE_DIR</strong></div>
-                <div><span>Maintained by</span><strong>VIOS Lab · School of Engineering</strong></div>
-              </div>
-              <p className="settings-footnote">VioScope is advisory: it surfaces evidence and citations, and a human always decides.</p>
+              <dl className="about-panel">
+                <div><dt>Version</dt><dd>{appInfo?.version || 'Not available'}</dd></div>
+                {appInfo?.buildId && <div><dt>Build</dt><dd className="vs-mono">{appInfo.buildId}</dd></div>}
+                <div><dt>Maintained by</dt><dd>VIOS Lab, School of Engineering</dd></div>
+              </dl>
             </section>
               ) : (
             <div className="settings-section settings-section-members">
               <div className="settings-section-heading with-action">
                 <div>
                   <h2>User management</h2>
-                  <p>Roles control which actions and records each person can see. Every change is written to the audit log.</p>
+                  <p>Accounts and roles. Every change is recorded in the audit log.</p>
                 </div>
                 <button
                   className="ops-primary"
@@ -7385,7 +7344,7 @@ function UsersView({
           <div className="members-empty">
             <Users aria-hidden="true" />
             <h3>No members yet</h3>
-            <p>Add the lab&apos;s researchers, coordinators and PIs. New local accounts receive a temporary password and must reset it on first login.</p>
+            <p>Add the lab&apos;s researchers, coordinators and PIs.</p>
             <button
               className="ops-primary"
               type="button"
@@ -7435,7 +7394,7 @@ function UsersView({
                           {provisioningLabel(user.provisioningStatus)}
                         </span>
                       </td>
-                      <td className="member-secondary member-last-active">{user.lastLoginAt ? formatDate(user.lastLoginAt.slice(0, 10)) : user.hasPassword ? 'Never' : 'Not active'}</td>
+                      <td className="member-secondary member-last-active">{user.lastLoginAt ? fmt.formatDay(user.lastLoginAt) : 'Never'}</td>
                       <td className="row-actions-cell">
                         <button
                           className="row-edit-button"
@@ -7482,18 +7441,6 @@ function UsersView({
             onBlur={(event) => menuBlur(event, closeUserActions, userMenuTriggerRef.current)}
           >
             <button
-              type="button"
-              role="menuitem"
-              tabIndex={-1}
-              onClick={() => {
-                setEditingUserId(actionUser.id);
-                closeUserActions();
-              }}
-            >
-              <Pencil aria-hidden="true" />
-              Edit details
-            </button>
-            <button
               className={actionUser.provisioningStatus === 'disabled' ? '' : 'danger'}
               type="button"
               role="menuitem"
@@ -7533,27 +7480,6 @@ function UsersView({
           }}
         />
       </section>
-      <section className="role-legend" aria-labelledby="role-legend-title">
-        <h3 id="role-legend-title">What each role can do</h3>
-        <dl>
-          <div>
-            <dt>Member</dt>
-            <dd>Updates own projects, submits theme meeting updates and writes Idea Pitches. Cannot change their own role.</dd>
-          </div>
-          <div>
-            <dt>Coordinator</dt>
-            <dd>Manages the members and agenda of their own theme, sends missing-update reminders and confirms that theme&apos;s agenda.</dd>
-          </div>
-          <div>
-            <dt>PI</dt>
-            <dd>Reviews every theme and project, changes coordinators, manages members and records checkpoint and Skeleton Lock confirmations.</dd>
-          </div>
-          <div>
-            <dt>Administrator</dt>
-            <dd>Has every permission, including runtime configuration, service restart and the audit log.</dd>
-          </div>
-        </dl>
-      </section>
             </div>
           )}
         </div>
@@ -7571,10 +7497,7 @@ function UsersView({
             onKeyDown={(event) => trapCustomDialogFocus(event, () => setCreateOpen(false))}
           >
             <header>
-              <div>
-                <h2 id="create-user-title">Add a member</h2>
-                <p>Creates a local account with a temporary password.</p>
-              </div>
+              <h2 id="create-user-title">Add a member</h2>
               <button ref={createCloseButtonRef} type="button" aria-label="Close" onClick={() => setCreateOpen(false)}>
                 <X aria-hidden="true" />
               </button>
@@ -7619,22 +7542,21 @@ function UsersView({
                 ))}
               </select>
             </label>
-            <div className="users-modal-field" role="group" aria-labelledby="create-user-permission">
-              <span id="create-user-permission">Permission</span>
-              <div className="role-picker">
-                {userPermissionOptions.map((role) => (
-                  <button
-                    key={role}
-                    className={createDraft.role === role ? 'selected' : ''}
-                    aria-pressed={createDraft.role === role}
-                    type="button"
-                    onClick={() => setCreateDraft((current) => ({ ...current, role }))}
-                  >
-                    {roleLabel(role)}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <fieldset className="role-radio-group">
+              <legend>Permission</legend>
+              {creatableRoles.map((role) => (
+                <label key={role}>
+                  <input
+                    type="radio"
+                    name="create-user-role"
+                    value={role}
+                    checked={createDraft.role === role}
+                    onChange={() => setCreateDraft((current) => ({ ...current, role }))}
+                  />
+                  {roleLabel(role)}
+                </label>
+              ))}
+            </fieldset>
             <label>
               <span>Aliases</span>
               <input
@@ -7647,13 +7569,12 @@ function UsersView({
               <span>Temporary password</span>
               <input
                 type="password"
+                aria-describedby="create-user-password-help"
                 value={createDraft.temporaryPassword}
                 onChange={(event) => setCreateDraft((current) => ({ ...current, temporaryPassword: event.target.value }))}
-                placeholder="defaults to username"
               />
+              <small id="create-user-password-help" className="field-help">Leave blank to use the username. It must be changed at first sign-in.</small>
             </label>
-            <p>New local accounts must change the temporary password on first login.</p>
-            <p>If no temporary password is set, the username is used once for first login.</p>
             {dialogError}
             <footer>
               <button className="ops-secondary" type="button" onClick={() => setCreateOpen(false)}>
@@ -7694,13 +7615,15 @@ function UsersView({
             <section className="modal-fieldset">
               <h3>Profile details</h3>
               <div className="account-avatar-row">
-                <span className="user-avatar large">
-                  {editingDraft.avatarUrl ? <img src={editingDraft.avatarUrl} alt="" /> : initials(editingDraft.displayName || editingUser.username)}
-                </span>
-                <label className="avatar-upload avatar-upload-icon" aria-label="Upload avatar" title="Upload avatar">
-                  <Upload aria-hidden="true" />
-                  <input accept="image/*" type="file" onChange={(event) => chooseEditAvatar(event, editingUser.id)} />
-                </label>
+                <div className="account-avatar-stack">
+                  <span className="user-avatar large">
+                    {editingDraft.avatarUrl ? <img src={editingDraft.avatarUrl} alt="" /> : initials(editingDraft.displayName || editingUser.username)}
+                  </span>
+                  <label className="avatar-change-button">
+                    Change photo
+                    <input accept="image/*" type="file" onChange={(event) => chooseEditAvatar(event, editingUser.id)} />
+                  </label>
+                </div>
               </div>
               <label>
                 <span>Display name</span>
@@ -7742,24 +7665,22 @@ function UsersView({
               </label>
             </section>
             <section className="modal-fieldset">
-              <h3>Access control</h3>
-              <p>Permission and status are delegated here; members cannot change these from their account settings.</p>
-              <div className="users-modal-field" role="group" aria-labelledby="edit-user-permission">
-                <span id="edit-user-permission">Permission</span>
-                <div className="role-picker">
-                  {userPermissionOptions.map((role) => (
-                    <button
-                      key={role}
-                      className={editingDraft.role === role ? 'selected' : ''}
-                      aria-pressed={editingDraft.role === role}
-                      type="button"
-                      onClick={() => setDraft(editingUser.id, { role })}
-                    >
-                      {roleLabel(role)}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <h3>Access</h3>
+              <fieldset className="role-radio-group">
+                <legend>Permission</legend>
+                {(assignableRoles.includes(editingDraft.role) ? assignableRoles : [...assignableRoles, editingDraft.role]).map((role) => (
+                  <label key={role}>
+                    <input
+                      type="radio"
+                      name="edit-user-role"
+                      value={role}
+                      checked={editingDraft.role === role}
+                      onChange={() => setDraft(editingUser.id, { role })}
+                    />
+                    {roleLabel(role)}
+                  </label>
+                ))}
+              </fieldset>
               <label>
                 <span>Status</span>
                 <select
@@ -7780,7 +7701,7 @@ function UsersView({
                 type="password"
                 value={editingDraft.temporaryPassword}
                 onChange={(event) => setDraft(editingUser.id, { temporaryPassword: event.target.value })}
-                placeholder={editingUser.hasPassword ? 'reset password' : 'required to activate'}
+                placeholder={editingUser.hasPassword ? 'Leave blank to keep the current password' : 'Required to activate'}
               />
             </label>
             {dialogError}
@@ -7807,15 +7728,21 @@ const feedbackStatusLabels: Record<FeedbackStatus, string> = {
   closed: 'Closed',
 };
 
+type FeedbackFilter = 'all' | 'open' | 'solved' | 'closed';
+const feedbackFilters: Array<[FeedbackFilter, string]> = [['all', 'All'], ['open', 'Open'], ['solved', 'Solved'], ['closed', 'Closed']];
+
+function feedbackMatchesFilter(filter: FeedbackFilter, status: FeedbackStatus) {
+  if (filter === 'all') return true;
+  if (filter === 'open') return status === 'pending' || status === 'in_progress';
+  return status === filter;
+}
+
 function FeedbackStatusChip({ status }: { status: FeedbackStatus }) {
   return <span className={`feedback-status feedback-status-${status}`}>{feedbackStatusLabels[status]}</span>;
 }
 
 function feedbackDate(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  return fmt.formatDayTime(value);
 }
 
 function FeedbackView() {
@@ -7837,11 +7764,27 @@ function FeedbackView() {
     setManagerDrafts(Object.fromEntries(nextQueries.map((query) => [query.id, { status: query.status, adminNote: query.adminNote }])));
   }, []);
 
-  const loadQueries = useCallback(async () => {
-    setLoading(true);
+  const queriesRef = useRef<FeedbackQuery[]>([]);
+  queriesRef.current = queries;
+
+  // A quiet (on-focus) refetch keeps any reply an administrator has typed but not saved.
+  const loadQueries = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
       const body = await requestJson<FeedbackPayload>('/api/feedback', 'Could not load feedback requests.');
-      applyQueries(body.queries || []);
+      const nextQueries = body.queries || [];
+      if (quiet) {
+        const previous = new Map(queriesRef.current.map((query) => [query.id, query]));
+        setQueries(nextQueries);
+        setManagerDrafts((current) => Object.fromEntries(nextQueries.map((query) => {
+          const before = previous.get(query.id);
+          const draft = current[query.id];
+          const dirty = before && draft && (draft.status !== before.status || draft.adminNote !== before.adminNote);
+          return [query.id, dirty ? draft : { status: query.status, adminNote: query.adminNote }];
+        })));
+      } else {
+        applyQueries(nextQueries);
+      }
       setCanManage(Boolean(body.canManage));
       setError(null);
     } finally {
@@ -7850,9 +7793,20 @@ function FeedbackView() {
     }
   }, [applyQueries]);
 
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<FeedbackFilter>('all');
+  const reload = useCallback((quiet = false) => loadQueries(quiet).then(() => setLoadFailed(false), (caught) => {
+    setLoadFailed(true);
+    setError(caught instanceof Error ? caught.message : 'Could not load feedback requests.');
+  }), [loadQueries]);
+
+  // Refetch when the tab regains focus instead of offering a Refresh button.
   useEffect(() => {
-    void loadQueries().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not load feedback requests.'));
-  }, [loadQueries]);
+    void reload();
+    const onFocus = () => void reload(true);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [reload]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -7912,14 +7866,15 @@ function FeedbackView() {
     }
   }
 
-  const statusCounts = useMemo(
-    () => Object.fromEntries((Object.keys(feedbackStatusLabels) as FeedbackStatus[]).map((status) => [status, queries.filter((query) => query.status === status).length])),
+  const filterCounts = useMemo(
+    () => Object.fromEntries(feedbackFilters.map(([filter]) => [filter, queries.filter((query) => feedbackMatchesFilter(filter, query.status)).length])),
     [queries],
-  ) as Record<FeedbackStatus, number>;
+  ) as Record<FeedbackFilter, number>;
+  const visibleQueries = queries.filter((query) => feedbackMatchesFilter(statusFilter, query.status));
   const requiredFieldsError = error === 'Please add both a title and a description.' ? error : null;
   const titleError = requiredFieldsError && !title.trim() ? requiredFieldsError : null;
   const descriptionError = requiredFieldsError && !description.trim() ? requiredFieldsError : null;
-  const formError = error && !titleError && !descriptionError ? error : null;
+  const formError = error && !loadFailed && !titleError && !descriptionError ? error : null;
 
   return (
     <ConsolePageFrame title="Feedback" subtitle="Report a problem or request a change to VioScope. Administrators reply here." wide className="feedback-page">
@@ -7985,19 +7940,20 @@ function FeedbackView() {
         <section className="feedback-requests" aria-labelledby="feedback-requests-title">
           <header className="feedback-section-head">
             <h2 id="feedback-requests-title">{canManage ? 'All requests' : 'Your requests'}</h2>
-            <span className="feedback-count">
-              {queries.length} {queries.length === 1 ? 'request' : 'requests'}
-            </span>
-            <button className="ops-secondary feedback-refresh" type="button" onClick={() => void loadQueries().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not refresh feedback.'))} disabled={loading}>
-              <RefreshCw aria-hidden="true" />
-              {loading ? 'Refreshing' : 'Refresh'}
-            </button>
+            {queries.length > 0 && (
+              <div className="ops-segmented feedback-filter" role="group" aria-label="Filter requests by status">
+                {feedbackFilters.map(([filter, label]) => (
+                  <button key={filter} type="button" className={statusFilter === filter ? 'selected' : ''} aria-pressed={statusFilter === filter} onClick={() => setStatusFilter(filter)}>
+                    {label} <span className="vs-tab-count">{filterCounts[filter]}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </header>
-          {canManage && (
-            <div className="feedback-summary" aria-label="Feedback status summary">
-              {(Object.keys(feedbackStatusLabels) as FeedbackStatus[]).map((status) => (
-                <span key={status}><FeedbackStatusChip status={status} /> <strong>{statusCounts[status]}</strong></span>
-              ))}
+          {loadFailed && error && (
+            <div className="form-message error vs-retry-notice" role="alert">
+              <span>{error}</span>
+              <button className="ops-secondary" type="button" disabled={loading} onClick={() => void reload()}>Retry</button>
             </div>
           )}
           {!loaded || loading ? (
@@ -8010,7 +7966,8 @@ function FeedbackView() {
             </div>
           ) : (
             <div className="feedback-list">
-              {queries.map((query) => {
+              {!visibleQueries.length && <p className="ops-muted-line">No {statusFilter} requests.</p>}
+              {visibleQueries.map((query) => {
                 const draft = managerDrafts[query.id] || { status: query.status, adminNote: query.adminNote };
                 return (
                   <article className="feedback-card" key={query.id}>
@@ -8063,7 +8020,7 @@ function FeedbackView() {
                         </div>
                         <button className="ops-primary" type="submit" disabled={savingId === query.id}>
                           <Save aria-hidden="true" />
-                          {savingId === query.id ? 'Saving…' : 'Save update'}
+                          {savingId === query.id ? 'Saving…' : 'Save reply'}
                         </button>
                       </form>
                     )}
@@ -8095,7 +8052,7 @@ function nextThemeMeetingsSummary(payload: ThemeMeetingPayload | null) {
   };
 }
 
-export function OperationsConsole() {
+export function OperationsConsole({ appInfo }: { appInfo?: AppInfo } = {}) {
   const [activeView, setActiveView] = useState<ActiveView>('briefing');
   const [navOpen, setNavOpen] = useState(false);
   const [user, setUser] = useState<CurrentUser | null>(null);
@@ -8380,10 +8337,8 @@ export function OperationsConsole() {
     [],
   );
   const activeProjectCount = projectsPayload?.projects?.filter(projectInProgress).length;
-  const viewLabels: Record<ActiveView, string> = {
-    briefing: 'Briefing', projects: 'Projects', chat: 'Chat', meeting: 'Meetings', checklists: 'Checklists', feedback: 'Feedback', users: 'Settings',
-  };
-  const nextMeetings = nextThemeMeetingsSummary(themePayload);
+  // The sidebar card would repeat what Briefing and Meetings already show.
+  const nextMeetings = activeView === 'briefing' || activeView === 'meeting' ? null : nextThemeMeetingsSummary(themePayload);
 
   function closeWelcome() {
     if (user && welcomeDontShowAgain) {
@@ -8504,11 +8459,6 @@ export function OperationsConsole() {
           >
             <Menu aria-hidden="true" />
           </button>
-          <nav className="vs-breadcrumb" aria-label="Breadcrumb">
-            <span>VIOS Lab</span>
-            <ChevronRight aria-hidden="true" />
-            <span aria-current="page">{viewLabels[activeView]}</span>
-          </nav>
           <div className="account-block" ref={accountBlockRef}>
             <TopbarNotificationCenter
               open={notificationsOpen}
@@ -8523,6 +8473,7 @@ export function OperationsConsole() {
                 setNotificationsOpen((current) => !current);
               }}
               onOpenChatSession={openChatSessionFromNotification}
+              onOpenProject={(projectId) => { setNotificationsOpen(false); openProjectRecord(projectId, 'details'); }}
               onMarkAllMessagesRead={() => {
                 void markAllChatNotificationsRead().catch((caught) => {
                   setError(caught instanceof Error ? caught.message : 'Could not mark notifications as read.');
@@ -8586,6 +8537,7 @@ export function OperationsConsole() {
           onDontShowAgainChange={setWelcomeDontShowAgain}
           onClose={closeWelcome}
           onOpenSettings={openWelcomeSettings}
+          onOpenFeedback={() => { closeWelcome(); selectView('feedback'); }}
         />
 
         <div className="console-content" id="main-content" tabIndex={-1}>
@@ -8667,6 +8619,7 @@ export function OperationsConsole() {
               user={user}
               onUserChanged={setUser}
               personalDetailsSignal={personalDetailsSignal}
+              appInfo={appInfo}
               canManageUsers={user.role === 'administrator' || user.role === 'pi'}
               canManageThemeSettings={canManageThemeSettings}
             />

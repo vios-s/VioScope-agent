@@ -3,9 +3,9 @@ import type { ProjectRecord } from '../db/projects';
 
 // VIOS OS templates: Pre-Meeting Snapshot headings, keyed by inherited project stage.
 export const themeProgressPlaceholders: Partial<Record<number, string>> = {
-  1: "- The Pain Point: (1 Sentence)\n- The Wild Factor: High / Med / Low\n- Proof of Concept (PoC) Goal: (e.g., \"Beat Baseline X on Dataset Y by Friday.\")",
-  2: "- The Signal: (e.g., \"Achieved 15% better mAP on preliminary runs.\")\n- The Risk: (e.g., \"High variance across seeds; might be a fluke.\")",
-  3: "- The Wall: (The #1 technical bottleneck currently stopping progress).\n- Current Metric: (e.g., \"Stuck at 85% accuracy; target is 92%.\")",
+  1: "- The Pain Point: (1 Sentence)\n- The Wild Factor: High / Med / Low\n- Proof of Concept (PoC) Goal: (e.g. \"Beat Baseline X on Dataset Y by Friday.\")",
+  2: "- The Signal: (e.g. \"Achieved 15% better mAP on preliminary runs.\")\n- The Risk: (e.g. \"High variance across seeds; might be a fluke.\")",
+  3: "- The Wall: (The #1 technical bottleneck currently stopping progress).\n- Current Metric: (e.g. \"Stuck at 85% accuracy; target is 92%.\")",
   4: "- Figure 1 Status: [Drafted / Polished / Missing]\n- The \"Kill-Reason\": (What is the weakest part of the paper right now?)",
   5: "- The \"Lethal\" Critique: (The one comment that could lead to rejection).\n- The Counter-Evidence: (The specific experiment or argument we are using to fight it).",
 };

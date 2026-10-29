@@ -1,4 +1,7 @@
-/* Quiet Instrument: checklists screen (Idea Pitch and Skeleton Lock). */
+/* Quiet Instrument: checklists screen. Idea Pitch and Skeleton Lock share one layout:
+   record list | record (title, meta, import, numbered sections, sticky actions) | advice and decisions.
+   < 1280   one column: list (collapsed behind a toggle), record, then the advice rail.
+   1280+    list (200) | record | rail (300), widening at 1600 and 1800. */
 
 .checklists-page .console-page-inner,
 .checklists-page .console-page-inner.wide {
@@ -10,32 +13,24 @@
   margin-top: -4px;
 }
 
-/* ---------- Shared form primitives inside checklists ---------- */
+/* ---------- Form primitives inside checklists ---------- */
 
-.idea-pitches-panel,
-.skeleton-lock {
+.checklist-panel {
   min-width: 0;
   color: var(--vs-ink);
   overflow-wrap: anywhere;
 }
 
-.idea-pitches-panel h2,
-.idea-pitches-panel h3,
-.idea-pitches-panel h4,
-.skeleton-lock h2,
-.skeleton-lock h3,
-.skeleton-lock h4 {
+.checklist-panel :is(h2, h3, h4, h5) {
   margin: 0;
   color: var(--vs-ink);
 }
 
-.idea-pitches-panel p,
-.skeleton-lock p {
+.checklist-panel p {
   margin: 0;
 }
 
-.idea-pitches-panel fieldset,
-.skeleton-lock fieldset {
+.checklist-panel fieldset {
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -44,16 +39,14 @@
   gap: 14px;
 }
 
-.idea-pitches-panel legend,
-.skeleton-lock legend {
+.checklist-panel legend {
   padding: 0;
   margin-bottom: 4px;
   font: var(--vs-text-heading);
   color: var(--vs-ink);
 }
 
-.idea-pitches-panel label,
-.skeleton-lock label {
+.checklist-panel label {
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -62,12 +55,9 @@
   color: var(--vs-ink);
 }
 
-.idea-pitches-panel input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-.idea-pitches-panel select,
-.idea-pitches-panel textarea,
-.skeleton-lock input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-.skeleton-lock select,
-.skeleton-lock textarea {
+.checklist-panel input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.checklist-panel select,
+.checklist-panel textarea {
   width: 100%;
   min-width: 0;
   padding: 8px 12px;
@@ -75,54 +65,105 @@
   font-weight: 400;
 }
 
-.idea-pitches-panel textarea,
-.skeleton-lock textarea {
-  padding: 10px 12px;
+.checklist-panel textarea {
+  padding: 12px 14px;
   line-height: 1.55;
   resize: vertical;
 }
 
-.idea-pitches-panel button,
-.skeleton-lock button {
+.checklist-panel textarea[readonly] {
+  background: var(--vs-surface-2);
+}
+
+.checklist-panel button {
   white-space: normal;
 }
 
-.idea-pitches-panel button:disabled,
-.skeleton-lock button:disabled {
+.checklist-panel button:disabled {
   cursor: not-allowed;
 }
 
-.idea-confirm,
-.skeleton-lock .skeleton-confirm,
-.idea-pitches-panel .idea-confirm {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1.5;
-}
-
-.idea-confirm input,
-.skeleton-confirm input {
-  flex: none;
-  margin: 3px 0 0;
-}
-
-.idea-pitches-panel summary,
-.skeleton-lock summary {
+.checklist-panel summary {
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
 }
 
-.idea-pitches-panel details,
-.skeleton-lock details {
+.checklist-panel details {
   min-width: 0;
 }
 
-.idea-source-text,
-.skeleton-review-detail pre {
+.checklist-panel dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.checklist-panel dt {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--vs-ink-3);
+}
+
+.checklist-panel dd {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+
+.checklist-panel blockquote {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--vs-line);
+  color: var(--vs-ink-2);
+}
+
+.checklist-panel .ops-notice,
+.checklist-panel .form-message {
+  display: block;
+}
+
+.checklist-page-notice {
+  margin-bottom: 16px !important;
+}
+
+.checklist-confirm {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 8px !important;
+  font-weight: 400 !important;
+  line-height: 1.5;
+}
+
+.checklist-confirm input {
+  flex: none;
+  margin: 3px 0 0;
+}
+
+.checklist-hint {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--vs-ink-3);
+}
+
+.checklist-field-narrow {
+  max-width: 320px;
+}
+
+.checklist-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: 14px 16px;
+}
+
+.checklist-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.checklist-source-text {
   margin: 8px 0 0;
   padding: 12px;
   max-height: 360px;
@@ -134,115 +175,17 @@
   overflow-wrap: anywhere;
 }
 
-.idea-pitches-panel .ops-notice,
-.idea-pitches-panel .form-message,
-.skeleton-lock .ops-notice,
-.skeleton-lock .form-message {
-  display: block;
-}
-
-.idea-inline-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.idea-advisory-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 5px;
-  border: 1px solid var(--vs-line);
-  border-radius: 4px;
-  font: var(--vs-text-label-caps);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--vs-ink-3);
-  white-space: nowrap;
-}
-
-.idea-empty-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 7px;
-  border-radius: var(--vs-radius-pill);
-  background: var(--vs-warn-bg);
-  color: var(--vs-warn-fg);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 18px;
-  white-space: nowrap;
-}
-
-/* Bordered panel used only for things that stand apart (advice, decision). */
-.idea-rail-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 18px;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius-panel);
-  background: var(--vs-surface);
-  font-size: 13px;
-}
-
-.idea-rail-panel > h3,
-.idea-rail-panel > h4 {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.idea-rail-panel p {
-  color: var(--vs-ink-2);
-}
-
-.idea-advice-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.idea-advice-head h3,
-.idea-advice-head h4 {
-  flex: 1;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.idea-advice-mark {
-  flex: none;
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  background: var(--vs-accent);
-  color: #fff;
-}
-
-.idea-advice-mark svg {
-  width: 14px;
-  height: 14px;
-  stroke-width: 1.75;
-}
-
-/* ---------- Idea Pitch workspace ---------- */
-
-.idea-page-alert,
-.idea-page-status {
-  margin-bottom: 16px !important;
-}
-
 /* Status = dot + word */
-.idea-rail-status {
+.checklist-status,
+.checklist-advice-status {
   display: inline-flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 6px;
   color: var(--vs-muted-fg);
 }
 
-.idea-rail-status::before {
+.checklist-status::before,
+.checklist-advice-status::before {
   content: "";
   flex: none;
   width: 6px;
@@ -252,44 +195,76 @@
   transform: translateY(-1px);
 }
 
-.idea-rail-status.is-revise { color: var(--vs-warn-fg); }
-.idea-rail-status.is-revise::before { background: var(--vs-warn-dot); }
-.idea-rail-status.is-proceed { color: var(--vs-ok-fg); }
-.idea-rail-status.is-proceed::before { background: var(--vs-ok-dot); }
-.idea-rail-status.is-stop { color: var(--vs-danger-fg); }
-.idea-rail-status.is-stop::before { background: var(--vs-danger-dot); }
-.idea-rail-status.is-project { color: var(--vs-accent-strong); }
-.idea-rail-status.is-project::before { background: var(--vs-accent); }
+.checklist-advice-status {
+  font-weight: 500;
+}
 
-/* Layout grid (mobile first). Breakpoints live in "Responsive grid" at the end of this file. */
-.idea-workspace {
+:is(.checklist-status, .checklist-advice-status).is-ok { color: var(--vs-ok-fg); }
+:is(.checklist-status, .checklist-advice-status).is-ok::before { background: var(--vs-ok-dot); }
+:is(.checklist-status, .checklist-advice-status).is-warn { color: var(--vs-warn-fg); }
+:is(.checklist-status, .checklist-advice-status).is-warn::before { background: var(--vs-warn-dot); }
+:is(.checklist-status, .checklist-advice-status).is-danger { color: var(--vs-danger-fg); }
+:is(.checklist-status, .checklist-advice-status).is-danger::before { background: var(--vs-danger-dot); }
+:is(.checklist-status, .checklist-advice-status).is-accent { color: var(--vs-accent-strong); }
+:is(.checklist-status, .checklist-advice-status).is-accent::before { background: var(--vs-accent); }
+
+.checklist-advisory-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid var(--vs-line);
+  border-radius: 4px;
+  font: var(--vs-text-label-caps);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vs-ink-3);
+  white-space: nowrap;
+}
+
+.checklist-empty-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-warn-bg);
+  color: var(--vs-warn-fg);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* ---------- Workspace ---------- */
+
+.checklist-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--vs-space-6);
   align-items: start;
 }
 
-/* Pitch list rail */
-.idea-pitch-toolbar {
+/* 1 · Record list */
+.checklist-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
   padding-bottom: var(--vs-space-4);
   border-bottom: 1px solid var(--vs-line);
 }
 
-.idea-new-pitch {
+.checklist-new {
   width: 100%;
 }
 
-/* Phones and tablets: the list collapses behind a toggle above the editor. */
-.idea-rail-toggle {
+/* Below 1280px the list collapses behind a toggle above the record. */
+.checklist-list-toggle {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 1px;
-  padding: 6px 10px;
+  padding: 6px 34px 6px 10px;
   border: 1px solid var(--vs-line);
   border-radius: var(--vs-radius-control);
   background: var(--vs-surface);
@@ -299,12 +274,7 @@
   text-align: left;
 }
 
-.idea-rail-toggle {
-  position: relative;
-  padding-right: 34px;
-}
-
-.idea-rail-toggle svg {
+.checklist-list-toggle svg {
   position: absolute;
   top: 50%;
   right: 10px;
@@ -314,51 +284,47 @@
   transform: translateY(-50%);
 }
 
-.idea-rail-toggle[aria-expanded="true"] svg {
+.checklist-list-toggle[aria-expanded="true"] svg {
   transform: translateY(-50%) rotate(180deg);
 }
 
-.idea-rail-toggle small {
+.checklist-list-toggle small {
   font-size: 12px;
   font-weight: 400;
   color: var(--vs-ink-3);
 }
 
-.idea-rail-list {
+.checklist-list-body {
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
 }
 
-.idea-rail-list[data-open="false"] {
+.checklist-list-body[data-open="false"] {
   display: none;
 }
 
-.idea-rail-filters {
+.checklist-list-filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 12px;
 }
 
-.idea-rail-filters label {
-  font-size: 12px !important;
-  color: var(--vs-ink-3) !important;
-}
-
-.idea-rail-group {
+.checklist-list-group {
   display: grid;
   gap: 2px;
+  padding-top: 6px;
 }
 
-.idea-rail-group h2 {
-  padding: 8px 10px 4px;
+.checklist-list-group h2 {
+  padding: 0 10px 4px;
   font: var(--vs-text-label-caps);
   letter-spacing: 0.06em;
   color: var(--vs-ink-3);
 }
 
-.idea-rail-group ul {
+.checklist-list-group ul {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
   gap: 2px;
@@ -367,12 +333,12 @@
   list-style: none;
 }
 
-.idea-rail-item {
+.checklist-list-item {
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 1px;
+  gap: 2px;
   padding: 8px 10px;
   border: 0;
   border-radius: var(--vs-radius-control);
@@ -383,151 +349,452 @@
   text-align: left;
 }
 
-.idea-rail-item:hover:not(:disabled) {
-  background: var(--vs-surface-2);
-}
-
-.idea-rail-item.active {
-  background: var(--vs-accent-selected);
-}
-
-.idea-rail-item.active > span {
-  color: var(--vs-accent-strong);
+.checklist-list-item > span {
   font-weight: 500;
 }
 
-.idea-rail-item small {
+.checklist-list-item:hover:not(:disabled) {
+  background: var(--vs-surface-2);
+}
+
+.checklist-list-item.active {
+  background: var(--vs-accent-selected);
+}
+
+.checklist-list-item.active > span {
+  color: var(--vs-accent-strong);
+}
+
+.checklist-list-item small {
   font-size: 12px;
   color: var(--vs-ink-3);
 }
 
-.idea-rail-item small .vs-mono {
+.checklist-list-item small .vs-mono {
   font-size: 11px;
 }
 
-.idea-rail-note {
+.checklist-list-item:disabled > span {
+  color: var(--vs-ink-3);
+  font-weight: 400;
+}
+
+.checklist-list-note {
   margin: 6px 10px 0 !important;
   font-size: 12px;
   color: var(--vs-ink-3);
 }
 
-/* Editor: main column and right rail */
-.idea-editor-host {
+/* 2 · Record */
+.checklist-record-host {
   min-width: 0;
 }
 
-.project-idea-check {
+.checklist-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.checklist-empty strong {
+  color: var(--vs-ink);
+  font-weight: 600;
+}
+
+.checklist-empty span {
+  max-width: 44ch;
+  font-size: 13px;
+}
+
+.checklist-record {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--vs-space-6);
+  gap: var(--vs-space-8);
   align-items: start;
 }
 
-.idea-editor-main {
+.checklist-record-main,
+.checklist-record-form {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 22px;
 }
 
-.idea-loading {
+.checklist-record-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--vs-line);
+}
+
+.checklist-panel .checklist-record-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--vs-ink-3);
 }
 
-.idea-title-block {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.idea-title-label {
-  display: block !important;
-  font-size: 12px !important;
-  color: var(--vs-ink-3) !important;
-}
-
-.console-page input.idea-title-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]) {
-  min-height: 0;
-  padding: 2px 0 8px;
-  border: 0;
-  border-bottom: 1px solid var(--vs-line);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  font: 400 24px/1.3 var(--vs-font-serif);
+.checklist-record-title {
+  font: 400 30px/1.2 var(--vs-font-serif);
   color: var(--vs-ink);
 }
 
-.console-page input.idea-title-input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):focus-visible {
+/* The editable pitch title reads as the record title, not as a boxed field. */
+.console-page input.checklist-record-title:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]) {
+  min-height: 0;
+  padding: 0 0 4px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font: 400 30px/1.2 var(--vs-font-serif);
+}
+
+.console-page input.checklist-record-title:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):hover:not(:read-only) {
+  border-bottom-color: var(--vs-line);
+}
+
+.console-page input.checklist-record-title:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):focus-visible {
   box-shadow: none;
   border-bottom-color: var(--vs-accent);
   outline: var(--vs-focus-ring);
   outline-offset: var(--vs-focus-offset);
 }
 
-.idea-record-header {
+.checklist-record-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 8px 16px;
-}
-
-.idea-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
   font-size: 13px;
   color: var(--vs-ink-3);
 }
 
-.idea-meta .vs-mono {
+.checklist-record-meta .vs-mono {
   font-size: 12px;
 }
 
-.idea-private {
+.checklist-private {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.idea-private svg {
+.checklist-private svg {
   width: 14px;
   height: 14px;
 }
 
-.idea-pitches-panel .idea-delete-button {
+.checklist-panel .checklist-inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 400;
+}
+
+.checklist-panel .checklist-inline-field select {
+  width: auto;
+  max-width: 100%;
   min-height: var(--vs-control-sm);
+  padding: 0 28px 0 8px;
+  font-size: 13px;
+}
+
+.checklist-panel .checklist-quiet-button {
+  min-height: var(--vs-control-sm);
+  margin-left: auto;
   padding: 0 10px;
   font-size: 13px;
   color: var(--vs-ink-2);
 }
 
-.idea-hint {
+/* Collapsible sections inside the record ("Start from an existing document", source text, follow-up). */
+.checklist-import {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--vs-line);
+}
+
+.checklist-import > summary {
+  font: var(--vs-text-heading);
+}
+
+.checklist-import[open] > summary {
+  margin-bottom: 12px;
+}
+
+.checklist-import > :not(summary) + :not(summary) {
+  margin-top: 12px;
+}
+
+/* Numbered sections */
+.checklist-blocks {
+  display: flex !important;
+  flex-direction: column;
+  gap: 22px !important;
+}
+
+.checklist-block {
+  display: grid;
+  gap: 8px;
+}
+
+.checklist-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.checklist-block-num {
+  font: var(--vs-text-meta-mono);
+  color: var(--vs-accent);
+}
+
+.checklist-panel .checklist-block-head label {
+  display: block;
+  font: var(--vs-text-heading);
+}
+
+/* The template guidance is the placeholder: grow with it (and with the text) so it reads without scrolling. */
+.checklist-block textarea {
+  min-height: 120px;
+  field-sizing: content;
+}
+
+.checklist-block textarea[readonly] {
+  min-height: 0;
+}
+
+/* Sticky bottom action bar: last child of the record column, so it spans only that column. */
+.checklist-action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 0;
+  border-top: 1px solid var(--vs-line);
+  background: var(--vs-surface);
+}
+
+.checklist-bar-state {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--vs-ok-fg);
+}
+
+.checklist-bar-state::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-ok-dot);
+  transform: translateY(-1px);
+}
+
+.checklist-bar-state.is-dirty { color: var(--vs-warn-fg); }
+.checklist-bar-state.is-dirty::before { background: var(--vs-warn-dot); }
+.checklist-bar-state.is-idle { color: var(--vs-ink-3); }
+.checklist-bar-state.is-idle::before { background: var(--vs-muted-dot); }
+
+.checklist-bar-note {
   font-size: 12px;
   color: var(--vs-ink-3);
 }
 
-.idea-source {
-  padding: 12px 16px;
+.checklist-export {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.checklist-panel .checklist-export label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checklist-panel .checklist-export select {
+  width: auto;
+  min-height: var(--vs-control-md);
+}
+
+.checklist-link-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+/* 3 · Advice and decisions */
+.checklist-rail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  font-size: 13px;
+}
+
+.checklist-rail p {
+  color: var(--vs-ink-2);
+}
+
+/* The one bordered panel: AI advice stands apart from human steps. */
+.checklist-advice {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px;
   border: 1px solid var(--vs-line);
-  border-radius: 10px;
+  border-radius: var(--vs-radius-panel);
+  background: var(--vs-surface);
 }
 
-/* Document import */
-.idea-import {
-  display: grid;
-  gap: 12px;
+.checklist-advice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.idea-import > h3 {
+.checklist-advice-head h3 {
+  flex: 1;
   font: var(--vs-text-heading);
 }
 
-.idea-import > p {
+.checklist-advice h4 {
+  margin-top: 6px;
   font-size: 13px;
+  font-weight: 600;
+}
+
+.checklist-advice-meta,
+.checklist-rail .checklist-advice-meta {
+  font-size: 12px;
   color: var(--vs-ink-3);
 }
+
+.checklist-advice-list {
+  display: flex;
+  flex-direction: column;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checklist-advice-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  border-top: 1px solid var(--vs-line-soft);
+}
+
+.checklist-advice-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.checklist-advice-row strong {
+  font-weight: 600;
+}
+
+.checklist-advice-row .checklist-advice-status {
+  flex: none;
+  max-width: 50%;
+  text-align: right;
+}
+
+.checklist-rail .checklist-advice-improve {
+  color: var(--vs-ink);
+}
+
+.checklist-advice-list details > summary {
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.checklist-panel .checklist-advice-run {
+  width: 100%;
+}
+
+/* Human steps: flat, separated by a hairline. */
+.checklist-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 18px;
+  border-top: 1px solid var(--vs-line);
+}
+
+.checklist-step > h3 {
+  font: var(--vs-text-heading);
+}
+
+.checklist-step form {
+  padding-top: 12px;
+  border-top: 1px solid var(--vs-line-soft);
+}
+
+.checklist-step fieldset > button {
+  justify-self: start;
+}
+
+.checklist-step-state,
+.checklist-rail .checklist-step-state {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-surface-2);
+  color: var(--vs-ink);
+}
+
+.checklist-step-state svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--vs-ink-3);
+}
+
+.checklist-step-state strong {
+  font-weight: 600;
+}
+
+.checklist-step ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checklist-step ol li {
+  padding: 8px 0;
+  border-top: 1px solid var(--vs-line-soft);
+}
+
+.checklist-step details {
+  padding: 10px 0;
+  border-top: 1px solid var(--vs-line-soft);
+}
+
+.checklist-step details > p,
+.checklist-step details > dl {
+  margin-top: 8px;
+}
+
+/* ---------- Idea Pitch specifics ---------- */
 
 .idea-source-inputs {
   grid-template-columns: minmax(0, 1fr);
@@ -540,15 +807,7 @@
   }
 }
 
-.idea-source-inputs legend {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-}
-
-.idea-pitches-panel .idea-dropzone {
+.checklist-panel .idea-dropzone {
   position: relative;
   min-height: 132px;
   display: flex;
@@ -594,7 +853,6 @@
 }
 
 .idea-paste textarea {
-  flex: 1;
   min-height: 112px;
 }
 
@@ -606,12 +864,6 @@
   gap: 12px;
   font-size: 13px;
   color: var(--vs-warn-fg);
-}
-
-.idea-import-actions .ops-secondary {
-  min-height: var(--vs-control-sm);
-  padding: 0 12px;
-  font-size: 13px;
 }
 
 .idea-preview {
@@ -627,98 +879,7 @@
   color: var(--vs-ink-2);
 }
 
-.idea-pitches-panel dl {
-  display: grid;
-  gap: 10px;
-  margin: 0;
-}
-
-.idea-pitches-panel dt {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--vs-ink-3);
-}
-
-.idea-pitches-panel dd {
-  margin: 2px 0 0;
-  white-space: pre-wrap;
-  font-size: 13px;
-}
-
-.idea-preview > .ops-secondary {
-  justify-self: start;
-}
-
-/* Pitch blocks */
-.idea-writing-sheet {
-  border-top: 1px solid var(--vs-line);
-}
-
-.idea-fields {
-  gap: 0 !important;
-}
-
-.idea-fields > legend {
-  float: left;
-  width: 100%;
-  margin: 0;
-  padding: 16px 0 4px;
-}
-
-.idea-track {
-  max-width: 260px;
-  margin-top: 4px;
-}
-
-.idea-pitch-block {
-  display: grid;
-  gap: 8px;
-  padding: 16px 0 16px 48px;
-  position: relative;
-  border-bottom: 1px solid var(--vs-line-soft);
-}
-
-.idea-pitch-block:last-child {
-  border-bottom: 0;
-}
-
-.idea-block-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.idea-pitches-panel .idea-block-head label {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-/* The label text keeps its "1." prefix for assistive technology; the rail shows "01". */
-.idea-block-num {
-  position: absolute;
-  left: 0;
-  top: 19px;
-  font-size: 0;
-}
-
-.idea-block-num::before {
-  content: attr(data-num);
-  font: var(--vs-text-meta-mono);
-  color: var(--vs-accent);
-}
-
-/* The template guidance is the placeholder: grow with it (and with the text) so it reads without scrolling. */
-.idea-pitch-block textarea,
-.skeleton-block-body textarea {
-  min-height: 96px;
-  field-sizing: content;
-}
-
-/* Conversion form and history */
-.idea-convert,
-.idea-history {
+.idea-convert {
   padding-top: 20px;
   border-top: 1px solid var(--vs-line);
 }
@@ -728,56 +889,18 @@
   color: var(--vs-ink-2);
 }
 
-.idea-convert-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-  gap: 14px 16px;
-}
-
-.idea-date {
-  max-width: 240px;
-}
-
-.idea-convert fieldset > button,
-.idea-decision fieldset > button {
+.idea-convert fieldset > button {
   justify-self: start;
 }
 
-.idea-history > summary {
-  font: var(--vs-text-heading);
-}
-
-.idea-history details {
-  padding: 10px 0;
-  border-bottom: 1px solid var(--vs-line-soft);
-}
-
-.idea-history details > p {
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--vs-ink-2);
-}
-
-.idea-history dl {
-  margin-top: 10px;
-}
-
-/* Right rail */
-.idea-review-rail {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.idea-advice-meta {
-  font-size: 12px;
-  color: var(--vs-ink-3) !important;
+.idea-readiness {
+  display: grid;
+  gap: 2px;
 }
 
 .idea-review {
-  border-top: 1px solid var(--vs-line-soft);
   padding-top: 10px;
+  border-top: 1px solid var(--vs-line-soft);
 }
 
 .idea-review > summary {
@@ -789,154 +912,10 @@
   margin-top: 8px !important;
 }
 
-.idea-advice-list {
-  display: flex;
-  flex-direction: column;
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.idea-advice-list li {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 10px 0;
-  border-top: 1px solid var(--vs-line-soft);
-}
-
-.idea-advice-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.idea-advice-row strong {
-  font-weight: 600;
-}
-
-.idea-advice-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.idea-advice-status::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: var(--vs-radius-pill);
-  background: currentColor;
-}
-
-.idea-advice-status.is-supported { color: var(--vs-ok-fg); }
-.idea-advice-status.is-needs_work { color: var(--vs-warn-fg); }
-.idea-advice-status.is-missing { color: var(--vs-danger-fg); }
-.idea-advice-status.is-adequate,
-.idea-advice-status.is-strong,
-.idea-advice-status.is-addressed { color: var(--vs-ok-fg); }
-.idea-advice-status.is-partial { color: var(--vs-warn-fg); }
-.idea-advice-status.is-unanswered { color: var(--vs-danger-fg); }
-.idea-advice-status.is-ready { color: var(--vs-ok-fg); }
-.idea-advice-status.is-nearly { color: var(--vs-warn-fg); }
-.idea-advice-status.is-not { color: var(--vs-danger-fg); }
-.idea-readiness { display: grid; gap: 2px; }
-.idea-readiness .idea-advice-status { white-space: normal; }
-.idea-readiness small { font-size: 12px; color: var(--vs-ink-3); }
-.idea-advice-focus { font-size: 12px; color: var(--vs-ink-3); }
-
-.idea-advice-list blockquote {
-  margin: 4px 0;
-  padding-left: 10px;
-  border-left: 2px solid var(--vs-line);
-  color: var(--vs-ink-2);
-}
-
-.idea-advice-improve {
-  color: var(--vs-ink) !important;
-}
-
-.idea-review h4 {
-  margin-top: 8px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
 .idea-review ol {
   margin: 4px 0 8px;
   padding-left: 18px;
   color: var(--vs-ink-2);
-}
-
-.idea-review-provenance {
-  display: block;
-  font-size: 12px;
-  color: var(--vs-ink-3);
-}
-
-.idea-pitches-panel .idea-advice-run {
-  width: 100%;
-  min-height: var(--vs-control-md);
-  font-size: 14px;
-}
-
-.idea-decision-state {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: var(--vs-radius-control);
-  background: var(--vs-surface-2);
-  color: var(--vs-ink) !important;
-}
-
-.idea-decision-state svg {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  color: var(--vs-ink-3);
-}
-
-.idea-decision-state strong {
-  font-weight: 500;
-}
-
-.idea-decision form {
-  padding-top: 12px;
-  border-top: 1px solid var(--vs-line-soft);
-}
-
-.idea-decision legend {
-  font-size: 14px;
-}
-
-.idea-decision fieldset > p {
-  font-size: 12px;
-  color: var(--vs-ink-3);
-}
-
-/* Sharing sits in the rail without a frame */
-.idea-sharing {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  font-size: 13px;
-}
-
-.idea-sharing > h3 {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.idea-sharing > p {
-  color: var(--vs-ink-2);
-}
-
-.idea-sharing .idea-sharing-empty {
-  font-size: 12px;
-  color: var(--vs-ink-3);
 }
 
 .idea-sharing-add {
@@ -946,15 +925,12 @@
 
 .idea-sharing-add .ops-secondary {
   justify-self: start;
-  min-height: var(--vs-control-sm);
-  font-size: 13px;
 }
 
 .idea-sharing ul {
   margin: 0;
   padding: 0;
   list-style: none;
-  border-top: 1px solid var(--vs-line-soft);
 }
 
 .idea-sharing li {
@@ -963,7 +939,7 @@
   justify-content: space-between;
   gap: 12px;
   padding: 8px 0;
-  border-bottom: 1px solid var(--vs-line-soft);
+  border-top: 1px solid var(--vs-line-soft);
 }
 
 .idea-sharing li .ops-secondary {
@@ -972,673 +948,11 @@
   font-size: 13px;
 }
 
-/* Sticky bottom action bar */
-.idea-action-bar {
-  grid-column: 1 / -1;
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-top: 8px;
-  padding: 12px 0;
-  border-top: 1px solid var(--vs-line);
-  background: var(--vs-surface);
-}
-
-.idea-bar-state {
-  flex: 1 1 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--vs-ink-3);
-}
-
-.idea-bar-state::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  border-radius: var(--vs-radius-pill);
-  background: var(--vs-ok-dot);
-}
-
-.idea-bar-state.is-dirty {
-  color: var(--vs-warn-fg);
-}
-
-.idea-bar-state.is-dirty::before {
-  background: var(--vs-warn-dot);
-}
-
-.idea-bar-note {
-  font-size: 12px;
-  color: var(--vs-ink-3);
-}
-
-.idea-export {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.idea-pitches-panel .idea-export label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.idea-pitches-panel .idea-export select {
-  width: auto;
-  min-height: var(--vs-control-md);
-}
-
-.idea-convert-link {
-  display: inline-flex;
-  align-items: center;
-  text-decoration: none;
-}
-
-/* ---------- Skeleton Lock ---------- */
-
-.skeleton-lock {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  padding-bottom: 72px;
-}
-
-.skeleton-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: baseline;
-  gap: 10px var(--vs-space-8);
-}
-
-.skeleton-head > p {
-  max-width: var(--vs-measure);
-}
-
-@media (min-width: 1100px) {
-  .skeleton-head {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .skeleton-head > p {
-    grid-column: 1 / -1;
-  }
-}
-
-/* Workspace: views and review history form the left rail; the content column
-   holds the compose form (with the inherited-context rail) and the saved review. */
-.skeleton-workspace {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "views" "content" "history";
-  gap: var(--vs-space-6);
-  align-items: start;
-}
-
-.skeleton-workspace > .skeleton-views { grid-area: views; }
-.skeleton-workspace > .skeleton-content { grid-area: content; }
-.skeleton-workspace > .skeleton-history { grid-area: history; }
-
-@media (min-width: 1280px) {
-  .skeleton-workspace {
-    grid-template-areas: "views content" "history content";
-    grid-template-rows: auto 1fr;
-  }
-
-  .skeleton-workspace > .skeleton-views {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .skeleton-workspace > .skeleton-history {
-    padding-top: 0;
-    border-top: 0;
-  }
-
-  .skeleton-workspace .skeleton-review-row {
-    padding-inline: 10px;
-  }
-}
-
-.skeleton-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--vs-space-8);
-  min-width: 0;
-}
-
-.skeleton-compose {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--vs-space-6);
-  align-items: start;
-}
-
-.skeleton-picker-block {
-  display: grid;
-  gap: var(--vs-space-3);
-  min-width: 0;
-}
-
-.skeleton-picker-block > h3 {
-  font: var(--vs-text-heading);
-}
-
-/* Picker, then inherited context, then the form when stacked; context beside both from 1100px. */
-@media (min-width: 1100px) {
-  .skeleton-compose:has(.skeleton-context-rail) {
-    grid-template-rows: auto 1fr;
-  }
-
-  .skeleton-compose > .skeleton-context-rail {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-}
-
-.skeleton-context-rail {
-  display: grid;
-  gap: var(--vs-space-3);
-  min-width: 0;
-}
-
-.skeleton-context-rail > h3 {
-  font: var(--vs-text-label-caps);
-  letter-spacing: 0.06em;
-  color: var(--vs-ink-3);
-}
-
-@media (min-width: 1100px) {
-  .skeleton-context-rail .skeleton-project-context {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.skeleton-head > h2 {
-  font: var(--vs-text-section);
-}
-
-.skeleton-head > p,
-.skeleton-muted {
-  font-size: 13px;
-  color: var(--vs-ink-3);
-}
-
-.skeleton-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 20px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  counter-reset: skeleton-step;
-  font-size: 13px;
-  color: var(--vs-ink-2);
-}
-
-.skeleton-steps li {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  counter-increment: skeleton-step;
-}
-
-.skeleton-steps li::before {
-  content: counter(skeleton-step, decimal-leading-zero);
-  font: var(--vs-text-meta-mono);
-  color: var(--vs-accent);
-}
-
-.skeleton-views {
-  align-self: flex-start;
-  max-width: 100%;
-}
-
-/* Narrow screens: one row of equal segments, like the Chat History / Shared control. */
-@media (max-width: 767px) {
-  .skeleton-views {
-    align-self: stretch;
-    display: grid;
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(0, 1fr);
-  }
-
-  .skeleton-views button {
-    line-height: 1.25;
-    white-space: normal;
-  }
-}
-
-.skeleton-input {
-  min-width: 0;
-}
-
-.skeleton-input-panel {
-  gap: 18px !important;
-}
-
-.skeleton-input-panel > legend {
-  font: var(--vs-text-heading);
-}
-
-.skeleton-method {
-  max-width: 420px;
-}
-
-.skeleton-method:has(textarea) {
-  max-width: none;
-}
-
-/* Project picker */
-.skeleton-project-picker {
-  width: 100%;
-  max-width: 720px;
-  font-size: 14px;
-}
-
-#skeleton-project-label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.skeleton-project-trigger {
-  width: 100%;
-  min-height: var(--vs-control-lg);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 8px 12px;
-  border: 1px solid var(--vs-border-control);
-  border-radius: var(--vs-radius-control);
-  background: var(--vs-surface);
-  color: var(--vs-ink);
-  font-size: 14px;
-  font-weight: 400;
-  text-align: left;
-}
-
-.skeleton-project-trigger:hover {
-  border-color: var(--vs-accent-line);
-}
-
-.skeleton-project-trigger[aria-expanded="true"] {
-  border-color: var(--vs-accent);
-  box-shadow: var(--vs-focus-halo);
-}
-
-.skeleton-project-identity {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-}
-
-.skeleton-project-identity > :first-child {
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-
-.skeleton-project-owner {
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--vs-ink-3);
-  overflow-wrap: anywhere;
-}
-
-.skeleton-project-picker svg {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  color: var(--vs-ink-3);
-}
-
-.skeleton-project-trigger .is-open {
-  transform: rotate(180deg);
-}
-
-.skeleton-project-options {
-  margin-top: 6px;
-  padding: 6px;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius-panel);
-  background: var(--vs-surface);
-  box-shadow: var(--vs-shadow-popover);
-}
-
-.skeleton-lock .skeleton-project-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--vs-line-soft);
-}
-
-.skeleton-lock .skeleton-project-search input,
-.skeleton-lock .skeleton-project-search input:focus-visible {
-  min-height: 38px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.skeleton-project-count {
-  margin: 8px 8px 4px !important;
-  font-size: 12px;
-  color: var(--vs-ink-3);
-  font-variant-numeric: tabular-nums;
-}
-
-.skeleton-project-options ul {
-  max-height: 280px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.skeleton-project-option {
-  width: 100%;
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--vs-ink);
-  text-align: left;
-}
-
-.skeleton-project-option:hover,
-.skeleton-project-option[aria-pressed="true"] {
-  background: var(--vs-accent-selected);
-}
-
-.skeleton-project-option[aria-pressed="true"] > svg {
-  color: var(--vs-accent-strong);
-}
-
-.skeleton-project-option:focus-visible {
-  outline-offset: -2px;
-}
-
-.skeleton-project-options > p:last-child:not(.skeleton-project-count) {
-  padding: 12px 8px;
-  color: var(--vs-ink-3);
-  font-size: 13px;
-}
-
-/* Inherited context */
-.skeleton-project-context {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
-  gap: 12px 24px;
-  margin: 0;
-  padding: 14px 0;
-  border-top: 1px solid var(--vs-line-soft);
-  border-bottom: 1px solid var(--vs-line-soft);
-}
-
-.skeleton-project-context dt {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--vs-ink-3);
-}
-
-.skeleton-project-context dd {
-  margin: 2px 0 0;
-  font-size: 14px;
-  overflow-wrap: anywhere;
-}
-
-/* Numbered skeleton sections, matching the Idea Pitch block pattern */
-.skeleton-blocks {
-  display: grid;
-  border-top: 1px solid var(--vs-line);
-}
-
-.skeleton-block {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 12px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--vs-line-soft);
-}
-
-.skeleton-block-num {
-  padding-top: 2px;
-  font-size: 12px;
-  color: var(--vs-accent);
-}
-
-.skeleton-block-body {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.skeleton-block-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.skeleton-lock .skeleton-block-head label {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.skeleton-block-body textarea {
-  margin-top: 2px;
-}
-
-.skeleton-submit-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 24px;
-}
-
-.skeleton-submit-row p {
-  flex: 1 1 280px;
-  font-size: 13px;
-  color: var(--vs-ink-3);
-}
-
-/* Review history list */
-.skeleton-history {
-  display: grid;
-  gap: 10px;
-  padding-top: 20px;
-  border-top: 1px solid var(--vs-line);
-}
-
-.skeleton-history h3 {
-  font: var(--vs-text-heading);
-}
-
-.skeleton-review-list {
-  display: grid;
-  border-top: 1px solid var(--vs-line-soft);
-}
-
-.skeleton-review-row {
-  display: grid;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 0;
-  border-bottom: 1px solid var(--vs-line-soft);
-  background: transparent;
-  color: var(--vs-ink);
-  font-size: 14px;
-  text-align: left;
-}
-
-.skeleton-review-row:hover:not(:disabled) {
-  background: var(--vs-row-hover);
-}
-
-.skeleton-review-row.active {
-  background: var(--vs-accent-selected);
-}
-
-.skeleton-review-row strong {
-  font-weight: 500;
-}
-
-.skeleton-row-meta,
-.skeleton-row-states {
-  font-size: 12px;
-  color: var(--vs-ink-3);
-}
-
-/* Saved review detail: evidence on the left, human steps in the rail */
-.skeleton-review-detail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--vs-space-6);
-  align-items: start;
-  padding-top: 20px;
-  border-top: 1px solid var(--vs-line);
-}
-
-.skeleton-detail-main {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.skeleton-detail-main > h3 {
-  font: var(--vs-text-section);
-}
-
-.skeleton-ai {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.skeleton-ai > p {
-  max-width: var(--vs-measure);
-  color: var(--vs-ink-2);
-}
-
-.skeleton-review-table {
-  overflow-x: auto;
-  border: 1px solid var(--vs-line);
-  border-radius: 10px;
-}
-
-.skeleton-review-table table {
-  width: 100%;
-  min-width: 720px;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.skeleton-review-table th,
-.skeleton-review-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--vs-line-soft);
-  text-align: left;
-  vertical-align: top;
-}
-
-.skeleton-review-table th {
-  background: var(--vs-surface-table-head);
-  color: var(--vs-ink-3);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.skeleton-review-table tr:last-child td {
-  border-bottom: 0;
-}
-
-.skeleton-review-table td p {
-  margin-top: 4px;
-  color: var(--vs-ink-2);
-}
-
-.skeleton-finding {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-  white-space: nowrap;
-  text-transform: capitalize;
-  color: var(--vs-muted-fg);
-}
-
-.skeleton-finding::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: var(--vs-radius-pill);
-  background: currentColor;
-}
-
-.skeleton-finding.is-pass { color: var(--vs-ok-fg); }
-.skeleton-finding.is-partial,
-.skeleton-finding.is-conditional { color: var(--vs-warn-fg); }
-.skeleton-finding.is-fail,
-.skeleton-finding.is-missing { color: var(--vs-danger-fg); }
-
-.skeleton-downloads {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.skeleton-downloads .ops-secondary {
-  min-height: var(--vs-control-sm);
-  font-size: 13px;
-}
-
-.skeleton-detail-main > details {
-  padding: 12px 16px;
-  border: 1px solid var(--vs-line);
-  border-radius: 10px;
-}
-
-.skeleton-detail-main > details form {
-  margin-top: 12px;
-}
-
-.skeleton-decision-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-}
+/* ---------- Skeleton Lock specifics ---------- */
 
 .skeleton-decision-record {
-  display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--vs-surface-2);
-  font-size: 13px;
+  gap: 4px !important;
 }
 
 .skeleton-decision-meta {
@@ -1646,31 +960,7 @@
   color: var(--vs-ink-3);
 }
 
-.skeleton-decision-record strong {
-  font-weight: 600;
-}
-
-.skeleton-awaiting {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  color: var(--vs-ink-2);
-}
-
-.skeleton-awaiting svg {
-  flex: none;
-  width: 16px;
-  height: 16px;
-  margin-top: 1px;
-  color: var(--vs-ink-3);
-}
-
-.skeleton-judgment {
-  padding-top: 12px;
-  border-top: 1px solid var(--vs-line-soft);
-}
-
-/* The panel heading already names the step; the legend still names the group for assistive technology. */
+/* The step heading already names the judgment; the legend still names the group for assistive technology. */
 .skeleton-judgment legend {
   position: absolute;
   width: 1px;
@@ -1680,65 +970,39 @@
   white-space: nowrap;
 }
 
-.skeleton-judgment fieldset > button {
-  justify-self: end;
-}
-
-.skeleton-judgment-history {
-  display: grid;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.skeleton-judgment-history h4 {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.skeleton-judgment-history ol {
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.skeleton-paper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
   border-top: 1px solid var(--vs-line-soft);
 }
 
-.skeleton-judgment-history li {
+.skeleton-paper-group h5 {
+  padding-top: 8px;
+  font: var(--vs-text-label-caps);
+  letter-spacing: 0.06em;
+  color: var(--vs-ink-3);
+}
+
+.skeleton-paper-group .checklist-advice-list li {
   padding: 8px 0;
-  border-bottom: 1px solid var(--vs-line-soft);
 }
 
-.skeleton-judgment-history li p {
-  margin-top: 2px;
-  color: var(--vs-ink-2);
-}
-
-/* ---------- Responsive grid ----------
-   < 1100   one column: list, editor, advice/decision rail, then action bar.
-   1100+    editor | rail (280); the pitch list and review history stay above/below.
-   1280+    list (200) | editor | rail (300): tight three columns.
-   1600+    list (260) | editor | rail (340).
-   1800+    list (280) | editor | rail (360–440).
-   The sticky action bar always spans only the editor column. */
-
-@media (min-width: 1100px) {
-  .project-idea-check,
-  .skeleton-compose:has(.skeleton-context-rail),
-  .skeleton-review-detail {
-    grid-template-columns: minmax(0, 1fr) 280px;
-  }
-
-  .idea-action-bar {
-    grid-column: 1;
-  }
-}
+/* ---------- Responsive grid ---------- */
 
 @media (min-width: 1280px) {
-  .idea-workspace,
-  .skeleton-workspace {
+  .checklist-workspace {
     grid-template-columns: 200px minmax(0, 1fr);
   }
 
-  .idea-pitch-toolbar {
+  .checklist-record {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    column-gap: var(--vs-space-6);
+  }
+
+  /* List: sticky, filters stay in view, only the grouped list scrolls. */
+  .checklist-list {
     position: sticky;
     top: var(--vs-space-4);
     max-height: calc(100dvh - 160px);
@@ -1746,24 +1010,20 @@
     border-bottom: 0;
   }
 
-  .idea-rail-toggle {
+  .checklist-list-toggle {
     display: none;
   }
 
-  .idea-rail-list,
-  .idea-rail-list[data-open="false"] {
+  .checklist-list-body,
+  .checklist-list-body[data-open="false"] {
     display: flex;
     flex: 1 1 auto;
     min-height: 0;
-  }
-
-  /* Filters stay in view; only the grouped list scrolls. */
-  .idea-rail-list {
     overflow-y: auto;
     overscroll-behavior: contain;
   }
 
-  .idea-rail-filters {
+  .checklist-list-filters {
     position: sticky;
     top: 0;
     z-index: 1;
@@ -1772,18 +1032,12 @@
     background: var(--vs-surface);
   }
 
-  .idea-rail-group ul {
+  .checklist-list-group ul {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Long agent advice scrolls inside its own rail instead of leaving the editor column empty. */
-  .skeleton-compose > .skeleton-context-rail {
-    position: sticky;
-    top: var(--vs-space-4);
-  }
-
-  .idea-review-rail,
-  .skeleton-decision-rail {
+  /* Long advice scrolls inside its own rail instead of leaving the record column empty. */
+  .checklist-rail {
     position: sticky;
     top: var(--vs-space-4);
     max-height: calc(100dvh - 112px);
@@ -1792,172 +1046,54 @@
     padding: 2px;
     margin: -2px;
   }
-
-  .project-idea-check,
-  .skeleton-compose:has(.skeleton-context-rail),
-  .skeleton-review-detail {
-    grid-template-columns: minmax(0, 1fr) 300px;
-  }
 }
 
 @media (min-width: 1600px) {
-  .idea-workspace,
-  .skeleton-workspace,
-  .project-idea-check,
-  .skeleton-compose:has(.skeleton-context-rail),
-  .skeleton-review-detail {
+  .checklist-workspace,
+  .checklist-record {
     column-gap: var(--vs-space-8);
   }
 
-  .idea-workspace,
-  .skeleton-workspace {
+  .checklist-workspace {
     grid-template-columns: 260px minmax(0, 1fr);
   }
 
-  .project-idea-check,
-  .skeleton-compose:has(.skeleton-context-rail),
-  .skeleton-review-detail {
+  .checklist-record {
     grid-template-columns: minmax(0, 1fr) 340px;
   }
 }
 
 @media (min-width: 1800px) {
-  .idea-workspace,
-  .skeleton-workspace,
-  .project-idea-check,
-  .skeleton-compose:has(.skeleton-context-rail),
-  .skeleton-review-detail {
-    column-gap: var(--vs-space-10);
-  }
-
-  .idea-workspace,
-  .skeleton-workspace {
+  .checklist-workspace {
     grid-template-columns: 280px minmax(0, 1fr);
   }
 
-  .project-idea-check,
-  .skeleton-compose:has(.skeleton-context-rail),
-  .skeleton-review-detail {
-    grid-template-columns: minmax(0, 1fr) clamp(360px, 18vw, 440px);
+  .checklist-record {
+    grid-template-columns: minmax(0, 1fr) clamp(360px, 18vw, 380px);
   }
-
 }
 
 @media (max-width: 640px) {
-  .idea-pitch-block {
-    padding-left: 36px;
+  .checklist-record-title,
+  .console-page input.checklist-record-title:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]) {
+    font-size: 24px;
   }
 
-  .skeleton-block {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
-  }
-
-  .idea-action-bar {
+  .checklist-action-bar {
     gap: 8px;
   }
 
-  .idea-bar-state {
+  .checklist-bar-state {
     flex-basis: 100%;
   }
-}
 
-.skeleton-content > .skeleton-review-detail:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-/* Skeleton Lock: stage gate in the project picker and the advisory Paper Skeleton checklist */
-.skeleton-project-option:disabled {
-  cursor: not-allowed;
-  background: transparent;
-  color: var(--vs-ink-3);
-}
-
-.skeleton-project-reason {
-  font-size: 12px;
-  color: var(--vs-ink-3);
-}
-
-.skeleton-paper {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.skeleton-paper-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.skeleton-paper-head h5 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.skeleton-paper-group th {
-  background: var(--vs-surface-2);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--vs-ink-2);
-}
-
-.skeleton-review-table th[scope="row"] {
-  background: transparent;
-  color: var(--vs-ink);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.skeleton-review-table th[scope="row"] p {
-  margin-top: 4px;
-  font-weight: 400;
-  font-size: 12px;
-  color: var(--vs-ink-3);
-}
-
-.skeleton-finding.skeleton-paper-status {
-  text-transform: none;
-}
-
-.skeleton-paper table {
-  min-width: 0;
-  table-layout: fixed;
-}
-
-.skeleton-paper thead th:nth-child(1) { width: 36%; }
-.skeleton-paper thead th:nth-child(2) { width: 15%; }
-.skeleton-paper thead th:nth-child(4) { width: 17%; }
-
-.skeleton-paper td,
-.skeleton-paper th {
-  overflow-wrap: anywhere;
-}
-
-@media (max-width: 640px) {
-  .skeleton-paper thead,
-  .skeleton-paper .skeleton-paper-measured.is-empty {
-    display: none;
+  .checklist-panel .checklist-quiet-button {
+    margin-left: 0;
   }
 
-  .skeleton-paper tbody tr:not(.skeleton-paper-group) {
-    display: grid;
-    border-bottom: 1px solid var(--vs-line-soft);
-  }
-
-  .skeleton-paper tbody tr:not(.skeleton-paper-group) > * {
-    padding: 4px 12px;
-    border-bottom: 0;
-  }
-
-  .skeleton-paper tbody tr:not(.skeleton-paper-group) > :first-child { padding-top: 10px; }
-  .skeleton-paper tbody tr:not(.skeleton-paper-group) > :last-child { padding-bottom: 10px; }
-  .skeleton-paper-group th { display: block; }
-  .skeleton-paper-measured:not(.is-empty)::before {
-    content: "Measured: ";
-    color: var(--vs-ink-3);
-    font-size: 12px;
+  /* Keep format and download on one row; the label still names the select for assistive technology. */
+  .checklist-panel .checklist-export label {
+    gap: 0;
+    font-size: 0;
   }
 }

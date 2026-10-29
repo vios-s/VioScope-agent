@@ -128,7 +128,7 @@ async function checkBriefing(page: any) {
   await page.getByText(projectTitle).waitFor({ state: 'visible', timeout: 15_000 });
   await page.getByText('Release Theme A', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
   await page.getByText('Active projects', { exact: true }).waitFor({ state: 'visible' });
-  await page.getByText('Need attention', { exact: true }).waitFor({ state: 'visible' });
+  await page.getByText('Needs attention', { exact: true }).waitFor({ state: 'visible' });
 }
 
 async function checkAlertClickThrough(page: any) {
@@ -170,7 +170,7 @@ async function checkFeedback(page: any, baseUrl: string, browser: any) {
     const feedbackCard = adminPage.locator('.feedback-card').filter({ hasText: title });
     await feedbackCard.getByLabel('Status', { exact: true }).selectOption('solved');
     await feedbackCard.getByLabel('Reply to requester').fill('Resolved by the release UI smoke check.');
-    await feedbackCard.getByRole('button', { name: 'Save update' }).click();
+    await feedbackCard.getByRole('button', { name: 'Save reply' }).click();
     await adminPage.getByRole('status').filter({ hasText: 'Feedback request updated.' }).waitFor({ state: 'visible', timeout: 15_000 });
     await adminPage.locator('.feedback-card').filter({ hasText: title }).locator('.feedback-status-solved').waitFor({ state: 'visible' });
   } finally {

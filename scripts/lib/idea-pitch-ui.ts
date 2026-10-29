@@ -19,9 +19,9 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await page.goto(base + '/?view=checklists');
     const panel = page.locator('.project-idea-check');
     const title = panel.getByRole('textbox', { name: /^Pitch title/ });
-    // The left rail is the only pitch navigator; each item carries its pitch id.
-    const railItem = (target: typeof page, pitchId: string) => target.locator(`.idea-rail-item[data-pitch-id="${pitchId}"]`);
-    const selectedId = () => page.locator('.idea-rail-item[aria-current="true"]').getAttribute('data-pitch-id');
+    // The record list is the only pitch navigator; each item carries its pitch id.
+    const railItem = (target: typeof page, pitchId: string) => target.locator(`.checklist-list-item[data-pitch-id="${pitchId}"]`);
+    const selectedId = () => page.locator('.checklist-list-item[aria-current="true"]').getAttribute('data-pitch-id');
     await title.waitFor();
     assert.equal(await title.inputValue(), '');
     assert.equal(await panel.getByRole('button', { name: 'Delete pitch', exact: true }).count(), 0);
@@ -73,9 +73,9 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       await piPage.goto(base + '/?view=checklists');
       // PI/admin find every proposer's pitch in the rail; there is no separate overview table.
       await piPage.getByRole('searchbox', { name: 'Find a pitch', exact: true }).fill('alice');
-      assert.equal(await piPage.getByRole('combobox', { name: 'Pitch status', exact: true }).count(), 1);
+      assert.equal(await piPage.getByRole('combobox', { name: 'Status', exact: true }).count(), 1);
       assert.equal(await piPage.locator('.idea-pi-overview').count(), 0);
-      const piItem = piPage.locator('.idea-rail-group').filter({ hasText: 'Other proposers' }).locator(`.idea-rail-item[data-pitch-id="${id}"]`);
+      const piItem = piPage.locator('.checklist-list-group').filter({ hasText: 'Other proposers' }).locator(`.checklist-list-item[data-pitch-id="${id}"]`);
       await piItem.waitFor();
       assert.match((await piItem.textContent())!, /DEMO — Low-cost cell counting@alice · Awaiting decision · v1/);
       await piPage.screenshot({ path: resolve(output, 'pi-overview.png') });
@@ -140,7 +140,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await page.screenshot({ path: resolve(output, 'approved-download.png') });
     for (const width of [1440, 768, 390]) {
       await page.setViewportSize({ width, height: 1000 });
-      await panel.locator('.idea-record-header').scrollIntoViewIfNeeded();
+      await panel.locator('.checklist-record-head').scrollIntoViewIfNeeded();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       await page.screenshot({ path: resolve(output, `saved-${width}.png`) });
     }
@@ -159,7 +159,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await railItem(page, id).waitFor({ state: 'detached' });
     assert.equal(await title.inputValue(), '');
     assert.equal((await context.request.get(base + '/api/idea-pitches/' + id)).status(), 403);
-    assert.equal(await page.locator('.idea-rail-item[aria-current="true"]').count(), 0);
+    assert.equal(await page.locator('.checklist-list-item[aria-current="true"]').count(), 0);
     // A title is required before the draft can be saved.
     await panel.locator('.idea-fields').getByRole('textbox', { name: /^1\. The Why/ }).fill('DEMO — Can a smaller model work?');
     await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
@@ -171,7 +171,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await panel.getByRole('button', { name: 'Delete pitch', exact: true }).click();
     await deleteDialog.getByRole('textbox', { name: 'Type the pitch title to confirm' }).fill('DEMO — Required title');
     await deleteDialog.getByRole('button', { name: 'Permanently delete pitch', exact: true }).click();
-    await page.locator('.idea-rail-item[aria-current="true"]').waitFor({ state: 'detached' });
+    await page.locator('.checklist-list-item[aria-current="true"]').waitFor({ state: 'detached' });
     const handoffPitch = await (await context.request.post(base + '/api/idea-pitches', { data: { title: 'DEMO — Project meeting handoff' } })).json();
     const handoffUrl = base + '/api/idea-pitches/' + handoffPitch.id;
     assert.equal((await context.request.post(handoffUrl, { data: { operation: 'save', version: 0, draft } })).status(), 200);

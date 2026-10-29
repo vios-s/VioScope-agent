@@ -327,7 +327,7 @@
   white-space: nowrap;
 }
 
-/* Role badges: Administrator dark, PI accent, Coordinator soft accent, Member muted */
+/* Role chips: one neutral style for every role (role is not a status). */
 .role-badge {
   display: inline-flex;
   align-items: center;
@@ -340,21 +340,6 @@
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-}
-
-.role-badge.role-administrator {
-  background: var(--vs-ink);
-  color: var(--vs-surface);
-}
-
-.role-badge.role-pi {
-  background: var(--vs-accent);
-  color: var(--vs-surface);
-}
-
-.role-badge.role-organizer {
-  background: var(--vs-accent-selected);
-  color: var(--vs-accent-strong);
 }
 
 /* Account status: dot + word */
@@ -502,37 +487,52 @@
   font-size: 13px;
 }
 
-.role-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 12px;
+.role-help {
+  position: relative;
 }
 
-.role-legend h3 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+.role-help summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--vs-control-md);
+  padding: 0 4px;
+  color: var(--vs-accent-strong);
+  font-size: 13px;
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
 }
 
-.role-legend dl {
+.role-help summary::-webkit-details-marker {
+  display: none;
+}
+
+.role-help summary:hover {
+  text-decoration: underline;
+}
+
+.role-help-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(420px, calc(100vw - 32px));
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
-  gap: 16px 24px;
+  gap: 10px;
   margin: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--vs-line);
+  border-radius: 10px;
+  background: var(--vs-surface);
+  box-shadow: var(--vs-shadow-popover);
   font-size: 13px;
 }
 
-.role-legend dl > div {
-  padding-top: 10px;
-  border-top: 1px solid var(--vs-line-soft);
-}
-
-.role-legend dt {
+.role-help-popover dt {
   font-weight: 600;
 }
 
-.role-legend dd {
+.role-help-popover dd {
   margin: 2px 0 0;
   color: var(--vs-ink-2);
   line-height: 1.5;
@@ -608,6 +608,48 @@
   font-size: 12px;
 }
 
+.account-avatar-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.account-settings-card .avatar-change-button,
+.users-modal .avatar-change-button {
+  position: relative;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  height: var(--vs-control-sm);
+  padding: 0 10px;
+  border: 1px solid var(--vs-border-control);
+  border-radius: var(--vs-radius-row-btn);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.avatar-change-button:hover {
+  background: var(--vs-surface-2);
+}
+
+.avatar-change-button:focus-within {
+  outline: var(--vs-focus-ring);
+  outline-offset: var(--vs-focus-offset);
+}
+
+.avatar-change-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+
 .avatar-upload.avatar-upload-icon {
   width: var(--vs-control-sm);
   height: var(--vs-control-sm);
@@ -651,7 +693,7 @@
 .password-strength-medium { color: var(--vs-warn-fg); }
 .password-strength-strong { color: var(--vs-ok-fg); }
 
-/* ---------- Notifications and integrations ---------- */
+/* ---------- Notifications ---------- */
 
 .settings-list-panel {
   overflow: visible;
@@ -745,35 +787,6 @@
   font-size: 13px;
 }
 
-.integration-mark {
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: var(--vs-radius-control);
-  background: var(--vs-surface-3);
-  color: var(--vs-ink-2);
-  font-size: 11px;
-}
-
-.integration-status {
-  gap: 6px;
-  min-height: 24px;
-  padding: 0 10px;
-  border: 0;
-  background: var(--vs-muted-bg);
-  color: var(--vs-muted-fg);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.integration-status::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: var(--vs-radius-pill);
-  background: var(--vs-muted-dot);
-}
-
 /* ---------- About ---------- */
 
 .about-panel {
@@ -795,14 +808,18 @@
   border-bottom: 1px solid var(--vs-line-soft);
 }
 
-.about-panel span {
+.about-panel {
+  margin: 0;
+}
+
+.about-panel dt {
   color: var(--vs-ink-3);
   font-size: 13px;
 }
 
-.about-panel strong {
+.about-panel dd {
+  margin: 0;
   color: var(--vs-ink);
-  font-weight: 400;
 }
 
 /* ---------- Theme meeting ---------- */
@@ -992,6 +1009,31 @@
   height: 14px;
 }
 
+.theme-duplicate-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-warn-bg);
+  color: var(--vs-warn-fg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.theme-duplicate-warning svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 2px;
+}
+
+.theme-settings-card-head {
+  align-items: center;
+  justify-content: flex-start;
+}
+
 /* ---------- Configuration ---------- */
 
 .config-panel {
@@ -1112,10 +1154,6 @@
   font-weight: 500;
 }
 
-.config-source {
-  font-family: var(--vs-font-mono);
-}
-
 .config-source.source-database {
   background: var(--vs-accent-selected);
   color: var(--vs-accent-strong);
@@ -1214,9 +1252,10 @@
   font-weight: 600;
 }
 
-.audit-file-group span {
-  font-family: var(--vs-font-mono);
-  font-size: 12px;
+.audit-file-group button {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .audit-file-group small {
@@ -1236,9 +1275,21 @@
   font-size: 13px;
 }
 
-.audit-panel-head p {
-  font-family: var(--vs-font-mono);
-  font-size: 12px;
+.audit-target-cell {
+  max-width: 280px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.audit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 0;
+  color: var(--vs-ink-3);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .audit-toolbar {
@@ -1267,8 +1318,7 @@
 }
 
 .audit-table td:first-child {
-  font-family: var(--vs-font-mono);
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1305,9 +1355,8 @@
   padding: 0;
 }
 
-.markdown-editor-panel .ops-panel-head p {
-  font-family: var(--vs-font-mono);
-  font-size: 12px;
+.markdown-import-help {
+  margin-left: auto;
 }
 
 .settings-page .markdown-editor-textarea {
@@ -1338,15 +1387,14 @@
     gap: 20px;
   }
 
-  /* Section nav becomes a horizontally scrolling row of pills. */
+  /* Section nav wraps onto rows of pills so no section is hidden off-screen. */
   .settings-sidebar {
     flex: 1 1 100%;
     flex-direction: row;
+    flex-wrap: wrap;
     gap: 4px;
-    overflow-x: auto;
-    padding-bottom: 6px;
+    padding-bottom: 8px;
     border-bottom: 1px solid var(--vs-line);
-    scrollbar-width: thin;
   }
 
   .settings-sidebar-label,
@@ -1384,5 +1432,91 @@
   .notification-grid-head,
   .notification-preference-row {
     grid-template-columns: minmax(0, 1fr) 56px 56px;
+  }
+
+  /* User management: stacked rows instead of a sideways-scrolling table. */
+  .ops-user-table {
+    min-width: 0;
+  }
+
+  .ops-user-table thead {
+    display: none;
+  }
+
+  .ops-user-table,
+  .ops-user-table tbody {
+    display: block;
+  }
+
+  .ops-user-table tr {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) max-content;
+    gap: 6px 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--vs-line-soft);
+  }
+
+  .settings-page .members-panel .ops-table-wrap {
+    overflow: visible;
+  }
+
+  .ops-table.ops-user-table td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    white-space: normal;
+  }
+
+  .ops-user-table .member-name small {
+    overflow-wrap: anywhere;
+  }
+
+  .ops-user-table td:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .ops-user-table td:nth-child(3) {
+    display: none;
+  }
+
+  .ops-user-table td:nth-child(2),
+  .ops-user-table td:nth-child(4),
+  .ops-user-table td.member-last-active {
+    display: inline-flex;
+    align-items: center;
+    grid-column: 1;
+  }
+
+  .ops-user-table td.member-last-active::before {
+    content: "Last active ";
+    margin-right: 4px;
+  }
+
+  .ops-table.ops-user-table td.row-actions-cell {
+    display: flex;
+    width: auto;
+    align-items: center;
+    grid-column: 2;
+    grid-row: 2 / span 3;
+    align-self: center;
+  }
+
+  .ops-user-table td[colspan] {
+    grid-column: 1 / -1;
+  }
+
+  .role-help-popover {
+    position: fixed;
+    top: auto;
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+
+  .audit-target-cell {
+    max-width: 180px;
   }
 }

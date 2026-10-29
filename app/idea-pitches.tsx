@@ -15,6 +15,7 @@ const railGroups = [
 ] as const;
 
 const statusLabels: Record<string, string> = { draft: 'Awaiting decision', ...ideaOutcomeLabels, project: 'Project created' };
+const statusTone: Record<string, string> = { draft: 'muted', revise: 'warn', proceed: 'ok', stop: 'danger', project: 'accent' };
 const pitchState = (pitch: IdeaPitch) => pitch.projectId ? 'project' : pitch.outcome || 'draft';
 
 export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onProjectCreated: () => Promise<void> }) {
@@ -25,7 +26,6 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
   const [displayed, setDisplayed] = useState(selected);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
-  const [scope, setScope] = useState('personal');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [newDraft, setNewDraft] = useState(0);
@@ -54,52 +54,51 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
     if (newDraft > 0 && (editorRef.current?.getBoundingClientRect().top ?? 0) < 0) editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [newDraft]);
   async function load() {
-    const payload = await requestJson<{ pitches: IdeaPitch[]; scope: string }>('/api/idea-pitches', 'Could not load idea pitches.');
-    setPitches(payload.pitches); setScope(payload.scope);
+    setPitches((await requestJson<{ pitches: IdeaPitch[] }>('/api/idea-pitches', 'Could not load idea pitches.')).pitches);
   }
   useEffect(() => {
     let active = true;
-    void requestJson<{ pitches: IdeaPitch[]; scope: string }>('/api/idea-pitches', 'Could not load idea pitches.')
-      .then((data) => { if (active) { setPitches(data.pitches); setScope(data.scope); } })
+    void requestJson<{ pitches: IdeaPitch[] }>('/api/idea-pitches', 'Could not load idea pitches.')
+      .then((data) => { if (active) setPitches(data.pitches); })
       .catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'Could not load.'); });
     return () => { active = false; };
   }, []);
   const matchingPitches = (pitches || []).filter(pitch => `${pitch.title} @${pitch.ownerUsername}`.toLowerCase().includes(search.trim().toLowerCase()) && (filter === 'all' || pitchState(pitch) === filter));
   const current = pitches?.find(pitch => pitch.id === displayed);
-  return <section className="idea-pitches-panel">
-    {error && <p role="alert" className="ops-notice error idea-page-alert">{error} <button className="ops-secondary" type="button" onClick={() => { setError(''); void load().catch((caught) => setError(caught.message)); }}>Retry</button></p>}
-    {status && <p role="status" className="form-message idea-page-status">{status}</p>}
-    <div className="idea-workspace">
-      <aside className="idea-pitch-toolbar" aria-label="Pitch list">
-        <button className="ops-secondary idea-new-pitch" type="button" disabled={editorState.busy} onClick={() => openPitch('')}><Plus aria-hidden="true" />New pitch</button>
-        <button type="button" className="idea-rail-toggle" aria-expanded={listOpen} aria-controls="idea-rail-list" onClick={() => setListOpen(open => !open)}>
+  return <section className="checklist-panel idea-pitches-panel">
+    {error && <p role="alert" className="ops-notice error checklist-page-notice">{error} <button className="ops-secondary" type="button" onClick={() => { setError(''); void load().catch((caught) => setError(caught.message)); }}>Retry</button></p>}
+    {status && <p role="status" className="form-message checklist-page-notice">{status}</p>}
+    <div className="checklist-workspace">
+      <aside className="checklist-list" aria-label="Pitch list">
+        <button className="ops-secondary checklist-new" type="button" disabled={editorState.busy} onClick={() => openPitch('')}><Plus aria-hidden="true" />New pitch</button>
+        <button type="button" className="checklist-list-toggle" aria-expanded={listOpen} aria-controls="idea-list-body" onClick={() => setListOpen(open => !open)}>
           <span>{listOpen ? 'Hide saved pitches' : `Saved pitches${pitches ? ` (${pitches.length})` : ''}`}</span>
           {!listOpen && <small>{current ? `Open: ${current.title}` : 'Open: new pitch'}</small>}
           <ChevronDown aria-hidden="true" />
         </button>
-        <div id="idea-rail-list" className="idea-rail-list" data-open={listOpen}>
-          {(pitches?.length || 0) > 0 && <div className="idea-rail-filters">
+        <div id="idea-list-body" className="checklist-list-body" data-open={listOpen}>
+          {(pitches?.length || 0) > 0 && <div className="checklist-list-filters">
             <label>Find a pitch<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Title or @username" /></label>
-            {(scope === 'all' || (pitches?.length || 0) > 8) && <label>Pitch status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All statuses</option><option value="draft">Awaiting decision</option><option value="revise">Revise</option><option value="proceed">Proceed</option><option value="stop">Stop</option><option value="project">Project created</option></select></label>}
+            <label>Status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All statuses</option><option value="draft">Awaiting decision</option><option value="revise">Revise</option><option value="proceed">Proceed</option><option value="stop">Stop</option><option value="project">Project created</option></select></label>
           </div>}
-          {pitches === null && <span className="idea-rail-note" role="status">{error ? 'Saved pitches unavailable.' : 'Loading saved pitches…'}</span>}
-          {pitches && matchingPitches.length === 0 && <p className="idea-rail-note" role="status">{pitches.length ? 'No pitches match this search.' : 'No saved pitches yet.'}</p>}
+          {pitches === null && <span className="checklist-list-note" role="status">{error ? 'Saved pitches unavailable.' : 'Loading saved pitches…'}</span>}
+          {pitches && matchingPitches.length === 0 && <p className="checklist-list-note" role="status">{pitches.length ? 'No pitches match this search.' : 'No saved pitches yet.'}</p>}
           {railGroups.map(group => {
             const items = matchingPitches.filter(pitch => pitch.access === group.access);
-            return items.length > 0 && <div className="idea-rail-group" key={group.access}>
+            return items.length > 0 && <div className="checklist-list-group" key={group.access}>
               <h2 className="vs-caps">{group.label}</h2>
               <ul>{items.map(pitch => <li key={pitch.id}>
-                <button type="button" data-pitch-id={pitch.id} className={`idea-rail-item${pitch.id === displayed ? ' active' : ''}`} aria-current={pitch.id === displayed ? 'true' : undefined} disabled={editorState.busy} onClick={() => { if (pitch.id !== displayed) openPitch(pitch.id); else setListOpen(false); }}>
+                <button type="button" data-pitch-id={pitch.id} className={`checklist-list-item${pitch.id === displayed ? ' active' : ''}`} aria-current={pitch.id === displayed ? 'true' : undefined} disabled={editorState.busy} onClick={() => { if (pitch.id !== displayed) openPitch(pitch.id); else setListOpen(false); }}>
                   <span>{pitch.title}</span>
-                  <small>{group.access !== 'owner' && <>@{pitch.ownerUsername} · </>}<span className={`idea-rail-status is-${pitchState(pitch)}`}>{statusLabels[pitchState(pitch)]}</span>{pitch.version ? <> · <span className="vs-mono">v{pitch.version}</span></> : null}{pitch.updatedAt ? ` · ${formatRecordTime(pitch.updatedAt, false)}` : ''}</small>
+                  <small>{group.access !== 'owner' && <>@{pitch.ownerUsername} · </>}<span className={`checklist-status is-${statusTone[pitchState(pitch)]}`}>{statusLabels[pitchState(pitch)]}</span>{pitch.version ? <> · <span className="vs-mono">v{pitch.version}</span></> : null}{pitch.updatedAt ? ` · ${formatRecordTime(pitch.updatedAt, false)}` : ''}</small>
                 </button>
               </li>)}</ul>
             </div>;
           })}
         </div>
-        <p className="idea-rail-note">An empty editor does not create a pitch. A pitch is stored only when you save it.</p>
+        <p className="checklist-list-note">An empty editor does not create a pitch. A pitch is stored only when you save it.</p>
       </aside>
-      <div ref={editorRef} className="idea-editor-host"><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { discardDrafts(); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
+      <div ref={editorRef} className="checklist-record-host"><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { discardDrafts(); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
     </div>
     <ConfirmDialog id="idea-switch-confirm" open={pendingSwitch !== null} tone="default" title="Discard unsaved changes?"
       message="This pitch has changes that are not saved. Switching will discard them; the last saved version is kept."

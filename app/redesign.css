@@ -254,27 +254,8 @@ textarea:focus-visible {
   color: var(--vs-ink);
 }
 
-.vs-breadcrumb {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--vs-ink-3);
-}
-
-.vs-breadcrumb svg {
-  width: 14px;
-  height: 14px;
-}
-
-.vs-breadcrumb [aria-current="page"] {
-  color: var(--vs-ink);
-  font-weight: 500;
-}
-
 .vs-topbar .account-block {
+  margin-left: auto;
   position: relative;
   display: flex;
   align-items: center;
@@ -364,6 +345,7 @@ textarea:focus-visible {
 }
 
 .user-avatar {
+  flex: none;
   width: 30px;
   height: 30px;
   background: var(--vs-accent-soft);
@@ -493,6 +475,7 @@ textarea:focus-visible {
 }
 
 .notification-row em {
+  grid-column: auto;
   color: var(--vs-ink-3);
   font-size: 12px;
   font-style: normal;
@@ -564,8 +547,7 @@ textarea:focus-visible {
 
 .vs-page-eyebrow {
   margin: 0 0 2px;
-  font: var(--vs-text-meta-mono);
-  font-size: 13px;
+  font: var(--vs-text-secondary);
   color: var(--vs-ink-3);
 }
 
@@ -639,7 +621,7 @@ textarea:focus-visible {
 }
 
 .ops-primary,
-.idea-pitches-panel .ops-primary {
+.checklist-panel .ops-primary {
   border: 1px solid var(--vs-accent);
   background: var(--vs-accent);
   color: #fff;
@@ -651,7 +633,7 @@ textarea:focus-visible {
 }
 
 .ops-secondary,
-.idea-pitches-panel .ops-secondary {
+.checklist-panel .ops-secondary {
   border: 1px solid var(--vs-border-control);
   background: var(--vs-surface);
   color: var(--vs-ink);

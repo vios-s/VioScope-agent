@@ -61,14 +61,14 @@ try {
   await page.goto(base + '/?view=meeting'); await page.locator('.console-topbar').waitFor(); await dismissWelcomeIfVisible(page);
   const form = page.locator('.theme-update-form'); await form.waitFor();
   const slotSelect = form.getByRole('combobox', { name: 'Update type', exact: true });
-  assert.deepEqual(await slotSelect.locator('option').evaluateAll((options) => options.map((option) => option.textContent)), ['Update · 5 min', 'Deep Dive · 20–30 min', 'Nothing to Report · 0 min']);
+  assert.deepEqual(await slotSelect.locator('option').evaluateAll((options) => options.map((option) => option.textContent)), ['Update (5 min)', 'Deep Dive (20–30 min)', 'Nothing to Report (0 min)']);
   assert.equal(await slotSelect.inputValue(), 'short_update');
   assert.equal(await form.getByRole('checkbox', { name: /^Link this project/ }).count(), 0);
   assert.equal(await form.getByRole('textbox', { name: 'Project stage', exact: true }).count(), 0);
   assert.equal(await form.getByText('Suggestions reserve no agenda time.', { exact: false }).count(), 0);
   assert.match((await form.getByRole('textbox', { name: /^Progress/ }).getAttribute('placeholder'))!, /The Wall/);
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
-  await form.getByRole('button', { name: 'Copy theme progress prompt', exact: true }).click();
+  await form.getByRole('button', { name: 'Copy AI prompt for progress', exact: true }).click();
   const copiedPrompt = await page.evaluate(() => navigator.clipboard.readText());
   assert.ok(copiedPrompt.includes('Stage 3/5') && copiedPrompt.includes('PROJECT_DATA_JSON') && copiedPrompt.includes('Synthetic linked project') && copiedPrompt.includes('The Wall'));
   assert.equal(suggestionCalls, 0);
@@ -85,7 +85,7 @@ try {
   assert.equal(submitted!.projectId, project.id);
   assert.equal(submitted!.stage, undefined);
   await form.getByText('Previously shared project snapshot', { exact: true }).click();
-  assert.match(await form.locator('details').filter({ hasText: 'Previously shared project snapshot' }).innerText(), /Project stage: 3/);
+  assert.match(await form.locator('details').filter({ hasText: 'Previously shared project snapshot' }).innerText(), /Project stage\s*3/);
   const output = resolve(root, '.local/checks/theme-stage'); await mkdir(output, { recursive: true });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 1000 }); await form.getByRole('textbox', { name: /^Progress/ }).scrollIntoViewIfNeeded();
@@ -94,7 +94,7 @@ try {
   }
   const progress = form.getByRole('textbox', { name: /^Progress/ });
   await progress.fill('');
-  await form.getByRole('combobox', { name: 'Project source', exact: true }).selectOption(ideaProject.id);
+  await form.getByRole('combobox', { name: 'Project', exact: true }).selectOption(ideaProject.id);
   assert.equal(await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).count(), 0, 'Changing projects clears old AI advice.');
   assert.match((await progress.getAttribute('placeholder'))!, /The Pain Point: \(1 Sentence\)/);
   assert.match((await progress.getAttribute('placeholder'))!, /The Wild Factor: High \/ Med \/ Low/);
@@ -104,16 +104,16 @@ try {
   await progress.scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(output, 'stage-1-placeholder.png') });
   await progress.fill('Keep my own draft.');
-  await form.getByRole('combobox', { name: 'Project source', exact: true }).selectOption(project.id);
+  await form.getByRole('combobox', { name: 'Project', exact: true }).selectOption(project.id);
   assert.equal(await progress.inputValue(), 'Keep my own draft.', 'Changing project guidance preserves written content.');
   for (const [id, heading] of [[project.id, 'The Wall'], ['stage-2', 'The Signal'], ['stage-4', 'Figure 1 Status'], ['stage-5', 'The "Lethal" Critique']]) {
-    await form.getByRole('combobox', { name: 'Project source', exact: true }).selectOption(id);
+    await form.getByRole('combobox', { name: 'Project', exact: true }).selectOption(id);
     const placeholder = (await progress.getAttribute('placeholder'))!;
     assert.ok(placeholder.includes(heading));
     assert.ok(placeholder.split('\n').every(line => line.startsWith('- ')));
     assert.equal(await progress.inputValue(), 'Keep my own draft.');
   }
-  await form.getByRole('combobox', { name: 'Project source', exact: true }).selectOption('none');
+  await form.getByRole('combobox', { name: 'Project', exact: true }).selectOption('none');
   assert.equal(await progress.getAttribute('placeholder'), 'Aim for 50 words; maximum 75 words');
   await form.getByRole('button', { name: 'Save changes', exact: true }).click();
   await page.getByText('Changes saved.', { exact: true }).waitFor();

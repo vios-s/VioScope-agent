@@ -13,7 +13,7 @@ import {
   visibleNotificationsForUser,
   visiblePlanForUser,
 } from '../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan, submissionDeadline } from '../../../src/mastra/theme-meetings/planner';
+import { buildThemeMeetingPlan, configuredReminderSchedule, submissionDeadline } from '../../../src/mastra/theme-meetings/planner';
 import type { ThemeMeetingNotification, ThemeMeetingPlan } from '../../../src/mastra/theme-meetings/schema';
 
 export const dynamic = 'force-dynamic';
@@ -157,6 +157,8 @@ export async function GET(request: Request) {
       // Europe/London wall-clock cutoff for the member's own submission meeting.
       submissionDeadline: submissionPlan ? submissionDeadline(payload.config, submissionPlan.meeting_date) : null,
       pastPlans,
+      // Europe/London weekday and time when the draft agenda preview is sent to theme members.
+      agendaPreview: configuredReminderSchedule(payload.config).agendaPreview,
       agendaSubscriptions: payload.config.themes.map((theme) => {
         const required = isThemeAgendaSubscriptionRequired(payload.config, theme.theme_id, user.username);
         return {

@@ -10,36 +10,35 @@ export async function checkSkeletonProjectUi(cookieName:string,tokens:{owner:str
     async function pageFor(token:string){
       const context=await browser!.newContext({viewport:{width:1440,height:1000}});await context.addCookies([{name:cookieName,value:token,url:base}]);
       const page=await context.newPage();page.on('pageerror',(error: Error)=>errors.push(error.message));await page.addLocatorHandler(page.locator('.welcome-dialog'),async()=>{await page.getByLabel('Close welcome message').click();});
-      await page.goto(base+'/?view=checklists');await page.getByRole('tab',{name:'Skeleton Lock',exact:true}).click();await page.getByRole('button',{name:/^Existing project/}).waitFor();return page;
+      await page.goto(base+'/?view=checklists');await page.getByRole('tab',{name:'Skeleton Lock',exact:true}).click();await page.getByRole('searchbox',{name:'Find a project',exact:true}).waitFor();return page;
     }
     const owner=await pageFor(tokens.owner);await owner.route('**/api/skeleton-lock',async (route: Route) => { const response=await route.fetch(); const body=await response.json(); const original=body.projects.find((item:{id:string})=>item.id===projectId); body.projects.push(...Array.from({length:100},(_,i)=>({...original,id:`synthetic-list-${i}`,title:`Synthetic list project ${i}`,...(i<3?{stage:2}:{})}))); await route.fulfill({response,json:body}); });
     await owner.reload();await owner.getByRole('tab',{name:'Skeleton Lock',exact:true}).click();
-    const picker=owner.getByRole('button',{name:/^Existing project/});await picker.click();
-    await owner.getByRole('status').filter({hasText:'102 projects found.'}).waitFor();
-    assert.equal(await picker.getAttribute('aria-expanded'),'true');
-    const gatedOption=owner.locator('.skeleton-project-options button').filter({hasText:'Synthetic list project 0'});
+    const list=owner.locator('.skeleton-lock .checklist-list');const items=list.locator('.checklist-list-item');
+    await owner.getByRole('status').filter({hasText:'102 projects found.'}).waitFor({state:'attached'});
+    const gatedOption=items.filter({hasText:'Synthetic list project 0'});
     assert.equal(await gatedOption.isDisabled(),true,'Projects outside stage 4 are listed but disabled.');
-    await gatedOption.getByText('Skeleton Lock opens at stage 4 · currently stage 2',{exact:true}).waitFor();
-    assert.equal(await owner.locator('.skeleton-project-options button').last().isDisabled(),true,'Open projects are listed first.');
+    await gatedOption.getByText(/Opens at stage 4 · now stage 2/).waitFor();
+    assert.equal(await items.last().isDisabled(),true,'Projects not at stage 4 are grouped last.');
     await mkdir('/tmp/vioscope-skeleton-taste',{recursive:true});
-    for (const width of [1440,768,390]) { await owner.setViewportSize({width,height:1000}); await picker.scrollIntoViewIfNeeded(); await owner.screenshot({path:`/tmp/vioscope-skeleton-taste/picker-${width}.png`}); assert.equal(await owner.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true); }
-    const specimen=await owner.evaluate(()=>{const css=Array.from(document.styleSheets).map(sheet=>{try{return Array.from(sheet.cssRules).map(rule=>rule.cssText).join('\n');}catch{return '';}}).join('\n');return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css} body{padding:24px;margin:0;background:var(--surface-2)}h1{font-size:24px;margin:0 0 24px}</style></head><body><h1>Project selection</h1><section class="skeleton-lock">${document.querySelector('.skeleton-project-picker')!.outerHTML}</section></body></html>`;});
+    for (const width of [1440,768,390]) { await owner.setViewportSize({width,height:1000}); await list.scrollIntoViewIfNeeded(); await owner.screenshot({path:`/tmp/vioscope-skeleton-taste/picker-${width}.png`}); assert.equal(await owner.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true); }
+    const specimen=await owner.evaluate(()=>{const css=Array.from(document.styleSheets).map(sheet=>{try{return Array.from(sheet.cssRules).map(rule=>rule.cssText).join('\n');}catch{return '';}}).join('\n');return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css} body{padding:24px;margin:0;background:var(--surface-2)}h1{font-size:24px;margin:0 0 24px}</style></head><body><h1>Project selection</h1><section class="checklist-panel skeleton-lock">${document.querySelector('.skeleton-lock .checklist-list')!.outerHTML}</section></body></html>`;});
     await writeFile('/tmp/vioscope-skeleton-taste/component.html',specimen);
     await owner.setViewportSize({width:1440,height:1000});
 
-    const search=owner.getByRole('searchbox',{name:'Search projects',exact:true});await search.fill('no matching project');await owner.getByText('No matching projects.',{exact:true}).waitFor();
-    await search.fill('Synthetic bound skeleton');await search.press('Enter');assert.equal(await picker.getAttribute('aria-expanded'),'true');
-    await owner.locator('.skeleton-project-options button').filter({hasText:'Synthetic bound skeleton'}).click();assert.equal(await picker.getAttribute('aria-expanded'),'false');
-    await picker.click();await owner.getByRole('searchbox').press('Escape');assert.equal(await picker.getAttribute('aria-expanded'),'false');
+    const search=owner.getByRole('searchbox',{name:'Find a project',exact:true});await search.fill('no matching project');await owner.getByText('No projects match this search.',{exact:true}).waitFor();
+    await search.fill('Synthetic bound skeleton');await search.press('Enter');
+    const bound=items.filter({hasText:'Synthetic bound skeleton'});await bound.click();assert.equal(await bound.getAttribute('aria-current'),'true');
+    await owner.getByRole('heading',{name:'Synthetic bound skeleton',exact:true}).waitFor();
     assert.equal(await owner.getByRole('textbox',{name:'Initiator',exact:true}).count(),0);
     assert.equal(await owner.getByRole('textbox',{name:'Deadline',exact:true}).count(),0);
-    await owner.getByText('Fictional venue',{exact:true}).waitFor();await owner.getByText('2026-12-15',{exact:true}).waitFor();
-    assert.equal(await owner.getByRole('button',{name:'PDRA review',exact:true}).count(),0);
-    const pdra=await pageFor(tokens.pdra);await pdra.getByRole('button',{name:'PDRA review',exact:true}).click();
-    await pdra.locator('.skeleton-review-list button').first().click();
+    await owner.getByText('Fictional venue',{exact:true}).waitFor();await owner.getByText('15 Dec 2026',{exact:true}).waitFor();
+    assert.equal(await owner.getByRole('combobox',{name:'Show',exact:true}).count(),0,'Owners without review duties have no review filter.');
+    const pdra=await pageFor(tokens.pdra);await pdra.getByRole('combobox',{name:'Show',exact:true}).selectOption('pdra');
+    await pdra.locator('.skeleton-lock .checklist-list-item:not(:disabled)').first().click();
     const form=pdra.getByRole('group',{name:'PDRA judgment',exact:true});await form.waitFor();
     await pdra.getByRole('heading',{name:'Paper Skeleton minimum content',exact:true}).waitFor();
-    const abstractRow=pdra.locator('.skeleton-paper tr').filter({hasText:'Abstract'}).first();
+    const abstractRow=pdra.locator('.skeleton-paper li').filter({hasText:'Abstract'}).first();
     await abstractRow.getByText('Partly met',{exact:true}).waitFor();await abstractRow.getByText(/^\d+ words in the abstract section$/).waitFor();
     assert.equal(await pdra.locator('.skeleton-paper .skeleton-paper-status').count(),18);
     const verdict=form.getByRole('combobox',{name:'Judgment',exact:true});
@@ -51,16 +50,16 @@ export async function checkSkeletonProjectUi(cookieName:string,tokens:{owner:str
     await pdra.getByRole('status').filter({hasText:'PDRA judgment recorded.'}).waitFor();
     await pdra.locator('.skeleton-decision-record').filter({hasText:'Conditional — actions required.'}).filter({hasText:'Re-evaluate on'}).first().waitFor();
     assert.equal(await pdra.getByRole('button',{name:'Record PI confirmation',exact:true}).count(),0);
-    const pi=await pageFor(tokens.pi);await pi.getByRole('button',{name:'PI / Admin overview',exact:true}).click();await pi.locator('.skeleton-review-list button').first().click();
+    const pi=await pageFor(tokens.pi);await pi.getByRole('combobox',{name:'Show',exact:true}).selectOption('pi');await pi.locator('.skeleton-lock .checklist-list-item:not(:disabled)').first().click();
     const final=pi.getByRole('group',{name:'PI skeleton checkpoint confirmation',exact:true});await final.waitFor();
     await final.getByRole('combobox',{name:'Judgment',exact:true}).selectOption('needs_revision');
     await final.getByRole('textbox',{name:'Reason, evidence and required actions',exact:true}).fill('Synthetic PI: baseline evidence is still required.');await final.getByRole('checkbox').check();
     await final.getByRole('button',{name:'Record PI confirmation',exact:true}).click();await pi.getByRole('status').filter({hasText:'PI confirmation recorded.'}).waitFor();
     const stored=await (await pi.request.get(base+'/api/skeleton-lock/'+reviewId)).json();assert.equal(stored.review.decisions.length,2);assert.deepEqual(stored.review.decisions.map((item:{by:string})=>item.by),['bob','principal']);assert.match(stored.review.decisions[0].reevaluateOn,/^\d{4}-\d{2}-\d{2}$/);
     await mkdir('/tmp/vioscope-skeleton-project',{recursive:true});
-    await owner.getByRole('heading',{name:'Skeleton Lock',exact:true}).scrollIntoViewIfNeeded();await owner.screenshot({path:'/tmp/vioscope-skeleton-project/project-context.png'});
-    await pdra.getByRole('heading',{name:'Synthetic bound skeleton — saved review',exact:true}).scrollIntoViewIfNeeded();await pdra.screenshot({path:'/tmp/vioscope-skeleton-project/pdra.png'});
+    await owner.getByRole('heading',{name:'Synthetic bound skeleton',exact:true}).scrollIntoViewIfNeeded();await owner.screenshot({path:'/tmp/vioscope-skeleton-project/project-context.png'});
+    await pdra.getByRole('heading',{name:'Synthetic bound skeleton',exact:true}).scrollIntoViewIfNeeded();await pdra.screenshot({path:'/tmp/vioscope-skeleton-project/pdra.png'});
     await pi.setViewportSize({width:390,height:844});assert.equal(await pi.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await final.scrollIntoViewIfNeeded();await pi.screenshot({path:'/tmp/vioscope-skeleton-project/pi-mobile.png'});
-    assert.deepEqual(errors,[]);console.log('Skeleton project browser passed: stage-4 picker gate, Paper Skeleton checklist with measured counts, CONDITIONAL re-evaluation date, inherited read-only context, dedicated PDRA view, separate PI judgment and mobile layout.');
+    assert.deepEqual(errors,[]);console.log('Skeleton project browser passed: stage-4 list gate, review filters, Paper Skeleton checklist with measured counts, CONDITIONAL re-evaluation date, inherited read-only context, dedicated PDRA view, separate PI judgment and mobile layout.');
   }finally{await browser?.close();await stopServer(server);}
 }

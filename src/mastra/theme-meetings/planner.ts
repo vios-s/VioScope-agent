@@ -382,7 +382,7 @@ function configuredReminderWeekday(config: ThemeMeetingConfig, name: string, fal
   return normalizedWeekday(reminderSetting(config, name, 'weekday', fallback), fallback);
 }
 
-function configuredReminderSchedule(config: ThemeMeetingConfig) {
+export function configuredReminderSchedule(config: ThemeMeetingConfig) {
   return {
     firstReminder: {
       weekday: configuredReminderWeekday(config, 'first_reminder', 'Monday'),

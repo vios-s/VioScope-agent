@@ -49,11 +49,12 @@ try {
   }
   await page.goto(base + '/?view=checklists'); await page.locator('.console-topbar').waitFor(); await dismissWelcomeIfVisible(page);
   await tab('Skeleton Lock').click();
-  await page.locator('.skeleton-project-trigger').click(); await page.locator('.skeleton-project-option').click();
+  await page.locator('.skeleton-lock .checklist-list-item[data-project-id="project-demo"]').click();
   await page.locator('#skeleton-input-claim').fill('Unsaved central claim');
   await refresh();
   assert.equal(await tab('Skeleton Lock').getAttribute('aria-selected'), 'true');
   assert.equal(await page.locator('#skeleton-input-claim').inputValue(),'Unsaved central claim');
+  await page.getByText('Start from an existing document', { exact: true }).click();
   await page.getByLabel('Input method').selectOption('paste');
   await page.locator('.skeleton-lock textarea').fill('Unsaved outline');
   await refresh();
@@ -79,12 +80,12 @@ try {
   await refresh();
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Unsaved new idea');
   assert.equal(await page.getByRole('combobox',{name:/^Track/}).inputValue(),'B');
-  await page.locator('.idea-rail-item[data-pitch-id="pitch-demo"]').click();
+  await page.locator('.checklist-list-item[data-pitch-id="pitch-demo"]').click();
   // Switching away from unsaved changes asks for confirmation in the in-app dialog.
   await page.getByRole('button',{name:'Discard and switch',exact:true}).click();
   await page.locator('.idea-fields textarea').first().fill('Unsaved change to existing pitch');
   await refresh();
-  assert.equal(await page.locator('.idea-rail-item[aria-current="true"]').getAttribute('data-pitch-id'),'pitch-demo');
+  assert.equal(await page.locator('.idea-pitches-panel .checklist-list-item[aria-current="true"]').getAttribute('data-pitch-id'),'pitch-demo');
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Unsaved change to existing pitch');
   savedVersion = 2;
   await refresh();
@@ -109,7 +110,8 @@ try {
   assert.equal(await tab('Idea Pitch').getAttribute('aria-selected'),'true');
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'');
   await tab('Skeleton Lock').click();
-  assert.ok((await page.locator('.skeleton-project-trigger').textContent())?.includes('Choose a project'));
+  await page.locator('.skeleton-lock .checklist-empty').waitFor();
+  assert.equal(await page.locator('.skeleton-lock .checklist-list-item[aria-current="true"]').count(), 0);
   assert.equal(writes,0);
   assert.deepEqual(errors,[]);
   console.log('PASS: removed tabs fall back safely; account separation; zero automatic server writes');
