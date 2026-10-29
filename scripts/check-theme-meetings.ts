@@ -281,7 +281,7 @@ async function runAgentThemeMeetingCheck(): Promise<{ submittedVia: unknown; upd
           meetingDate: checkMeetingDate,
           themeId: 'A',
           member: themeUsers.alice,
-          updateType: 'strategic_slot',
+          updateType: 'deep_dive',
           progressText: latestAliceProgress,
         },
         toolContext(alice, new Date('2026-06-22T08:00:00.000Z')) as never,
@@ -342,7 +342,7 @@ async function main() {
     meetingDate: checkMeetingDate,
     themeId: 'A',
     member: 'Alice',
-    updateType: 'milestone_check',
+    updateType: 'short_update',
     progressText: 'Finished the first experiment pass and will show the current result table.',
     submittedVia: 'api',
     now: new Date('2026-06-22T08:00:00.000Z'),
@@ -353,7 +353,7 @@ async function main() {
       meetingDate: checkMeetingDate,
       themeId: 'A',
       member: 'Alice',
-      updateType: 'milestone_check',
+      updateType: 'short_update',
       progressText: `  ${Array(wordCount).fill('progress').join(' \n ')}  `,
       submittedVia: 'api',
       now: new Date('2026-06-22T08:00:00.000Z'),
@@ -382,7 +382,7 @@ async function main() {
     throw new Error(`Expected Alice's second Theme A update to replace the first, found ${storedAliceUpdates.length}.`);
   }
   if (
-    storedAliceUpdates[0]?.update_type !== 'strategic_slot' ||
+    storedAliceUpdates[0]?.update_type !== 'deep_dive' ||
     storedAliceUpdates[0]?.progress_text !== latestAliceProgress
   ) {
     throw new Error('Expected Alice stored update to contain the latest mock agent updater payload.');
@@ -397,10 +397,10 @@ async function main() {
   const aliceAgendaItems = themeA.agenda_items.filter((item) => item.member_username === themeUsers.alice);
   if (
     aliceAgendaItems.length !== 1 ||
-    aliceAgendaItems[0]?.update_type !== 'strategic_slot' ||
-    aliceAgendaItems[0]?.duration_minutes !== 10
+    aliceAgendaItems[0]?.update_type !== 'deep_dive' ||
+    aliceAgendaItems[0]?.duration_minutes !== 30
   ) {
-    throw new Error('Expected Alice latest strategic-slot update to be the only Theme A agenda item for Alice.');
+    throw new Error('Expected Alice latest Deep Dive update to be the only Theme A agenda item for Alice.');
   }
 
   const alicePlan = visiblePlanForUser(afterUpdate.plan, afterUpdate.config, fakeUser('Alice'));
@@ -463,8 +463,8 @@ async function main() {
   if (!themeAAfterNothing?.agenda_items.some((item) => item.member === 'Bob' && item.update_type === 'nothing_to_report' && item.duration_minutes === 0)) {
     throw new Error('Expected Bob nothing-to-report update to appear with zero planned minutes.');
   }
-  if (themeAAfterNothing?.planned_minutes !== 10) {
-    throw new Error(`Expected Theme A planned minutes to remain 10, got ${themeAAfterNothing?.planned_minutes}.`);
+  if (themeAAfterNothing?.planned_minutes !== 30) {
+    throw new Error(`Expected Theme A planned minutes to remain 30, got ${themeAAfterNothing?.planned_minutes}.`);
   }
 
   await assert.rejects(

@@ -262,7 +262,12 @@ Done when: a real weekly cycle can run without developer intervention.
 - Make planning recommendations easier to inspect and override.
 - Show project-based meeting slot advice with recorded evidence and preparation prompts in Projects
   and the member meeting form. Blockers, requests for input, recent milestones, stage progress and
-  deadlines inform the suggestion; ordinary recent progress suggests a 5-minute short update.
+  deadlines inform the suggestion; ordinary recent progress suggests a 5-minute Update.
+  Meeting types are Update, Deep Dive and Nothing to Report only. Linked updates inherit the
+  authorized project stage at submission and retain it as a snapshot; the meeting form cannot edit
+  project stages. Legacy snapshots without a stage remain explicitly unrecorded.
+  Empty progress fields show the VIOS OS Pre-Meeting Snapshot headings for the linked project’s
+  stage (1–5). Placeholders never populate the draft or overwrite user-authored content.
   Missing/stale progress never implies `nothing_to_report`. Adopting advice only changes the draft;
   members submit explicitly and coordinators confirm the final agenda.
 - Keep artifact summaries as context; do not inject raw large files into agent prompts.

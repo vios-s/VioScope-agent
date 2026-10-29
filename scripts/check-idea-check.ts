@@ -155,13 +155,17 @@ try {
   const meetingRoute = await import('../app/api/theme-meetings/updates/route');
   const meetingPost = (name: string, extra: Record<string, unknown> = {}) => meetingRoute.POST(new Request('http://localhost/api/theme-meetings/updates', {
     method: 'POST', headers: headers(name), body: JSON.stringify({ meetingDate: '2099-11-04', themeId: 'A', member: name,
-      updateType: 'strategic_slot', progressText: 'The pilot is planned, not completed.', projectId: records[0].id, ...extra }),
+      updateType: 'deep_dive', progressText: 'The pilot is planned, not completed.', projectId: records[0].id, ...extra }),
   }));
   assert.equal((await meetingPost('outsider')).status, 400);
   assert.equal((await meetingPost('bob')).status, 400);
   const linked = await ok(await meetingPost('alice'));
   const snapshot = linked.update.project_context;
   assert.equal(snapshot.ownerUsername, 'alice');
+  assert.equal(snapshot.stage, 1);
+  const forged = await ok(await meetingPost('alice', { stage: 5, project_context: { stage: 5 } }));
+  assert.equal(forged.update.project_context.stage, 1, 'Stage comes from the authorized project, never the request payload.');
+  for (const updateType of ['milestone_check', 'strategic_slot']) assert.equal((await meetingPost('alice', { updateType })).status, 400);
   assert.equal(snapshot.actions[0].text, 'Run a synthetic pilot');
   assert.equal(snapshot.actions[0].dueDate, '2026-11-06');
   assert.equal(JSON.stringify(snapshot).includes('PRIVATE_SOURCE'), false);
@@ -170,6 +174,8 @@ try {
   const { renderThemeMeetingAgendaEmail } = await import('../src/mastra/theme-meetings/agenda-email');
   const email = renderThemeMeetingAgendaEmail(linked.plan);
   assert.match(email.text, /Run a synthetic pilot/);
+  assert.match(email.text, /Project stage: 1/);
+  assert.match(email.html, /Project stage: 1/);
   assert.match(email.html, /2026-11-06/);
   const workflow = await import('../src/mastra/theme-meetings/workflow');
   const state = { confirmations: [], actions: [] };
@@ -178,10 +184,20 @@ try {
   const {changeProjectWorkflow}=await import('../src/mastra/db/project-workflow');
   await changeProjectWorkflow(records[0].id,{operation:'task_update',confirmed:true,id:records[0].todos[0].id,revision:0,status:'done',note:'Completed the synthetic pilot.',evidenceIds:[]},accounts.get('alice')!);
   const { buildThemeMeetingPlan } = await import('../src/mastra/theme-meetings/planner');
+  await projects.updateProject(records[0].id, { stage: 2 }, accounts.get('alice')!);
   const historical = await buildThemeMeetingPlan({ meetingDate: '2099-11-04' });
   assert.deepEqual(historical.plan.meetings[0].agenda_items[0].project_context, snapshot, 'Editing live tasks does not rewrite a submitted snapshot.');
   const refreshed = await ok(await meetingPost('alice'));
+  assert.equal(refreshed.update.project_context.stage, 2, 'An explicit resubmission captures the new project stage.');
+  assert.equal(confirmation.entries[0].project_context!.stage, 1, 'Confirmed stages remain immutable.');
   assert.deepEqual(refreshed.update.project_context.actions, [], 'Completed tasks leave the next submission.');
+  const { submitThemeMeetingUpdateTool } = await import('../src/mastra/tools/theme-meetings');
+  const chatResult = await submitThemeMeetingUpdateTool.execute!({ meetingDate: '2099-11-04', themeId: 'A', member: 'alice',
+    updateType: 'short_update', progressText: 'Chat-linked synthetic update.', projectId: records[0].id },
+    { requestContext: { get: (key: string) => key === 'vioscope-user' ? accounts.get('alice') : undefined } } as never);
+  assert.ok(chatResult && 'update' in chatResult);
+  assert.equal(chatResult.update.project_context!.stage, 2, 'Chat submissions inherit the same server-side stage.');
+  assert.equal(chatResult.update.submitted_via, 'chat');
   const detached = await ok(await meetingPost('alice', { projectId: null }));
   assert.equal(detached.update.project_context, undefined, 'The project attachment is optional and removable.');
   const inherited = await ideaDb.getProjectIdeaOrigin(records[0].id, accounts.get('alice')!);

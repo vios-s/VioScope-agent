@@ -177,7 +177,7 @@ async function main() {
       meetingDate,
       themeId: 'A',
       member: users.submitted,
-      updateType: 'milestone_check',
+      updateType: 'short_update',
       progressText: 'Completed the release hardening pass and ready to discuss remaining risks.',
       submittedVia: 'api',
       validateUsers: true,

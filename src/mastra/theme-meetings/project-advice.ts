@@ -29,7 +29,7 @@ export function suggestThemeMeetingSlot(project: AdviceProject, now = new Date()
   }
   if (project.status === 'needs_input') {
     return {
-      slot: 'strategic_slot',
+      slot: 'deep_dive',
       evidence: 'The project is marked as needing input.' + freshness,
       preparation: 'State the decision you need, the alternatives, and the feedback or help you want.',
     };
@@ -38,7 +38,7 @@ export function suggestThemeMeetingSlot(project: AdviceProject, now = new Date()
   const deadlineSoon = deadlineDays >= 0 && deadlineDays <= 30;
   if (milestone || deadlineSoon || (fresh && project.stageProgress >= 80)) {
     return {
-      slot: 'milestone_check',
+      slot: 'short_update',
       evidence: [
         milestone ? `The progress update on ${progressDate} records a milestone.` : '',
         deadlineSoon ? `Submission deadline: ${project.submissionDeadline} (${deadlineDays} days away).` : '',
@@ -56,7 +56,7 @@ export function suggestThemeMeetingSlot(project: AdviceProject, now = new Date()
   }
   if (project.stage === 1) {
     return {
-      slot: 'strategic_slot',
+      slot: 'deep_dive',
       evidence: `The project is at the idea/proposal stage, with progress recorded on ${progressDate}.`,
       preparation: 'Bring the research question or idea, possible directions, and the feedback you need.',
     };

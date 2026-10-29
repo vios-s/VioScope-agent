@@ -6,7 +6,7 @@ import { buildProjectPlanningReport } from '../projects/planning';
 
 const projectLifecycleSchema = z.enum(['active', 'paused', 'finished', 'archived']);
 const projectStatusSchema = z.enum(['on_track', 'blocked', 'stale', 'needs_input']);
-const projectRecommendationSchema = z.enum(['deep_dive', 'milestone_check', 'strategic_slot', 'none']);
+const projectRecommendationSchema = z.enum(['deep_dive', 'short_update', 'none']);
 
 const artifactSchema = z.object({
   id: z.string(),

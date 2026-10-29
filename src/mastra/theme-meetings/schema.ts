@@ -14,7 +14,14 @@ const dateStringSchema = z
 
 const timeStringSchema = z.string().regex(/^\d{2}:\d{2}$/, 'Expected HH:MM.');
 
-export const themeUpdateTypeSchema = z.enum(['deep_dive', 'short_update', 'milestone_check', 'strategic_slot', 'nothing_to_report']);
+export const themeUpdateTypeSchema = z.enum(['deep_dive', 'short_update', 'nothing_to_report']);
+export const themeUpdateTypeLabels = { deep_dive: 'Deep Dive', short_update: 'Update', nothing_to_report: 'Nothing to Report' } as const;
+// Normalize retired types only when reading saved records, never for new submissions.
+const storedThemeUpdateTypeSchema = z.preprocess((value) =>
+  value === 'milestone_check' ? 'short_update' : value === 'strategic_slot' ? 'deep_dive' : value,
+  themeUpdateTypeSchema,
+);
+
 export const themeReminderActionSchema = z.enum([
   'first_reminder',
   'gentle_missing_update_reminder',
@@ -30,8 +37,6 @@ const defaultThemeUpdateTypes = {
   nothing_to_report: { duration_minutes: 0, questions_required: false },
   deep_dive: { duration_minutes: 30, questions_required: false },
   short_update: { duration_minutes: 5, questions_required: false },
-  milestone_check: { duration_minutes: 10, questions_required: false },
-  strategic_slot: { duration_minutes: 10, questions_required: false },
 };
 
 export const themeMeetingConfigSchema = z.object({
@@ -96,7 +101,7 @@ export const themeMeetingUpdateSchema = z.object({
 });
 
 export const themeMeetingUpdatesFileSchema = z.object({
-  updates: z.array(themeMeetingUpdateSchema).default([]),
+  updates: z.array(themeMeetingUpdateSchema.extend({ update_type: storedThemeUpdateTypeSchema })).default([]),
 });
 
 export const themeMeetingCancellationSchema = z.object({
@@ -117,7 +122,7 @@ export const themeMeetingAgendaItemSchema = z.object({
   theme_title: z.string(),
   member: z.string(),
   member_username: z.string().optional(),
-  update_type: themeUpdateTypeSchema,
+  update_type: storedThemeUpdateTypeSchema,
   duration_minutes: z.number().int().nonnegative(),
   progress_text: z.string(),
   project_context: meetingProjectContextSchema.optional(),

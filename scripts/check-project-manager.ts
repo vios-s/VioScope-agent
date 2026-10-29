@@ -429,7 +429,7 @@ async function main() {
     assert.equal(firstUpdateResponse.status, 200, firstUpdateBody.error || 'First project update failed.');
     assert.equal(firstUpdateBody.project?.stageProgress, 60, 'Progress update should sync project stage progress.');
     assert.equal(firstUpdateBody.project?.updates?.[0]?.milestone, true, 'Progress update should store milestone.');
-    assert.equal(firstUpdateBody.project?.recommendation, 'milestone_check', 'Milestone should recommend milestone check.');
+    assert.equal(firstUpdateBody.project?.recommendation, 'short_update', 'Milestone should recommend Update.');
 
     const planningResponse = await planningRoute.POST(emptyRequest('/api/projects/planning', pi, 'POST'));
     const planningBody = await bodyOf<{ report?: any }>(planningResponse);

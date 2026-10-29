@@ -182,11 +182,11 @@ async function checkMember(browser: any) {
   await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
   const slotSelect = page.locator('.theme-update-form select').nth(2);
-  assert.equal(await slotSelect.locator('option[value="deep_dive"]').textContent(), 'Deep dive (20-30 min)');
-  assert.equal(await slotSelect.locator('option[value="short_update"]').textContent(), 'Short update (5 min)');
-  assert.equal(await slotSelect.locator('option[value="milestone_check"]').textContent(), 'Milestone check (10 min)');
-  assert.equal(await slotSelect.locator('option[value="strategic_slot"]').textContent(), 'Strategic slot (paper or idea)');
-  assert.equal(await slotSelect.locator('option[value="nothing_to_report"]').textContent(), 'Nothing to report (0 min)');
+  assert.equal(await slotSelect.locator('option[value="deep_dive"]').textContent(), 'Deep Dive (20-30 min)');
+  assert.equal(await slotSelect.locator('option[value="short_update"]').textContent(), 'Update (5 min)');
+  assert.equal(await slotSelect.locator('option').count(), 3);
+  assert.equal(await page.getByRole('textbox', { name: 'Project stage', exact: true }).inputValue(), 'Not linked');
+  assert.equal(await slotSelect.locator('option[value="nothing_to_report"]').textContent(), 'Nothing to Report (0 min)');
   await slotSelect.selectOption('nothing_to_report');
   await page.locator('.theme-update-form textarea').nth(0).fill('Finished a mock UI smoke test update for the next meeting.');
   await page.locator('.theme-update-form textarea').nth(1).fill('Can the UI save this member update?');

@@ -1,13 +1,6 @@
 import { formatMeetingProject } from './project-context';
-import type { ThemeMeetingPlan, ThemeUpdateType } from './schema';
+import { themeUpdateTypeLabels as slotLabels, type ThemeMeetingPlan } from './schema';
 
-const slotLabels: Record<ThemeUpdateType, string> = {
-  deep_dive: 'Deep dive',
-  short_update: 'Short update',
-  nothing_to_report: 'Nothing to report',
-  milestone_check: 'Milestone check',
-  strategic_slot: 'Strategic slot',
-};
 const advisory = 'This agenda is advisory until confirmed by a coordinator, PI, or administrator.';
 
 function escapeHtml(value: string): string {

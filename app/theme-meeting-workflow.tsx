@@ -1,4 +1,5 @@
 'use client';
+import { themeUpdateTypeLabels } from '../src/mastra/theme-meetings/schema';
 
 import { MeetingProjectSummary } from './meeting-project-summary';
 
@@ -41,7 +42,7 @@ export function ThemeMeetingWorkflow({ themeId, meetingDate, onChanged }: {
         });
         setEntries(ordered.map((item) => {
           const saved = existing.find((entry) => entry.member_username === item.member_username);
-          return { username: item.member_username || '', minutes: saved?.update_type === item.update_type ? saved.duration_minutes : item.duration_minutes, deferred: saved?.deferred ?? false };
+          return { username: item.member_username || '', minutes: item.update_type === 'short_update' ? 5 : item.update_type === 'nothing_to_report' ? 0 : saved?.update_type === item.update_type ? saved.duration_minutes : item.duration_minutes, deferred: saved?.deferred ?? false };
         }));
         setAction({ decision: '', task: '', owner: '', dueDate: '', projectId: '' });
       }).catch((caught) => { if (active) setError(caught instanceof Error ? caught.message : 'Could not load.'); });
@@ -75,7 +76,8 @@ export function ThemeMeetingWorkflow({ themeId, meetingDate, onChanged }: {
       {!data ? <p role="status">{error ? 'Meeting records unavailable.' : 'Loading meeting records…'}</p> : <>
         <p>{data.confirmation ? `Confirmed v${data.confirmation.version} by @${data.confirmation.confirmedBy} on ${new Date(data.confirmation.confirmedAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })} (UK time)` : 'Draft — awaiting coordinator confirmation.'}</p>
         {data.confirmation && <ol>{data.confirmation.entries.map((entry) => <li key={entry.member_username || entry.member}>
-          {entry.member}: {entry.update_type.replaceAll('_', ' ')} · {entry.duration_minutes} min{entry.deferred ? ' · Deferred — not booked into a future meeting' : ''}
+          {entry.member}: {themeUpdateTypeLabels[entry.update_type]} · {entry.duration_minutes} min{entry.deferred ? ' · Deferred — not booked into a future meeting' : ''}
+          <MeetingProjectSummary context={entry.project_context} />
         </li>)}</ol>}
         {data.manager && !data.cancelled && <form onSubmit={(event) => { event.preventDefault(); void save({ operation: 'confirm', sourceVersion: data.sourceVersion, entries }); }}>
           <fieldset disabled={busy}><legend>{data.confirmation ? 'Review and confirm a new version' : 'Prepare the agenda'}</legend>

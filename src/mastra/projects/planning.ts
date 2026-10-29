@@ -31,8 +31,7 @@ export type ProjectPlanningReport = {
 
 const recommendationRank: Record<ProjectRecommendation, number> = {
   deep_dive: 0,
-  milestone_check: 1,
-  strategic_slot: 2,
+  short_update: 1,
   none: 3,
 };
 

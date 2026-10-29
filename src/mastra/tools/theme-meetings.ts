@@ -1,5 +1,7 @@
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
+import { getProjectForUser } from '../db/projects';
+import { meetingProjectContext } from '../theme-meetings/project-context';
 import { canSeeAll, isUserName } from '../auth/session';
 import type { AuthUser } from '../db/users';
 import { visiblePlanForUser } from '../theme-meetings/access';
@@ -67,12 +69,13 @@ export const readThemeMeetingPlanTool = createTool({
 export const submitThemeMeetingUpdateTool = createTool({
   id: 'submit-theme-meeting-update',
   description:
-    'Submit or replace one advisory theme-meeting slot after the user explicitly asks to save it. Slot types are deep_dive (20-30 min), short_update (5 min), milestone_check (10 min), strategic_slot (10 min), and nothing_to_report (0 min).',
+    'Submit or replace one advisory theme-meeting slot after the user explicitly asks to save it. Slot types are deep_dive (20-30 min), short_update (Update, 5 min), and nothing_to_report (0 min). An explicitly linked projectId shares its stage, owner and next actions as a server-derived snapshot with the meeting audience.',
   inputSchema: z.object({
     meetingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     themeId: z.string().trim().min(1),
     member: z.string().trim().min(1),
     updateType: themeUpdateTypeSchema,
+    projectId: z.string().uuid().optional(),
     progressText: z.string().trim().optional(),
     questions: z.string().trim().optional(),
   }),
@@ -97,8 +100,18 @@ export const submitThemeMeetingUpdateTool = createTool({
     }
     const now = requestNow(context);
     const { config } = await buildThemeMeetingPlan({ meetingDate: input.meetingDate, now, validateUsers: true });
+    let projectContext;
+    if (input.projectId) {
+      const project = await getProjectForUser(input.projectId, user);
+      if (project.ownerUsername !== input.member.trim().toLowerCase()) {
+        throw new Error('Only the project owner can attach this project to their meeting update.');
+      }
+      if (project.lifecycle !== 'active') throw new Error('Only active projects can be linked to a meeting update.');
+      projectContext = meetingProjectContext(project);
+    }
     const { update, plan } = await submitThemeMeetingUpdate({
       ...input,
+      projectContext,
       submittedVia: 'chat',
       now,
       validateUsers: true,

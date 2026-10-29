@@ -19,6 +19,7 @@ import { renderThemeMeetingAgendaEmail } from './agenda-email';
 import { listThemeAgendaSubscriptions } from '../db/theme-agenda-subscriptions';
 import { themeAgendaPreviewRecipients, themeAgendaRecipients } from './agenda-recipients';
 import {
+  themeUpdateTypeLabels,
   themeMeetingNotificationSchema,
   themeMeetingPlanSchema,
   themeMeetingUpdateSchema,
@@ -765,7 +766,7 @@ export function renderThemeMeetingPlan(plan: ThemeMeetingPlan): string {
         ? meeting.agenda_items
             .map(
               (item) =>
-                `  - ${item.member}: ${item.update_type} (${item.duration_minutes} min) - ${item.progress_text}${
+                `  - ${item.member}: ${themeUpdateTypeLabels[item.update_type]} (${item.duration_minutes} min) - ${item.progress_text}${
                   item.questions ? ` Questions: ${item.questions}` : ''
                 }${item.project_context ? `\n${formatMeetingProject(item.project_context)}` : ''}`,
             )

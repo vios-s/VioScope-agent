@@ -1,61 +1,54 @@
-import 'dotenv/config';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { stringify } from 'yaml';
-import { buildThemeMeetingPlan, submitThemeMeetingUpdate } from '../src/mastra/theme-meetings/planner';
+import { themeMeetingConfigSchema, themeMeetingUpdateSchema, themeMeetingUpdatesFileSchema, themeMeetingPlanSchema, themeUpdateTypeSchema } from '../src/mastra/theme-meetings/schema';
+import { formatMeetingProject, meetingProjectContext } from '../src/mastra/theme-meetings/project-context';
 import { renderThemeMeetingAgendaEmail } from '../src/mastra/theme-meetings/agenda-email';
-import { themeMeetingConfigSchema, themeMeetingUpdateSchema, themeUpdateTypeSchema } from '../src/mastra/theme-meetings/schema';
+import { confirmAgenda } from '../src/mastra/theme-meetings/workflow';
 
-const checkDir = await mkdtemp(join(tmpdir(), 'vioscope-short-update-'));
-const meetingDate = '2026-06-24';
-const types = ['deep_dive', 'short_update', 'milestone_check', 'strategic_slot', 'nothing_to_report'] as const;
-const durations = [30, 5, 10, 10, 0];
-const members = types.map((_, index) => `Synthetic member ${index + 1}`);
-const options = {
-  configPath: join(checkDir, 'config.yaml'),
-  updatesPath: join(checkDir, 'updates.yaml'),
-  notificationsPath: join(checkDir, 'notifications.yaml'),
-  cancellationsPath: join(checkDir, 'cancellations.yaml'),
-  now: new Date('2026-06-22T07:00:00Z'),
-  meetingDate,
-};
-
-try {
-  assert.deepEqual(themeUpdateTypeSchema.options, types);
-  const config = themeMeetingConfigSchema.parse({
-    timezone: 'Europe/London',
-    cycle: { rotation: ['AB', 'CD'], anchor_date: meetingDate },
-    themes: [{ theme_id: 'A', title: 'Synthetic theme', cycle_group: 'AB', time: '10:00', coordinator: 'Synthetic coordinator', members }],
-    // An existing four-type config gains the new default without requiring migration.
-    submission: { update_types: { milestone_check: { duration_minutes: 10 } } },
-  });
-  assert.equal(config.submission.update_types.short_update?.duration_minutes, 5);
-  assert.equal(config.submission.update_types.short_update?.questions_required, false);
-  await writeFile(options.configPath, stringify(config));
-
-  // Only the account directory is read; all synthetic updates are written under tmpdir.
-  for (const [index, updateType] of types.entries()) {
-    const { update } = await submitThemeMeetingUpdate({ ...options, themeId: 'A', member: members[index]!, updateType, progressText: 'Synthetic progress for this slot.' });
-    assert.equal(update.update_type, updateType);
-    assert.equal(themeMeetingUpdateSchema.parse(update).update_type, updateType);
-  }
-  const { plan } = await buildThemeMeetingPlan(options);
-  assert.equal(plan.meetings[0]?.planned_minutes, 55);
-  for (const [index, type] of types.entries()) {
-    assert.equal(plan.meetings[0]?.agenda_items.find((item) => item.update_type === type)?.duration_minutes, durations[index]);
-  }
-  const email = renderThemeMeetingAgendaEmail(plan);
-  assert.match(email.html, /Short update &middot; 5 min/);
-  assert.match(email.text, /Short update \(5 min\)/);
-  assert.ok(email.text.indexOf('Deep dive | 30 min') < email.text.indexOf('Short update | 5 min'));
-  assert.match(email.text, /Planned: 55\/60 min/);
-  const resubmitted = await submitThemeMeetingUpdate({ ...options, themeId: 'A', member: members[1]!, updateType: 'short_update', progressText: 'Revised synthetic progress.' });
-  assert.equal(resubmitted.plan.meetings[0]?.planned_minutes, 55);
-  assert.equal(resubmitted.plan.meetings[0]?.agenda_items.filter((item) => item.member === members[1]).length, 1);
-  console.log('Five slot types verified: short-update submission, stored identity, 5-minute default, agenda totals, resubmission and email.');
-} finally {
-  await rm(checkDir, { recursive: true, force: true });
+assert.deepEqual(themeUpdateTypeSchema.options, ['deep_dive', 'short_update', 'nothing_to_report']);
+const config = themeMeetingConfigSchema.parse({
+  cycle: { rotation: ['AB'], anchor_date: '2026-10-28' },
+  themes: [{ theme_id: 'A', title: 'Synthetic theme', cycle_group: 'AB', time: '10:00', coordinator: 'chair', members: ['alice'] }],
+  submission: { update_types: { milestone_check: { duration_minutes: 10 }, strategic_slot: { duration_minutes: 10 } } },
+});
+assert.deepEqual(Object.keys(config.submission.update_types).sort(), ['deep_dive', 'nothing_to_report', 'short_update']);
+assert.equal(config.submission.update_types.short_update.duration_minutes, 5);
+const project = { id: '00000000-0000-4000-8000-000000000001', title: 'Synthetic project', ownerUsername: 'alice', stage: 3, todos: [] };
+const snapshot = meetingProjectContext(project);
+const base = { meeting_date: '2026-10-28', theme_id: 'A', member: 'alice', member_username: 'alice',
+  progress_text: 'Recorded evidence.', questions: '', submitted_at: '2026-10-27T12:00:00Z', project_context: snapshot };
+for (const [legacy, current] of [['milestone_check', 'short_update'], ['strategic_slot', 'deep_dive']]) {
+  assert.equal(themeMeetingUpdateSchema.safeParse({ ...base, update_type: legacy }).success, false);
+  const saved = themeMeetingUpdatesFileSchema.parse({ updates: [{ ...base, update_type: legacy }] });
+  assert.equal(saved.updates[0].update_type, current);
+  const historicalAgenda = themeMeetingPlanSchema.shape.meetings.element.shape.agenda_items.element.parse({ ...base, theme_title: 'Synthetic theme', update_type: legacy, duration_minutes: 10 });
+  assert.equal(historicalAgenda.update_type, current);
+  assert.equal(historicalAgenda.duration_minutes, 10, 'Reading historical confirmed entries preserves their duration.');
 }
-process.exit(0);
+for (const type of themeUpdateTypeSchema.options) {
+  const update = themeMeetingUpdateSchema.parse({ ...base, update_type: type });
+  assert.equal(update.update_type, type);
+  assert.equal(update.project_context!.stage, 3);
+}
+const { stage: _, ...oldContext } = snapshot;
+assert.match(formatMeetingProject(oldContext), /Project stage: Not recorded/);
+assert.equal(themeMeetingUpdateSchema.parse({ ...base, project_context: oldContext, update_type: 'short_update' }).project_context!.stage, undefined);
+assert.equal(themeMeetingUpdateSchema.parse({ ...base, project_context: undefined, update_type: 'nothing_to_report' }).project_context, undefined);
+for (const stage of [0, 6, 2.5]) assert.equal(themeMeetingUpdateSchema.safeParse({ ...base, project_context: { ...snapshot, stage }, update_type: 'short_update' }).success, false);
+const plan = themeMeetingPlanSchema.parse({
+  meeting_date: base.meeting_date, timezone: 'Europe/London', cycle_group: 'AB', generated_at: base.submitted_at,
+  meetings: [{ ...config.themes[0], submitted_members: ['alice'], missing_members: [], planned_minutes: 5, overbooked: false,
+    agenda_items: [{ ...base, theme_title: 'Synthetic theme', update_type: 'short_update', duration_minutes: 5 }] }],
+});
+const state = { confirmations: [], actions: [] };
+const confirmed = confirmAgenda(state, plan.meetings[0], base.meeting_date, [{ username: 'alice', minutes: 5, deferred: false }], 'chair');
+assert.throws(() => confirmAgenda(state, plan.meetings[0], base.meeting_date, [{ username: 'alice', minutes: 10, deferred: false }], 'chair'), /5 minutes/);
+project.stage = 4;
+assert.equal(snapshot.stage, 3);
+assert.equal(confirmed.entries[0].project_context!.stage, 3);
+assert.equal(meetingProjectContext(project).stage, 4);
+const email = renderThemeMeetingAgendaEmail(plan);
+assert.match(email.html, /Update &middot; 5 min/);
+assert.match(email.text, /Update \(5 min\)/);
+assert.match(email.html, /Project stage: 3/);
+assert.match(email.text, /Project stage: 3/);
+console.log('Three meeting types, legacy reads, stage snapshots, immutable confirmation and agenda rendering verified.');

@@ -37,7 +37,7 @@ assert.match(email.html, /&lt;baseline&gt;/);
 const unsafePlan = { ...plan, meetings: [{ ...plan.meetings[0]!, agenda_items: [{ ...plan.meetings[0]!.agenda_items[0]!, questions: '<script>alert("unsafe")</script>' }] }] };
 assert.match(renderThemeMeetingAgendaEmail(unsafePlan).html, /&lt;script&gt;alert\(&quot;unsafe&quot;\)/);
 assert.doesNotMatch(renderThemeMeetingAgendaEmail(unsafePlan).html, /<script>/);
-assert.match(email.html, /Nothing to report &middot; 0 min/);
+assert.match(email.html, /Nothing to Report &middot; 0 min/);
 assert.match(email.html, /<th scope="col"[^>]*>Member<\/th>/);
 assert.match(email.html, /Discussion details/);
 assert.match(email.html, />Updates<\/h3>/);
@@ -45,7 +45,7 @@ assert.doesNotMatch(email.html, /Written updates/);
 assert.match(email.html, /No discussion slots requested/);
 assert.equal((email.html.match(/<thead>/g) || []).length, 1, 'Zero-minute updates do not occupy the discussion table.');
 assert.match(email.html, /Missing updates: None/);
-assert.match(email.text, /Milestone check \(10 min\)/);
+assert.match(email.text, /Update \(10 min\)/);
 assert.match(email.text, /results\.\n• Next:/);
 assert.doesNotMatch(email.text, /^#|milestone_check|nothing_to_report/m);
 assert.match(email.text, /advisory until confirmed/);
@@ -75,7 +75,7 @@ assert.ok(singleUpdate('- First item\ncontinued on the next line\n- Second item'
 const orderedPlan = { ...plan, meetings: [{ ...plan.meetings[0]!, agenda_items: [
   { ...plan.meetings[0]!.agenda_items[0]!, member: 'Milestone member' },
   { ...plan.meetings[0]!.agenda_items[0]!, member: 'Short deep dive', update_type: 'deep_dive' as const, duration_minutes: 20 },
-  { ...plan.meetings[0]!.agenda_items[0]!, member: 'Strategy member', update_type: 'strategic_slot' as const },
+  { ...plan.meetings[0]!.agenda_items[0]!, member: 'Strategy member', update_type: 'short_update' as const },
   { ...plan.meetings[0]!.agenda_items[0]!, member: 'Long deep dive', update_type: 'deep_dive' as const, duration_minutes: 30 },
 ] }] };
 const before = JSON.stringify(orderedPlan);

@@ -80,7 +80,7 @@ export function confirmAgenda(state: MeetingWorkflow, meeting: ThemeMeetingPlan[
     if (!source) throw new Error('The agenda changed. Refresh before confirming.');
     if ((source.update_type === 'nothing_to_report' && selection.minutes !== 0) ||
         (source.update_type !== 'nothing_to_report' && selection.minutes < 1)) throw new Error('Invalid slot duration.');
-    if (source.update_type === 'short_update' && selection.minutes !== 5) throw new Error('Short updates are 5 minutes.');
+    if (source.update_type === 'short_update' && selection.minutes !== 5) throw new Error('Updates are 5 minutes.');
     return { ...source, duration_minutes: selection.minutes, deferred: selection.deferred };
   });
   if (entries.filter((item) => !item.deferred).reduce((sum, item) => sum + item.duration_minutes, 0) > meeting.duration_minutes) {

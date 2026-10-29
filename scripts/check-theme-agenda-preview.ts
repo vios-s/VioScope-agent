@@ -109,7 +109,7 @@ try {
   assert.equal(final.failed, 0);
   const memberFinal = sent.filter((mail) => mail.to === 'member.c@example.test').at(-1)!;
   assert.doesNotMatch(memberFinal.subject, /DRAFT/);
-  assert.match(memberFinal.text, /Short update \| 5 min/);
+  assert.match(memberFinal.text, /Update \| 5 min/);
   assert.match(memberFinal.text, /Adjusted presentation/);
   assert.match(memberPreview.text, /Draft experiment results/);
   assert.match(sent.find((mail) => mail.to === 'observer@example.test')!.text, /Theme C —/);

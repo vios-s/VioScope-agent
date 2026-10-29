@@ -12,7 +12,7 @@ export const projectStatuses = ['on_track', 'blocked', 'stale', 'needs_input'] a
 export const projectLifecycles = ['active', 'paused', 'finished', 'archived'] as const;
 export const projectUpdateTypes = ['progress', 'note', 'decision', 'blocker', 'artifact'] as const;
 export const projectTracks = ['A', 'B'] as const;
-export const projectRecommendations = ['deep_dive', 'milestone_check', 'strategic_slot', 'none'] as const;
+export const projectRecommendations = ['deep_dive', 'short_update', 'none'] as const;
 
 export type ProjectStatus = (typeof projectStatuses)[number];
 export type ProjectLifecycle = (typeof projectLifecycles)[number];
@@ -383,9 +383,9 @@ function projectRecommendation(input: {
     if (input.blocker || input.status === 'blocked') {
       recommendation = 'deep_dive';
     } else if (input.milestone || input.stageProgress >= 80 || deadlineSoon) {
-      recommendation = 'milestone_check';
+      recommendation = 'short_update';
     } else if (input.stage === 1 || input.status === 'needs_input') {
-      recommendation = 'strategic_slot';
+      recommendation = 'deep_dive';
     }
   }
 

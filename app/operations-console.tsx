@@ -160,7 +160,7 @@ type ProjectLifecycle = 'active' | 'paused' | 'finished' | 'archived';
 type ProjectUpdateType = 'progress' | 'note' | 'decision' | 'blocker' | 'artifact';
 type ProjectAccessReason = 'owner' | 'collaborator' | 'coordinator' | 'pi_admin';
 type ProjectTrack = 'A' | 'B';
-type ProjectSlotRecommendation = 'deep_dive' | 'milestone_check' | 'strategic_slot' | 'none';
+type ProjectSlotRecommendation = 'deep_dive' | 'short_update' | 'none';
 type UserPosition = 'pi' | 'student' | 'postdoc' | 'software_engineer' | 'visitor';
 
 type ManagedProjectArtifact = {
@@ -655,29 +655,33 @@ const stageLabels: Record<number, string> = {
 };
 
 const projectSlotLabels: Record<ProjectSlotRecommendation, string> = {
-  deep_dive: 'Deep dive',
-  milestone_check: 'Milestone check',
-  strategic_slot: 'Strategic slot',
+  deep_dive: 'Deep Dive',
+  short_update: 'Update',
   none: 'No slot',
 };
 
 const updateTypeLabels: Record<ThemeUpdateType, string> = {
-  deep_dive: 'Deep dive',
-  short_update: 'Short update',
-  nothing_to_report: 'Nothing to report',
-  milestone_check: 'Milestone check',
-  strategic_slot: 'Strategic slot',
+  deep_dive: 'Deep Dive',
+  short_update: 'Update',
+  nothing_to_report: 'Nothing to Report',
 };
 
 const updateTypeOptionLabels: Record<ThemeUpdateType, string> = {
-  nothing_to_report: 'Nothing to report (0 min)',
-  deep_dive: 'Deep dive (20-30 min)',
-  short_update: 'Short update (5 min)',
-  milestone_check: 'Milestone check (10 min)',
-  strategic_slot: 'Strategic slot (10 min, paper or idea)',
+  short_update: 'Update (5 min)',
+  deep_dive: 'Deep Dive (20-30 min)',
+  nothing_to_report: 'Nothing to Report (0 min)',
 };
 
-const themeMeetingSlotTypes: ThemeUpdateType[] = ['deep_dive', 'short_update', 'milestone_check', 'strategic_slot', 'nothing_to_report'];
+const themeMeetingSlotTypes: ThemeUpdateType[] = ['short_update', 'deep_dive', 'nothing_to_report'];
+// VIOS OS templates: Pre-Meeting Snapshot headings, keyed by inherited project stage.
+const themeProgressPlaceholders: Partial<Record<number, string>> = {
+  1: "● The Pain Point: (1 Sentence)\n● The Wild Factor: High / Med / Low\n● Proof of Concept (PoC) Goal: (e.g., \"Beat Baseline X on Dataset Y by Friday.\")",
+  2: "● The Signal: (e.g., \"Achieved 15% better mAP on preliminary runs.\")\n● The Risk: (e.g., \"High variance across seeds; might be a fluke.\")",
+  3: "● The Wall: (The #1 technical bottleneck currently stopping progress).\n● Current Metric: (e.g., \"Stuck at 85% accuracy; target is 92%.\")",
+  4: "● Figure 1 Status: [Drafted / Polished / Missing]\n● The \"Kill-Reason\": (What is the weakest part of the paper right now?)",
+  5: "● The \"Lethal\" Critique: (The one comment that could lead to rejection).\n● The Counter-Evidence: (The specific experiment or argument we are using to fight it).",
+};
+
 const themeMeetingReminderRows = [
   { name: 'first_reminder', label: 'Update reminder', weekday: 'Monday', time: '08:00' },
   { name: 'gentle_missing_update_reminder', label: 'Missing-update reminder', weekday: 'Tuesday', time: '04:00' },
@@ -3472,7 +3476,7 @@ function ThemeMeetingPanel({
 }) {
   const [themeId, setThemeId] = useState('');
   const [member, setMember] = useState('');
-  const [updateType, setUpdateType] = useState<ThemeUpdateType>('nothing_to_report');
+  const [updateType, setUpdateType] = useState<ThemeUpdateType>('short_update');
   const [progressText, setProgressText] = useState('');
   const [questions, setQuestions] = useState('');
   const [status, setStatus] = useState<string | null>(null);
@@ -3567,7 +3571,7 @@ function ThemeMeetingPanel({
   }, [member, submitMembers]);
 
   useEffect(() => {
-    setUpdateType(submittedUpdate?.update_type || 'nothing_to_report');
+    setUpdateType(submittedUpdate?.update_type || 'short_update');
     setProgressText(submittedUpdate?.progress_text || '');
     setQuestions(submittedUpdate?.questions || '');
     setShareProject(Boolean(submittedUpdate?.project_context));
@@ -3989,10 +3993,15 @@ function ThemeMeetingPanel({
                 )}
                 {(sourceProject || shareProject) && <div className="theme-project-share">
                   <label><input type="checkbox" checked={shareProject} aria-describedby="theme-project-share-help" onChange={(event) => setShareProject(event.target.checked)} />
-                    <span>Attach this project's owner, next actions and deadlines</span>
+                    <span>Link this project and share its stage, owner, next actions and deadlines</span>
                   </label>
-                  <p id="theme-project-share-help">Visible to the meeting audience and agenda email recipients. Private pitch history and project access stay unchanged. Uncheck to remove the attachment when saving.</p>
+                  <p id="theme-project-share-help">The project stage is inherited and saved as a snapshot when you submit. Visible to the meeting audience and agenda email recipients. Private pitch history and project access stay unchanged. Uncheck to remove the attachment when saving.</p>
                 </div>}
+                <label>
+                  <span>Project stage</span>
+                  <input type="text" readOnly value={shareProject && sourceProject ? stageLabels[sourceProject.stage] : 'Not linked'} aria-describedby="theme-project-stage-help" />
+                </label>
+                <p id="theme-project-stage-help">Inherited from the linked project. Change the stage in Projects; previous meeting snapshots remain unchanged.</p>
                 {submittedUpdate?.project_context && <details><summary>Previously shared project snapshot</summary><MeetingProjectSummary context={submittedUpdate.project_context} /></details>}
                 <p>Suggestions reserve no agenda time. Choose Nothing to report only when you have no progress or question to share.</p>
                 <div className="prompt-field">
@@ -4004,7 +4013,7 @@ function ThemeMeetingPanel({
                     id={progressFieldId}
                     value={progressText}
                     onChange={(event) => setProgressText(event.target.value)}
-                    placeholder="Aim for 50 words; maximum 75 words"
+                    placeholder={(shareProject && sourceProject && themeProgressPlaceholders[sourceProject.stage]) || 'Aim for 50 words; maximum 75 words'}
                     aria-describedby={`theme-meeting-progress-hint${formError ? ' theme-update-error' : ''}`}
                     aria-required={updateType !== 'nothing_to_report'}
                     aria-invalid={progressWordCount > 75 || Boolean(formError && !progressText.trim() && updateType !== 'nothing_to_report')}

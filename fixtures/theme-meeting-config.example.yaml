@@ -85,12 +85,6 @@ submission:
     short_update:
       duration_minutes: 5
       questions_required: false
-    milestone_check:
-      duration_minutes: 10
-      questions_required: false
-    strategic_slot:
-      duration_minutes: 10
-      questions_required: false
 
 reminders:
   - name: first_reminder
