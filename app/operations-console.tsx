@@ -63,7 +63,7 @@ import { vioscopeChatUiConfig } from '../src/mastra/agents/vioscope.chat-ui.conf
 
 type ActiveView = 'briefing' | 'projects' | 'chat' | 'meeting' | 'checklists' | 'feedback' | 'users';
 type ProjectsMode = 'member' | 'pi';
-type ProjectDetailMode = 'details' | 'progress' | 'todos' | 'workflow';
+type ProjectDetailMode = 'details' | 'progress' | 'workflow';
 type ChatMessageStatus = 'thinking' | 'answer' | 'refusal';
 
 type ChatMessage = {
@@ -2364,12 +2364,12 @@ function ProjectCard({
   project,
   onOpenDetails,
   onOpenProgress,
-  onOpenTodos,
+  onOpenWorkflow,
 }: {
   project: ManagedProject;
   onOpenDetails: (project: ManagedProject) => void;
   onOpenProgress: (project: ManagedProject) => void;
-  onOpenTodos: (project: ManagedProject) => void;
+  onOpenWorkflow: (project: ManagedProject) => void;
 }) {
   const currentArtifacts = currentProjectArtifacts(project);
   const age = formatAge(daysSinceDate(project.lastUpdate));
@@ -2419,11 +2419,11 @@ function ProjectCard({
         <button
           className="ops-secondary icon-only-button"
           type="button"
-          onClick={() => onOpenTodos(project)}
-          aria-label={`TODO list for ${project.title}`}
-          title="TODO list"
+          onClick={() => onOpenWorkflow(project)}
+          aria-label={`Research workflow for ${project.title}`}
+          title="Research workflow"
         >
-          <ClipboardList aria-hidden="true" />
+          <Workflow aria-hidden="true" />
         </button>
         <button
           className="ops-primary icon-only-button"
@@ -3038,10 +3038,9 @@ function ProjectDetailModal({
             <Plus aria-hidden="true" />
             Update
           </button>
-          <button className={mode === 'workflow' ? 'selected' : ''} type="button" onClick={() => setMode('workflow')}>Research workflow</button>
-          <button className={mode === 'todos' ? 'selected' : ''} type="button" onClick={() => setMode('todos')}>
-            <ClipboardList aria-hidden="true" />
-            TODO
+          <button className={mode === 'workflow' ? 'selected' : ''} type="button" onClick={() => setMode('workflow')}>
+            <Workflow aria-hidden="true" />
+            Research workflow
           </button>
         </div>
 
@@ -3488,7 +3487,7 @@ function ProjectDetailModal({
           </div>
         )}
 
-        {(mode === 'todos' || mode === 'workflow') && <ProjectWorkflow key={`${project.id}-${mode}`} projectId={project.id} initialTab={mode === 'todos' ? 'tasks' : 'research'} onChanged={onChanged} />}
+        {mode === 'workflow' && <ProjectWorkflow key={project.id} projectId={project.id} onChanged={onChanged} />}
 
       </div>
       <ConfirmDialog
@@ -4547,7 +4546,7 @@ function ProjectsView({
                   project={project}
                   onOpenDetails={(nextProject) => openProject(nextProject, 'details')}
                   onOpenProgress={(nextProject) => openProject(nextProject, 'progress')}
-                  onOpenTodos={(nextProject) => openProject(nextProject, 'todos')}
+                  onOpenWorkflow={(nextProject) => openProject(nextProject, 'workflow')}
                 />
               ))
             ) : (

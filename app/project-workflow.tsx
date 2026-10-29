@@ -9,8 +9,8 @@ const str=(form:FormData,key:string)=>String(form.get(key)||'').trim();
 const optional=(form:FormData,key:string)=>str(form,key)||null;
 const selectedIds=(form:FormData)=>form.getAll('evidenceIds').map(String);
 
-export function ProjectWorkflow({projectId,initialTab='research',onChanged}:{projectId:string;initialTab?:string;onChanged?:(project:Payload['project'])=>Promise<void>}){
- const [data,setData]=useState<Payload|null>(null),[tab,setTab]=useState(initialTab),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+export function ProjectWorkflow({projectId,onChanged}:{projectId:string;onChanged?:(project:Payload['project'])=>Promise<void>}){
+ const [data,setData]=useState<Payload|null>(null),[tab,setTab]=useState('research'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
  const url=`/api/projects/${projectId}/workflow`;
  async function load(){const refreshed=await requestJson<Payload>(url,'Could not load project workflow.');setData(refreshed);await onChanged?.(refreshed.project);}
  useEffect(()=>{let active=true;void requestJson<Payload>(url,'Could not load project workflow.').then(value=>{if(active)setData(value);}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[url]);
