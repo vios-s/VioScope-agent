@@ -5,6 +5,7 @@ import { Plus } from 'lucide-react';
 import { checklistDraftKey, readChecklistDraft, removeChecklistDraft, writeChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
 import { IdeaPitchEditor, formatRecordTime } from './idea-pitch-editor';
+import { ConfirmDialog } from './confirm-dialog';
 import type { IdeaPitch } from '../src/mastra/projects/idea-check';
 
 const railGroups = [
@@ -35,12 +36,19 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
   const [filter, setFilter] = useState('all');
   const [newDraft, setNewDraft] = useState(0);
   const [editorState, setEditorState] = useState({ dirty: false, busy: false });
+  // Pitch id waiting for the user to confirm discarding unsaved changes (null = no pending switch).
+  const [pendingSwitch, setPendingSwitch] = useState<string | null>(null);
   // A new pitch keeps its draft under 'idea:new' until reopened by id, so clear both keys.
   function discardDrafts() {
     for (const id of new Set([selected, displayed])) removeChecklistDraft(checklistDraftKey(userId, 'idea:' + (id || 'new')));
   }
   function openPitch(id: string) {
-    if (editorState.busy || (editorState.dirty && !window.confirm('Discard unsaved changes and switch pitches?'))) return;
+    if (editorState.busy) return;
+    if (editorState.dirty) { setPendingSwitch(id); return; }
+    switchTo(id);
+  }
+  function switchTo(id: string) {
+    setPendingSwitch(null);
     discardDrafts();
     writeChecklistDraft(selectionKey, id);
     setStatus(''); setSelected(id); setDisplayed(id); setNewDraft(value => value + 1);
@@ -95,5 +103,8 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
       </aside>
       <div ref={editorRef} className="idea-editor-host"><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { discardDrafts(); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
     </div>
+    <ConfirmDialog id="idea-switch-confirm" open={pendingSwitch !== null} tone="default" title="Discard unsaved changes?"
+      message="This pitch has changes that are not saved. Switching will discard them; the last saved version is kept."
+      confirmLabel="Discard and switch" cancelLabel="Keep editing" onCancel={() => setPendingSwitch(null)} onConfirm={() => switchTo(pendingSwitch ?? '')} />
   </section>;
 }

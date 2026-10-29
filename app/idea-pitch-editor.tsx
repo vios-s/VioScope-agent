@@ -5,6 +5,7 @@ import { Check, Clock, Compass, Download, Lock, Trash2, Upload } from 'lucide-re
 import { IdeaPitchSharing } from './idea-pitch-sharing';
 import { checklistDraftKey, readChecklistDraft, writeChecklistDraft, removeChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
+import { ConfirmDialog } from './confirm-dialog';
 import { checkIdea, ideaDraftSchema, ideaFields, defaultPitchExportFormat, type PitchExportFormat, type IdeaCheckPayload, type IdeaDecision, type IdeaDraft, type IdeaSource } from '../src/mastra/projects/idea-check';
 
 export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, onDeleted, onStateChanged }: { userId: string; pitchId: string; onChanged: (id: string) => Promise<void>; onProjectCreated: () => Promise<void>; onDeleted: () => Promise<void>; onStateChanged: (state: { dirty: boolean; busy: boolean }) => void }) {
@@ -36,6 +37,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [reload, setReload] = useState(0);
+  const [reloadConfirmOpen, setReloadConfirmOpen] = useState(false);
   const url = `/api/idea-pitches/${encodeURIComponent(resolvedId.current)}`;
   async function ensurePitch() {
     if (!resolvedId.current) {
@@ -166,7 +168,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
         <button type="button" className="ops-secondary" onClick={() => setConflictingDraft(null)}>Use saved version</button>
       </div>
     </section>}
-    {error && <p role="alert" className="ops-notice error idea-alert">{error} <button type="button" className="ops-secondary" disabled={locked} onClick={() => { if (!dirty || window.confirm('Discard unsaved changes and reload the saved version?')) setReload((value) => value + 1); }}>Reload saved version</button></p>}
+    {error && <p role="alert" className="ops-notice error idea-alert">{error} <button type="button" className="ops-secondary" disabled={locked} onClick={() => { if (dirty) setReloadConfirmOpen(true); else setReload((value) => value + 1); }}>Reload saved version</button></p>}
     {status && <p role="status" className="form-message idea-status">{status}</p>}
     {!data ? <p role="status" className="idea-loading">{error ? 'Idea check unavailable.' : 'Loading idea check…'}</p> : <>
       <div className="idea-title-block">
@@ -325,6 +327,9 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
         : <button type="button" className="ops-secondary" disabled title="Available after a saved Proceed decision">Convert to project</button>)}
       {data.canEdit && <button className="ops-primary" type="submit" form={formId} disabled={locked}>Save pitch draft</button>}
     </div>}
+    <ConfirmDialog id="idea-reload-confirm" open={reloadConfirmOpen} tone="default" title="Reload the saved version?"
+      message="Your unsaved changes in this pitch will be discarded and the last saved version will be shown."
+      confirmLabel="Discard and reload" cancelLabel="Keep editing" onCancel={() => setReloadConfirmOpen(false)} onConfirm={() => { setReloadConfirmOpen(false); setReload((value) => value + 1); }} />
   </section>;
 }
 

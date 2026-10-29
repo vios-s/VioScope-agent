@@ -47,6 +47,7 @@ import {
   Ellipsis,
 } from 'lucide-react';
 import { DotMatrixIcon } from './dot-matrix-icon';
+import { ConfirmDialog } from './confirm-dialog';
 import { ArrowUp as ChatSendIcon, Compass as ChatAdvisorIcon } from 'lucide-react';
 import { SkeletonLock } from './skeleton-lock';
 import { IdeaPitches } from './idea-pitches';
@@ -1412,103 +1413,6 @@ function useCustomDialogFocus<T extends HTMLElement>(open: boolean, initialFocus
   }, [open, initialFocusRef]);
 }
 
-function ConfirmDialog({
-  id,
-  open,
-  title,
-  message,
-  confirmLabel,
-  busy = false,
-  onCancel,
-  onConfirm,
-  confirmPhrase,
-  children,
-}: {
-  id: string;
-  open: boolean;
-  title: string;
-  message: string;
-  confirmLabel: string;
-  busy?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-  /** Optional type-to-confirm guard (D7): the confirm button stays disabled until the exact value is typed. */
-  confirmPhrase?: { value: string; label: string };
-  /** Optional extra fields, such as a reason, shown above the buttons. */
-  children?: ReactNode;
-}) {
-  const dialogRef = useRef<HTMLDialogElement | null>(null);
-  const cancelRef = useRef<HTMLButtonElement | null>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const titleId = `${id}-title`;
-  const messageId = `${id}-message`;
-  const [typedPhrase, setTypedPhrase] = useState('');
-  const phraseMatches = !confirmPhrase || typedPhrase.trim() === confirmPhrase.value.trim();
-  useEffect(() => {
-    if (open) setTypedPhrase('');
-  }, [open]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-
-    if (open) {
-      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      if (!dialog.open) dialog.showModal();
-      window.requestAnimationFrame(() => cancelRef.current?.focus());
-    } else if (dialog.open) {
-      dialog.close();
-      previousFocusRef.current?.focus();
-    }
-  }, [open]);
-
-  useEffect(() => () => {
-    if (dialogRef.current?.open) dialogRef.current.close();
-  }, []);
-
-  return (
-    <dialog
-      ref={dialogRef}
-      className="confirm-dialog"
-      aria-labelledby={titleId}
-      aria-describedby={messageId}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (!busy && event.target === event.currentTarget) onCancel();
-      }}
-      onCancel={(event) => {
-        event.preventDefault();
-        if (!busy) onCancel();
-      }}
-    >
-      <form method="dialog" className="confirm-dialog-card">
-        <header>
-          <span className="confirm-dialog-icon" aria-hidden="true">
-            <TriangleAlert />
-          </span>
-          <h2 id={titleId}>{title}</h2>
-        </header>
-        <p id={messageId}>{message}</p>
-        {confirmPhrase && (
-          <label className="confirm-dialog-phrase">
-            <span>{confirmPhrase.label}</span>
-            <input value={typedPhrase} autoComplete="off" spellCheck={false} onChange={(event) => setTypedPhrase(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
-          </label>
-        )}
-        {children}
-        <footer>
-          <button ref={cancelRef} className="ops-secondary" type="button" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-          <button className="ops-primary danger-confirm" type="button" onClick={onConfirm} disabled={busy || !phraseMatches}>
-            {busy ? 'Working' : confirmLabel}
-          </button>
-        </footer>
-      </form>
-    </dialog>
-  );
-}
-
 function WelcomeDialog({
   open,
   user,
@@ -2601,6 +2505,7 @@ function ProjectDetailModal({
   const [editDraft, setEditDraft] = useState(() => projectDraftFromProject(project, viewer));
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
+  const [updateToDelete, setUpdateToDelete] = useState<ManagedProjectUpdate | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2762,7 +2667,7 @@ function ProjectDetailModal({
   }
 
   async function deleteUpdate(update: ManagedProjectUpdate) {
-    if (!window.confirm('Delete this update and its attached files? This cannot be undone.')) return;
+    setUpdateToDelete(null);
     setBusy(`delete:${update.id}`);
     setError(null);
     try {
@@ -3315,7 +3220,7 @@ function ProjectDetailModal({
                         <button className="ops-secondary" type="button" onClick={() => startEditingUpdate(update)}>
                           <Pencil aria-hidden="true" /> Edit
                         </button>
-                        <button className="ops-secondary danger-action" type="button" disabled={busy === `delete:${update.id}`} onClick={() => void deleteUpdate(update)}>
+                        <button className="ops-secondary danger-action" type="button" disabled={busy === `delete:${update.id}`} onClick={() => setUpdateToDelete(update)}>
                           <Trash2 aria-hidden="true" /> {busy === `delete:${update.id}` ? 'Deleting' : 'Delete'}
                         </button>
                       </div>
@@ -3355,6 +3260,18 @@ function ProjectDetailModal({
         onCancel={() => setArtifactToRemove(null)}
         onConfirm={() => {
           if (artifactToRemove) void removeArtifact(artifactToRemove);
+        }}
+      />
+      <ConfirmDialog
+        id="project-update-delete-confirm"
+        open={Boolean(updateToDelete)}
+        title="Delete this update?"
+        message="The update and its attached files will be deleted. This cannot be undone."
+        confirmLabel="Delete update"
+        busy={Boolean(updateToDelete && busy === `delete:${updateToDelete.id}`)}
+        onCancel={() => setUpdateToDelete(null)}
+        onConfirm={() => {
+          if (updateToDelete) void deleteUpdate(updateToDelete);
         }}
       />
 

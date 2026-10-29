@@ -245,6 +245,11 @@
   color: var(--vs-danger-fg);
 }
 
+.confirm-dialog.is-default .confirm-dialog-icon {
+  background: var(--vs-accent-selected);
+  color: var(--vs-accent-strong);
+}
+
 .confirm-dialog-icon svg {
   width: 18px;
   height: 18px;

@@ -6,6 +6,7 @@ import { skeletonFields, skeletonDraftSchema } from '../src/mastra/submission/sk
 import { latestSkeletonDecisions, type SkeletonDecision, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
 import { checklistDraftKey, useChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
+import { ConfirmDialog } from './confirm-dialog';
 import { Check, ChevronDown, Clock, Compass, Download, Search } from 'lucide-react';
 import { formatRecordTime } from './idea-pitch-editor';
 
@@ -35,6 +36,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
   const [text, setText] = useChecklistDraft(key('text'), '');
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   async function refresh() {
@@ -94,6 +96,9 @@ export function SkeletonLock({ userId }: { userId: string }) {
     finally { setBusy(false); }
   }
   const latest = selected ? latestSkeletonDecisions(selected.decisions) : null;
+  function switchProject(nextId: string) {
+    setPendingProjectId(null); setProjectId(nextId); setSelectedId(''); setSelected(null); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null);
+  }
   return <section className="skeleton-lock" aria-busy={busy}>
     <header className="skeleton-head">
       <h2>Skeleton Lock</h2>
@@ -114,7 +119,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
       </div>
       {view === 'projects' && <form onSubmit={run} className="skeleton-input">
         <fieldset disabled={busy} className="skeleton-input-panel"><legend>Project evidence</legend>
-          <ProjectPicker projects={data.projects} value={projectId} onSelect={nextId => { if ((text || file || Object.values(draft).some(value => value.trim())) && !window.confirm('Switch projects and discard the current input? Saved reviews are retained.')) return; setProjectId(nextId); setSelectedId(''); setSelected(null); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null); }} />
+          <ProjectPicker projects={data.projects} value={projectId} onSelect={nextId => { if (text || file || Object.values(draft).some(value => value.trim())) setPendingProjectId(nextId); else switchProject(nextId); }} />
           {!data.projects.length && <p className="skeleton-muted">Create or join a project before starting Skeleton Lock.</p>}
           {project && <><ProjectContext project={project} />
             {(!project.piUsername || !project.pdraUsername || !project.venue || !project.submissionDeadline) && <p className="ops-notice">Some project details are missing. Set the PI, assigned PDRA, target venue and deadline in Projects. Missing values will remain explicit in the AI check.</p>}
@@ -187,6 +192,9 @@ export function SkeletonLock({ userId }: { userId: string }) {
         </aside>
       </section>}
     </>}
+    <ConfirmDialog id="skeleton-switch-confirm" open={pendingProjectId !== null} tone="default" title="Switch project?"
+      message="The current Skeleton Lock input will be discarded. Saved reviews are retained."
+      confirmLabel="Discard and switch" cancelLabel="Keep editing" onCancel={() => setPendingProjectId(null)} onConfirm={() => switchProject(pendingProjectId ?? '')} />
   </section>;
 }
 const outcomeLabels: Record<string, string> = { revise: 'Revise before locking', conditional: 'Conditional — actions required', locked: 'Ready to lock', needs_revision: 'Needs revision', approved: 'Skeleton lock approved' };
