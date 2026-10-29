@@ -42,6 +42,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       if (!title.trim()) throw new Error('Enter a pitch title before importing or saving.');
       const result = await requestJson<{ id: string }>('/api/idea-pitches', 'Could not create pitch.', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title.trim() }) });
       resolvedId.current = result.id;
+      // Import creates the record before any save; list it now so it can be picked even if extraction fails.
+      await onChanged(result.id).catch(() => undefined);
     }
     return `/api/idea-pitches/${encodeURIComponent(resolvedId.current)}`;
   }
@@ -213,7 +215,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
             <p className="idea-section-title">Lead: {data.pitch.ownerUsername ? `@${data.pitch.ownerUsername}` : 'You'}</p>
             <label className="idea-track">Track
               <select value={draft.track} disabled={!data.canEdit} onChange={event => { setDraft({ ...draft, track: event.target.value as '' | 'A' | 'B' }); setConfirmed(false); setCreateConfirmed(false); }}>
-                <option value="">Select a track</option><option value="A">Track A</option><option value="B">Track B</option>
+                <option value="">Select a track</option><option value="A">Track A — Flagship</option><option value="B">Track B — Momentum</option>
               </select>
             </label>
           </div>
@@ -221,7 +223,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
             const [, number = String(index + 1), heading = field.label] = /^(\d+)\.\s*(.*)$/.exec(field.label) || [];
             return <div key={field.key} className="idea-pitch-block">
               <div className="idea-block-head">
-                <label htmlFor={`${prefix}-${field.key}`}><span className="idea-block-num" data-num={number.padStart(2, '0')}>{number}.</span> {heading}</label>
+                <label htmlFor={`${prefix}-${field.key}`}><span className="idea-block-num" aria-hidden="true" data-num={number.padStart(2, '0')} /><span className="vs-sr-only">{number}.</span> {heading}</label>
                 {!checks[index].present && <span className="idea-empty-chip">Empty</span>}
               </div>
               <textarea id={`${prefix}-${field.key}`} readOnly={!data.canEdit} placeholder={field.hint} rows={5} maxLength={24000}

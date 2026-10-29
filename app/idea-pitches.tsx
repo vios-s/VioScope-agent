@@ -35,9 +35,13 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
   const [filter, setFilter] = useState('all');
   const [newDraft, setNewDraft] = useState(0);
   const [editorState, setEditorState] = useState({ dirty: false, busy: false });
+  // A new pitch keeps its draft under 'idea:new' until reopened by id, so clear both keys.
+  function discardDrafts() {
+    for (const id of new Set([selected, displayed])) removeChecklistDraft(checklistDraftKey(userId, 'idea:' + (id || 'new')));
+  }
   function openPitch(id: string) {
     if (editorState.busy || (editorState.dirty && !window.confirm('Discard unsaved changes and switch pitches?'))) return;
-    removeChecklistDraft(checklistDraftKey(userId, 'idea:' + (displayed || 'new')));
+    discardDrafts();
     writeChecklistDraft(selectionKey, id);
     setStatus(''); setSelected(id); setDisplayed(id); setNewDraft(value => value + 1);
   }
@@ -89,7 +93,7 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
         })}
         <p className="idea-rail-note">An empty editor does not create a pitch. A pitch is stored only when you save it.</p>
       </aside>
-      <div ref={editorRef} className="idea-editor-host"><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { removeChecklistDraft(checklistDraftKey(userId, 'idea:' + (displayed || 'new'))); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
+      <div ref={editorRef} className="idea-editor-host"><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { discardDrafts(); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
     </div>
   </section>;
 }
