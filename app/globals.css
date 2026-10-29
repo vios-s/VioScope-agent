@@ -301,6 +301,13 @@ textarea {
   font: inherit;
 }
 
+input,
+select,
+textarea {
+  min-width: 0;
+  font-weight: 400;
+}
+
 button {
   cursor: pointer;
 }
@@ -1042,6 +1049,7 @@ button.notification-row:hover {
 }
 
 .console-page-title {
+  margin: 0;
   color: var(--ink);
   font-size: 1.26rem;
   font-weight: 850;
@@ -1261,7 +1269,7 @@ html[data-theme="dark"] .briefing-hero::after {
 .briefing-table-head,
 .briefing-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.4fr) 0.55fr 0.35fr 0.7fr 0.65fr;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(0, 0.55fr) minmax(0, 0.35fr) minmax(0, 0.7fr) minmax(0, 0.65fr);
   gap: 10px;
   align-items: center;
 }
@@ -1280,6 +1288,8 @@ html[data-theme="dark"] .briefing-hero::after {
 .briefing-row strong {
   color: var(--text);
 }
+
+.briefing-row > * { min-width: 0; overflow-wrap: anywhere; }
 
 .briefing-agenda {
   margin: 0;
@@ -1622,11 +1632,15 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .ops-panel-head {
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 14px;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--surface);
 }
+
+.ops-panel-head > div:first-child { flex: 1 1 220px; min-width: 0; }
+.ops-panel-head > button { flex: 0 0 auto; }
 
 .ops-panel-head h2 {
   margin-bottom: 2px;
@@ -2225,7 +2239,7 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .library-list small,
 .ops-muted-line {
-  color: var(--faint);
+  color: var(--ink-3);
 }
 
 .ops-muted-line {
@@ -2818,7 +2832,7 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .ops-table th {
   background: var(--surface-3);
-  color: var(--muted-2);
+  color: var(--ink-3);
   font-size: 0.68rem;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -3087,7 +3101,7 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .settings-sidebar-label {
   padding: 4px 11px 6px;
-  color: var(--faint);
+  color: var(--ink-3);
   font-size: 0.63rem;
   font-weight: 850;
   letter-spacing: 0;
@@ -3103,6 +3117,7 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .settings-section {
   width: 100%;
+  min-width: 0;
   margin: 0;
   display: grid;
   gap: 18px;
@@ -3120,6 +3135,8 @@ html[data-theme="dark"] .briefing-hero::after {
   font-weight: 850;
   text-wrap: balance;
 }
+
+.settings-section > * { min-width: 0; }
 
 .settings-section-heading p,
 .settings-footnote {
@@ -3170,7 +3187,7 @@ html[data-theme="dark"] .briefing-hero::after {
   padding: 10px 17px;
   border-bottom: 1px solid var(--border-row);
   background: var(--panel-muted);
-  color: var(--faint);
+  color: var(--ink-3);
   font-size: 0.68rem;
   font-weight: 900;
   text-transform: uppercase;
@@ -3181,8 +3198,12 @@ html[data-theme="dark"] .briefing-hero::after {
   justify-content: center;
 }
 
+.notification-grid-head > :not(:first-child) {
+  text-align: center;
+}
+
 .settings-disabled-text {
-  color: var(--faint);
+  color: var(--ink-3);
   font-size: 0.72rem;
   font-weight: 850;
 }
@@ -3529,7 +3550,7 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .theme-settings-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(210px, 280px);
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   align-items: start;
   padding: 12px;
@@ -3551,6 +3572,7 @@ html[data-theme="dark"] .briefing-hero::after {
   color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .theme-settings-control {
@@ -3559,7 +3581,7 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .theme-settings-control.split {
-  grid-template-columns: minmax(0, 1fr) 112px;
+  grid-template-columns: minmax(0, 1fr) 140px;
 }
 
 .theme-settings-control input,
@@ -4340,7 +4362,8 @@ html[data-theme="dark"] .briefing-hero::after {
   margin: -4px 0 0;
 }
 
-.users-modal header {
+/* Only the dialog chrome may bleed into its padding, never nested section headers. */
+.users-modal > header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4356,7 +4379,7 @@ html[data-theme="dark"] .briefing-hero::after {
   font-weight: 850;
 }
 
-.users-modal header button {
+.users-modal > header button {
   width: 28px;
   height: 28px;
   display: grid;
@@ -4367,7 +4390,7 @@ html[data-theme="dark"] .briefing-hero::after {
   color: var(--muted);
 }
 
-.users-modal header button:hover {
+.users-modal > header button:hover {
   background: var(--surface-3);
   color: var(--ink-3);
 }
@@ -4376,11 +4399,11 @@ html[data-theme="dark"] .briefing-hero::after {
   display: grid;
   gap: 7px;
   color: var(--ink-3);
-  font-size: 0.78rem;
-  font-weight: 850;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
-.users-modal input,
+.users-modal input:not([type="checkbox"]):not([type="radio"]),
 .users-modal select,
 .users-modal textarea {
   width: 100%;
@@ -4389,9 +4412,12 @@ html[data-theme="dark"] .briefing-hero::after {
   border-radius: 8px;
   background: var(--field);
   color: var(--text);
+  min-width: 0;
+  font: inherit;
+  font-weight: 400;
 }
 
-.users-modal input,
+.users-modal input:not([type="checkbox"]):not([type="radio"]),
 .users-modal select {
   min-height: 38px;
 }
@@ -4499,7 +4525,12 @@ html[data-theme="dark"] .briefing-hero::after {
 
 .project-modal-tabs {
   width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
+
+.project-modal-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; }
+.project-modal-tabs svg { width: 16px; height: 16px; flex: none; }
 
 .project-modal-two-column {
   display: grid;
@@ -5230,7 +5261,7 @@ html[data-theme="dark"] .briefing-hero::after {
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 0 48px;
+  padding: 16px 24px;
   border-bottom: 1px dashed var(--border-row);
   background: var(--surface);
 }
@@ -5269,7 +5300,7 @@ html[data-theme="dark"] .briefing-hero::after {
 .chat-scroll {
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 48px;
+  padding: 22px 24px;
   scrollbar-gutter: stable;
 }
 
@@ -5716,7 +5747,7 @@ html[data-theme="dark"] .briefing-hero::after {
   margin: 0;
   display: grid;
   gap: 8px;
-  padding: 14px 48px 16px;
+  padding: 14px 24px 16px;
   border-top: 1px dashed var(--border-row);
   background: var(--surface);
 }
@@ -6172,6 +6203,23 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 @media (max-width: 980px) {
+  .chat-view {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(120px, 180px) minmax(0, 1fr);
+  }
+
+  .chat-session-column {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .chat-session-search { min-height: 40px; margin: 12px 16px 8px; }
+  .chat-history-tabs { margin: 0 16px 8px; }
+  .chat-history-empty { margin: 8px 16px; }
+  .chat-main-head { min-height: 58px; }
+  .chat-empty { height: auto; min-height: 100%; }
+  .prompt-grid { grid-template-columns: minmax(0, 1fr); }
+
   .auth-wrap {
     width: min(418px, 100%);
     grid-template-columns: 1fr;
@@ -6314,7 +6362,7 @@ html[data-theme="dark"] .briefing-hero::after {
   }
 
   .theme-settings-control.split {
-    grid-template-columns: minmax(0, 1fr) 112px;
+    grid-template-columns: minmax(0, 1fr) 140px;
   }
 
   .checklist-layout {
@@ -6332,6 +6380,13 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 @media (max-width: 720px) {
+  .chat-main-head, .chat-scroll, .chat-input-wrap { padding-inline: 16px; }
+  .chat-main-head { gap: 8px; }
+  .chat-presence { flex-shrink: 0; }
+  .users-modal > header button { width: 44px; height: 44px; flex-shrink: 0; }
+  .project-modal-tabs button, .project-detail-modal .project-workflow button { min-height: 44px; }
+  .notification-grid-head, .notification-preference-row { grid-template-columns: minmax(0, 1fr) 56px 56px; gap: 10px; }
+
   .theme-meeting-grid {
     padding: 0;
   }
@@ -6633,6 +6688,7 @@ html[data-theme="dark"] .briefing-hero::after {
 .idea-pitches-panel label > span { color: color-mix(in srgb, var(--ink) 80%, var(--surface)); font-size: 14px; font-weight: 400; line-height: 1.5; }
 .idea-pitches-panel input:not([type="checkbox"]), .idea-pitches-panel textarea, .idea-pitches-panel select { width: 100%; min-width: 0; max-width: 100%; padding: 10px 12px; border: 1px solid var(--field-border); border-radius: 6px; background: var(--field); color: var(--ink); font: inherit; font-size: 14px; line-height: 1.5; }
 .idea-pitches-panel textarea { resize: vertical; min-height: 96px; }
+.idea-pitches-panel input:not([type="checkbox"]), .idea-pitches-panel select { min-height: 44px; }
 .idea-pitches-panel :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 .idea-pitches-panel button { min-height: 44px; white-space: normal; }
 .idea-pitches-panel .ops-primary { background: var(--ink); color: var(--surface); box-shadow: none; }
@@ -6641,6 +6697,10 @@ html[data-theme="dark"] .briefing-hero::after {
 .idea-compose-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .5fr); gap: 24px; align-items: start; }
 .idea-writing-sheet, .idea-review-rail { min-width: 0; }
 .idea-review-rail { display: grid; gap: 24px; border-left: 1px solid var(--line); padding-left: 24px; }
+.idea-followup { display: grid; gap: 24px; margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); min-width: 0; }
+.idea-followup > form { max-width: 880px; width: 100%; }
+.idea-followup fieldset > button { justify-self: start; }
+.idea-review-results { min-width: 0; }
 .project-idea-check fieldset { min-width: 0; margin: 0; padding: 0; border: 0; display: grid; gap: 16px; }
 .project-idea-check .idea-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 24px; }
 .idea-fields legend { padding-bottom: 12px; }
@@ -6725,8 +6785,8 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .skeleton-lock fieldset { border: 1px solid var(--border-soft); border-radius: 10px; padding: 20px; margin: 18px 0; display: grid; gap: 16px; }
-.skeleton-lock label { display: grid; gap: 8px; font-weight: 650; }
-.skeleton-lock input:not([type="checkbox"]), .skeleton-lock select, .skeleton-lock textarea { width: 100%; padding: 10px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface); color: var(--ink); }
+.skeleton-lock label { display: grid; gap: 8px; min-width: 0; font-size: 14px; font-weight: 500; }
+.skeleton-lock input:not([type="checkbox"]), .skeleton-lock select, .skeleton-lock textarea { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--border-soft); border-radius: 7px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 400; }
 .skeleton-lock textarea { resize: vertical; }
 .skeleton-project-context, .skeleton-blocks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .skeleton-project-context dd { margin: 4px 0 0; overflow-wrap: anywhere; }
@@ -6783,7 +6843,7 @@ html[data-theme="dark"] .briefing-hero::after {
 .project-workflow p, .project-workflow a { overflow-wrap: anywhere; }
 .project-workflow button { min-height: 40px; }
 
-.project-workflow > header { display: block; padding: 0; margin-bottom: 20px; }
+.project-workflow > header { display: block; padding: 0; margin: 0 0 20px; }
 .project-workflow > header p { margin-top: 8px; }
 
 .project-workflow .workflow-confirm input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; padding: 0; margin: 2px 0 0; }

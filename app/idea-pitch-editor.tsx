@@ -167,7 +167,7 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
           {data.canEdit && <button className="ops-primary" type="submit">Save pitch draft</button>}
         </fieldset>
       </form>
-      </div><aside className="idea-review-rail" aria-label="Review and next steps">
+      </div><aside className="idea-review-rail" aria-label="Pitch preparation">
       {data.canManage && data.pitch.id && <IdeaPitchSharing pitchId={data.pitch.id} owner={data.pitch.ownerUsername} collaborators={data.collaborators} disabled={busy} onBusyChanged={setSharingBusy} onChanged={async () => {
         const payload = await requestJson<IdeaCheckPayload>(url, 'Sharing changed, but could not refresh the collaborator list.');
         // Sharing must not advance the version used by an unsaved draft.
@@ -191,6 +191,8 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
       <section className="idea-completeness"><h4>Ready for discussion?</h4>
       <p>{missing.length ? `${missing.length} sections still need information. You can save an incomplete draft.` : 'All sections contain text. A person must still judge the evidence and feasibility.'}</p>
       <ul className="idea-check-list">{checks.map((item) => <li key={item.key}>{item.present ? 'Recorded' : 'Missing'}: {item.label}</li>)}</ul></section>
+      </aside></div>
+      <section className="idea-followup" aria-label="AI feedback and next steps">
       {data.canManage && <section className="idea-review-results">
         <h4>AI feedback</h4>
         <p>Get suggestions on evidence and feasibility. AI gives advice; your PI discussion guides the decision.</p>
@@ -250,7 +252,7 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
           <dl>{ideaFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{revision.draft[field.key] || 'Not recorded'}</dd></div>)}</dl>
         </details>)}
       </details>}
-      </aside></div>
+      </section>
     </>}
   </section>;
 }

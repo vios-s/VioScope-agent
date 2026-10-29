@@ -395,3 +395,13 @@ Skeleton Lock deployment verified (2026-10-28): main was pushed and runtime comm
 - Validation: `npm run check:skeleton-project` uses a disposable database; `CHECK_SKELETON_PROJECT_UI=true` adds the owner/PDRA/PI browser flow against a separate production build. AI output in this workflow test is synthetic; live-model quality remains covered separately by `check:skeleton-quality`.
 
 Deployment verified on 2026-10-29: runtime commit `ca9b443`, build `-Pfo23EOkp0CrYd0Kbo3Q`. A restored database backup and the previous runtime are retained locally. The public HTTPS application completed a synthetic project flow using real ELM AI (CONDITIONAL, ten findings), inherited project metadata, owner authorization denial, separate PDRA and PI decisions, and mobile layout without client errors. AI citation line bounds passed. Synthetic accounts, project and reviews were removed after screenshots; audit history was retained. This is one live smoke test, not a comprehensive AI quality evaluation.
+
+
+### UI alignment audit — 2026-10-29
+
+- Retain the VIOS visual identity; apply Taste app-screen guidance to spacing, alignment and responsive forms.
+- Scope modal title styles to the outer header, align project tabs and workflow content, and keep checkboxes separate from text-input sizing.
+- Put long Idea Pitch feedback and human decisions below the writing/preparation area. Keep existing data, permissions and confirmation steps.
+- Make chat usable on narrow screens, contain settings tables, align notification columns and briefing rows, and give theme-meeting labels and time controls sufficient room.
+- Validation: 117 Chromium screenshots across 1440/768/390 widths covering all seven main views, checklist tabs, all settings sections, project dialogs, PDRA/PI review views, login and representative dark mode. No client exceptions or uncontained control overflow in that matrix. Idea Pitch, Skeleton Lock and project-workflow browser/integration checks, English policy and production build passed.
+- Scope limits: synthetic data and saved review fixtures; no new AI quality evaluation, Safari/Firefox run or physical-device test. Existing brand styling is intentionally retained where Taste's generic visual rules differ.

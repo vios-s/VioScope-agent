@@ -1817,7 +1817,7 @@ function ConsolePageFrame({
     <section className={`console-page ${className}`}>
       <header className="console-subheader">
         <div className="console-subtitle-row">
-          <span className="console-page-title">{title}</span>
+          <h1 className="console-page-title">{title}</h1>
           {subtitle && <span className="console-page-subtitle">{subtitle}</span>}
         </div>
         {actions && <div className="console-subheader-actions">{actions}</div>}
