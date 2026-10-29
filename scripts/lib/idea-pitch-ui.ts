@@ -38,7 +38,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     const draft = ideaDraftSchema.parse(legacyDraft);
     for (const field of ideaFields) {
       if (!draft[field.key]) draft[field.key] = 'Synthetic plan for ' + field.label;
-      await panel.locator('.idea-fields').getByRole('textbox', { name: new RegExp('^' + field.label) }).fill(draft[field.key]);
+      await panel.locator('.idea-fields').getByRole('textbox', { name: field.label, exact: true }).fill(draft[field.key]);
     }
     page.once('dialog', dialog => dialog.dismiss());
     await page.getByRole('button', { name: 'New pitch', exact: true }).click();
