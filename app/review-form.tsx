@@ -146,13 +146,15 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
   const [saving, setSaving] = useState(false);
   const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const draftRevision = useRef(0);
 
   const activeSkill = skillById(activeSkillId);
   const activeResult = results[activeSkillId] || null;
   const activeError = errors[activeSkillId] || null;
   const activeSignoff = signoffs[activeSkillId] || defaultSignoff();
   const completedSkillIds = checkedSkillIds(results);
-  const isBusy = busySkillId !== null || saving || Boolean(loadingRunId);
+  const inputLocked = saving || Boolean(loadingRunId);
+  const isBusy = busySkillId !== null || inputLocked;
 
   const completion = useMemo(
     () => ({ completed: completedSkillIds.length, total: reviewSkills.length }),
@@ -175,6 +177,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
 
   function setMetaField(key: keyof RunMeta, value: string) {
     setRunMeta((current) => ({ ...current, [key]: value }));
+    if (key === 'targetVenue' || key === 'deadline') clearDraftReviewState();
   }
 
   async function requestReview(skillId: SkillId): Promise<ReviewResult> {
@@ -193,15 +196,18 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
   }
 
   async function runSkill(skillId: SkillId) {
+    const revision = draftRevision.current;
     setBusySkillId(skillId);
     setStatusMessage(null);
     setErrors((current) => ({ ...current, [skillId]: undefined }));
 
     try {
       const result = await requestReview(skillId);
+      if (revision !== draftRevision.current) return;
       setResults((current) => ({ ...current, [skillId]: result }));
       setSignoffs((current) => ({ ...current, [skillId]: current[skillId] || defaultSignoff() }));
     } catch (caught) {
+      if (revision !== draftRevision.current) return;
       setErrors((current) => ({
         ...current,
         [skillId]: caught instanceof Error ? caught.message : 'Review failed.',
@@ -212,6 +218,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
   }
 
   async function runAllSkills() {
+    const revision = draftRevision.current;
     setBusySkillId('all');
     setStatusMessage(null);
     setErrors({});
@@ -223,10 +230,12 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
         setActiveSkillId(skill.id);
         setBusySkillId(skill.id);
         const result = await requestReview(skill.id);
+        if (revision !== draftRevision.current) return;
         setResults((current) => ({ ...current, [skill.id]: result }));
         setSignoffs((current) => ({ ...current, [skill.id]: current[skill.id] || defaultSignoff() }));
       }
     } catch (caught) {
+      if (revision !== draftRevision.current) return;
       const message = caught instanceof Error ? caught.message : 'Review failed.';
       setErrors((current) => ({ ...current, [runningSkillId]: message }));
       setActiveSkillId(runningSkillId);
@@ -249,6 +258,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
   }
 
   function clearDraftReviewState() {
+    draftRevision.current += 1;
     setResults({});
     setSignoffs({});
     setErrors({});
@@ -363,8 +373,11 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
       const payload = await requestJson<{ run?: ReviewRunRecord }>(`/api/review-runs/${runId}`, 'Could not open review run.');
       if (!payload.run) throw new Error('Could not open review run.');
 
+      formRef.current?.reset();
+      setFileName('');
+      draftRevision.current += 1;
       applyPersistedRun(payload.run);
-      setStatusMessage(`Opened review run ${payload.run.id.slice(0, 8)}.`);
+      setStatusMessage('Opened saved results. To start a new review, upload or paste the draft again.');
     } catch (caught) {
       setStatusMessage(caught instanceof Error ? caught.message : 'Could not open review run.');
     } finally {
@@ -456,6 +469,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
 
           <label className={cx('file-drop')}>
             <input
+              disabled={inputLocked}
               name="draftFile"
               type="file"
               accept=".md,.markdown,.txt,.tex,.latex,.rst,.pptx"
@@ -470,18 +484,19 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
 
           <label className={cx('field')}>
             <span>Paste Draft</span>
-            <textarea name="draftText" rows={10} placeholder="Optional if a file is selected" onChange={clearDraftReviewState} />
+            <textarea disabled={inputLocked} name="draftText" rows={10} placeholder="Optional if a file is selected" onChange={clearDraftReviewState} />
           </label>
 
           <div className={cx('field-row')}>
             <label className={cx('field')}>
               <span>Project</span>
-              <input value={runMeta.projectName} onChange={(event) => setMetaField('projectName', event.target.value)} />
+              <input disabled={inputLocked} value={runMeta.projectName} onChange={(event) => setMetaField('projectName', event.target.value)} />
             </label>
             <label className={cx('field')}>
               <span>Target</span>
               <input
                 name="targetVenue"
+                disabled={inputLocked}
                 value={runMeta.targetVenue}
                 onChange={(event) => setMetaField('targetVenue', event.target.value)}
                 placeholder="Venue or journal"
@@ -494,6 +509,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
               <span>Deadline</span>
               <input
                 name="deadline"
+                disabled={inputLocked}
                 value={runMeta.deadline}
                 onChange={(event) => setMetaField('deadline', event.target.value)}
                 placeholder="YYYY-MM-DD"
@@ -501,7 +517,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
             </label>
             <label className={cx('field')}>
               <span>Initiator</span>
-              <input value={runMeta.initiator} onChange={(event) => setMetaField('initiator', event.target.value)} />
+              <input disabled={inputLocked} value={runMeta.initiator} onChange={(event) => setMetaField('initiator', event.target.value)} />
             </label>
           </div>
 
@@ -509,19 +525,21 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
             <label className={cx('field')}>
               <span>PI / Senior</span>
               <input
+                disabled={inputLocked}
                 value={runMeta.piOrSeniorReviewer}
                 onChange={(event) => setMetaField('piOrSeniorReviewer', event.target.value)}
               />
             </label>
             <label className={cx('field')}>
               <span>Reviewer</span>
-              <input value={runMeta.reviewer} onChange={(event) => setMetaField('reviewer', event.target.value)} />
+              <input disabled={inputLocked} value={runMeta.reviewer} onChange={(event) => setMetaField('reviewer', event.target.value)} />
             </label>
           </div>
 
           <label className={cx('field')}>
             <span>Cooperators</span>
             <input
+              disabled={inputLocked}
               value={runMeta.cooperators}
               onChange={(event) => setMetaField('cooperators', event.target.value)}
               placeholder="Comma-separated names"

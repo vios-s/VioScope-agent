@@ -354,7 +354,7 @@ export async function saveReviewRun(input: SaveReviewRunInput): Promise<ReviewRu
   return getReviewRun(savedRunId);
 }
 
-export async function listReviewRuns(limit = 20): Promise<ReviewRunSummary[]> {
+export async function listReviewRuns(limit = 20, username?: string): Promise<ReviewRunSummary[]> {
   await ensureReviewRunTables();
   const postgres = createPostgresClient('vioscope-review-runs');
 
@@ -382,11 +382,18 @@ export async function listReviewRuns(limit = 20): Promise<ReviewRunSummary[]> {
           ) AS signoff_statuses
         FROM review_runs r
         LEFT JOIN review_check_results c ON c.run_id = r.id
+        WHERE $2::text IS NULL
+          OR lower(regexp_replace(btrim(r.initiator), '\\s+', ' ', 'g')) = $2
+          OR lower(regexp_replace(btrim(r.reviewer), '\\s+', ' ', 'g')) = $2
+          OR EXISTS (
+            SELECT 1 FROM unnest(r.cooperators) AS cooperator
+            WHERE lower(regexp_replace(btrim(cooperator), '\\s+', ' ', 'g')) = $2
+          )
         GROUP BY r.id
         ORDER BY r.updated_at DESC
         LIMIT $1
       `,
-      [Math.max(1, Math.min(limit, 100))],
+      [Math.max(1, Math.min(limit, 100)), username?.trim().toLowerCase().replace(/\s+/g, ' ') ?? null],
     );
     return result.rows.map(toRunSummary);
   } finally {

@@ -44,7 +44,7 @@ export async function GET(request: Request) {
     const user = await requireSessionUser(request);
     const url = new URL(request.url);
     const limit = Number.parseInt(url.searchParams.get('limit') || '20', 10);
-    const runs = await listReviewRuns(Number.isFinite(limit) ? limit : 20);
+    const runs = await listReviewRuns(Number.isFinite(limit) ? limit : 20, canSeeAll(user) ? undefined : user.username);
     return NextResponse.json({ runs: runs.filter((run) => canAccessRun(run, user)) });
   } catch (error) {
     return errorResponse(error, 500);
