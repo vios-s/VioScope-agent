@@ -388,6 +388,11 @@ export async function claimThemeMeetingEmailDelivery(
   }
 }
 
+/** A claim without a recorded delivery (send in progress, or delivery not recorded) still blocks a resend. */
+export async function hasThemeMeetingEmailDeliveryClaim(id: string, options: ThemeMeetingStoreOptions = {}): Promise<boolean> {
+  return pathExists(themeMeetingEmailDeliveryClaimPath(id, options));
+}
+
 export async function releaseThemeMeetingEmailDeliveryClaim(
   id: string,
   options: ThemeMeetingStoreOptions = {},

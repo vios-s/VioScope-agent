@@ -116,6 +116,12 @@ try {
   const rejects = (change: Record<string, unknown>, pattern: RegExp, draft = currentDraft) => assert.throws(() => validateIdeaReview({ ...report, ...change }, draft), pattern);
   rejects({ blocks: firstBlock({ evidence: [{ field: 'why', quote: 'Invented supporting evidence' }] }) }, /not present/);
   rejects({ discussant: { ...report.discussant, delta: { ...report.discussant.delta, evidence: [{ field: 'context', quote: 'Invented delta' }] } } }, /not present/);
+  // A recapitalised quote with an added full stop, attributed to the wrong block, is saved as the verbatim pitch text.
+  const excerpt = currentDraft.why.split(/\s+/).slice(1, 6).join(' ');
+  assert.equal(excerpt.split(' ').length, 5);
+  const relocated = validateIdeaReview({ ...report, blocks: firstBlock({ evidence: [{ field: 'context', quote: excerpt.toUpperCase() + '.' }] }) }, currentDraft);
+  assert.deepEqual(relocated.blocks[0].evidence, [{ field: 'why', quote: excerpt }]);
+  rejects({ blocks: firstBlock({ evidence: [{ field: 'why', quote: excerpt.split(' ').reverse().join(' ') }] }) }, /not present/);
   rejects({ blocks: firstBlock({ evidence: [] }) }, /must be marked missing/, { ...currentDraft, why: '' });
   rejects({ blocks: firstBlock({ status: 'strong', evidence: [{ field: 'context', quote: currentDraft.context }] }) }, /quote that block/);
   rejects({ blocks: [...report.blocks.slice(1), report.blocks[1]] }, /every pitch block/);
@@ -173,7 +179,7 @@ try {
   await db.pool.query(`INSERT INTO idea_pitch_reviews(pitch_id,pitch_version,report,rules_hash,rules_snapshot,model,by_username) VALUES($1,6,$2::jsonb,'legacy','legacy rules','legacy-model','alice')`, [pitch.id, JSON.stringify(legacySaved)]);
   const { renderToStaticMarkup } = await import('react-dom/server');
   const { createElement } = await import('react');
-  const { IdeaReviewReport, reviewHeadline } = await import('../app/idea-pitch-editor');
+  const { IdeaReviewReport, reviewHeadline, reviewReadiness } = await import('../app/idea-pitch-editor');
   const { isLegacyIdeaReview } = await import('../src/mastra/projects/idea-review-schema');
   const savedReports = (await ok(await get('alice'))).reviews.map((item: { report: Parameters<typeof reviewHeadline>[0] }) => item.report);
   const legacyReport = savedReports.find(isLegacyIdeaReview)!;
@@ -182,6 +188,17 @@ try {
   for (const expected of ['Legacy assessment text.', 'Needs work', 'Question', 'Legacy next test.']) assert.ok(legacyHtml.includes(expected), expected);
   const currentHtml = renderToStaticMarkup(createElement(IdeaReviewReport, { report }));
   assert.equal(reviewHeadline(report), '5 of 5 blocks need work');
+  // Readiness is a fixed rule over the saved review, not a model output.
+  const graded = (statuses: string[], delta = 'addressed', poc = 'addressed') => ({ ...report, blocks: report.blocks.map((item, i) => ({ ...item, status: statuses[i] })), discussant: { delta: { ...report.discussant.delta, status: delta }, poc: { ...report.discussant.poc, status: poc } } }) as typeof report;
+  const good = ['adequate', 'strong', 'adequate', 'strong', 'adequate'];
+  assert.deepEqual(reviewReadiness(graded(good)), { tone: 'ready', label: 'Ready for group discussion' });
+  assert.deepEqual(reviewReadiness(graded(good, 'addressed', 'partial')), { tone: 'nearly', label: 'Nearly ready — discussant questions need fuller answers' });
+  assert.deepEqual(reviewReadiness(graded(['needs_work', ...good.slice(1)])), { tone: 'nearly', label: 'Nearly ready — 1 block needs work' });
+  assert.deepEqual(reviewReadiness(graded(['needs_work', 'needs_work', ...good.slice(2)], 'unanswered')), { tone: 'nearly', label: 'Nearly ready — 2 blocks need work' });
+  assert.deepEqual(reviewReadiness(graded(['needs_work', 'needs_work', 'needs_work', 'strong', 'strong'])), { tone: 'not', label: 'Not ready for discussion — 3 blocks need work' });
+  assert.deepEqual(reviewReadiness(graded(['missing', ...good.slice(1)])), { tone: 'not', label: 'Not ready for discussion — 1 block missing' });
+  assert.deepEqual(reviewReadiness(graded(['missing', 'needs_work', 'needs_work', 'adequate', 'missing'])), { tone: 'not', label: 'Not ready for discussion — 2 blocks missing, 2 blocks need work' });
+  assert.equal(reviewReadiness(report).tone, 'not');
   for (const expected of ['1. The Why (The Hook)', '5. The Resources', 'Needs work', 'Is the delta big enough for a top-tier venue?', 'Partly addressed', 'Not addressed', 'Improve: Define an observable next test.', 'Evaluation']) assert.ok(currentHtml.includes(expected), expected);
   const sharingRoute = await import('../app/api/idea-pitches/[pitchId]/collaborators/route');
   const share = (actor: string, username: string, action = 'add') => sharingRoute.POST(new Request('http://localhost/pitch/collaborators', { method: 'POST', headers: headers(actor), body: JSON.stringify({ username, action }) }), context);

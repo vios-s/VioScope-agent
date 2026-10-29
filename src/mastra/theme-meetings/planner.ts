@@ -1,8 +1,10 @@
 import { formatMeetingProject } from './project-context';
 import {
   claimThemeMeetingEmailDelivery,
+  hasThemeMeetingEmailDeliveryClaim,
   readThemeMeetingCancellations,
   readThemeMeetingConfig,
+  readThemeMeetingEmailDeliveries,
   readThemeMeetingNotifications,
   readThemeMeetingUpdates,
   releaseThemeMeetingEmailDeliveryClaim,
@@ -14,7 +16,7 @@ import {
   writeThemeMeetingConfig,
 } from './store';
 import { getUserById, getUserByUsername, listUsersForAdmin, type AuthUser } from '../db/users';
-import { registeredNotificationEmail, sendNotificationEmail } from '../email';
+import { notificationEmailEnabled, registeredNotificationEmail, sendNotificationEmail } from '../email';
 import { renderThemeMeetingAgendaEmail, type ConfirmedAgendaEmail } from './agenda-email';
 import { listThemeAgendaSubscriptions } from '../db/theme-agenda-subscriptions';
 import { themeAgendaPreviewRecipients, themeAgendaRecipients } from './agenda-recipients';
@@ -674,6 +676,62 @@ export async function sendThemeMeetingReminderEmails(
   return result;
 }
 
+type AgendaEmailRecipient = { username: string; displayName: string; email: string | null; plan: ThemeMeetingPlan; deliveryId: string };
+
+// Single source of the agenda email audience: who is addressed, who can receive it (active, registered address,
+// theme meeting email preference on) and the delivery id used for deduplication.
+async function agendaEmailRecipients(
+  plan: ThemeMeetingPlan,
+  config: ThemeMeetingConfig,
+  options: Pick<ThemeMeetingAgendaEmailOptions, 'themeId' | 'phase'> & { version?: number },
+): Promise<AgendaEmailRecipient[]> {
+  if (options.version !== undefined && !options.themeId) throw new Error('A confirmed agenda is sent for one theme.');
+  const preview = options.phase === 'preview';
+  const recipients = preview
+    ? themeAgendaPreviewRecipients(plan, options.themeId)
+    : themeAgendaRecipients(plan, config, await listThemeAgendaSubscriptions(), options.themeId);
+  const audience: AgendaEmailRecipient[] = [];
+  for (const [username, recipientPlan] of recipients) {
+    const user = await getUserByUsername(username);
+    const email = registeredNotificationEmail(user?.email);
+    const eligible = Boolean(user && user.provisioningStatus === 'active' && email && user.notificationPreferences.theme_meeting_reminders.email);
+    audience.push({
+      username, displayName: user?.displayName || username, plan: recipientPlan, email: eligible ? email : null,
+      deliveryId: options.version !== undefined
+        ? `${confirmedAgendaDeliveryPrefix(plan.meeting_date, options.themeId!, options.version)}${username}`
+        : `${preview ? 'theme-agenda-preview' : 'theme-agenda'}:${plan.meeting_date}:${options.themeId || 'all'}:${username}`,
+    });
+  }
+  return audience;
+}
+
+export type ConfirmedAgendaEmailAudience = {
+  version: number;
+  /** False when the server cannot send email; every recipient would then be skipped. */
+  emailEnabled: boolean;
+  /** Recipients who can receive email; never includes addresses. */
+  recipients: Array<{ username: string; displayName: string; alreadySent: boolean }>;
+  /** Addressed accounts that will be skipped: inactive, no registered email, or theme meeting emails switched off. */
+  skipped: number;
+};
+
+/** Preview of what emailing a confirmed version would do, using the same audience and dedupe as the send. */
+export async function confirmedAgendaEmailAudience(
+  plan: ThemeMeetingPlan,
+  config: ThemeMeetingConfig,
+  themeId: string,
+  version: number,
+  options: ThemeMeetingStoreOptions = {},
+): Promise<ConfirmedAgendaEmailAudience> {
+  const audience = await agendaEmailRecipients(plan, config, { themeId, version });
+  const delivered = new Set((await readThemeMeetingEmailDeliveries(options)).deliveries.map((delivery) => delivery.id));
+  const reachable = audience.filter((recipient) => recipient.email);
+  // Mirrors claimThemeMeetingEmailDelivery: a recorded delivery or an existing claim means the send skips this recipient.
+  const recipients = await Promise.all(reachable.map(async ({ username, displayName, deliveryId }) => ({
+    username, displayName, alreadySent: delivered.has(deliveryId) || await hasThemeMeetingEmailDeliveryClaim(deliveryId, options) })));
+  return { version, emailEnabled: notificationEmailEnabled(), skipped: audience.length - reachable.length, recipients };
+}
+
 export async function sendThemeMeetingAgendaEmails(
   plan: ThemeMeetingPlan,
   config: ThemeMeetingConfig,
@@ -682,24 +740,16 @@ export async function sendThemeMeetingAgendaEmails(
   const result: ThemeMeetingReminderEmailResult = { sent: 0, skipped: 0, failed: 0 };
   const preview = options.phase === 'preview';
   const confirmation = options.confirmation;
-  if (confirmation && !options.themeId) throw new Error('A confirmed agenda is sent for one theme.');
-  const recipients = preview
-    ? themeAgendaPreviewRecipients(plan, options.themeId)
-    : themeAgendaRecipients(plan, config, await listThemeAgendaSubscriptions(), options.themeId);
+  const recipients = await agendaEmailRecipients(plan, config, { themeId: options.themeId, phase: options.phase, version: confirmation?.version });
   const subject = `${preview ? '[DRAFT] VioScope theme meeting agenda preview' : confirmation ? 'VioScope confirmed theme meeting agenda' : 'VioScope advisory theme meeting agenda'} ${plan.meeting_date}${
     options.themeId ? ` Theme ${options.themeId}` : ''
   }${confirmation ? ` (version ${confirmation.version})` : ''}`;
 
-  for (const [username, recipientPlan] of recipients) {
-    const user = await getUserByUsername(username);
-    const email = registeredNotificationEmail(user?.email);
-    if (!user || user.provisioningStatus !== 'active' || !email || !user.notificationPreferences.theme_meeting_reminders.email) {
+  for (const { email, plan: recipientPlan, deliveryId } of recipients) {
+    if (!email) {
       result.skipped += 1;
       continue;
     }
-    const deliveryId = confirmation
-      ? `${confirmedAgendaDeliveryPrefix(plan.meeting_date, options.themeId!, confirmation.version)}${username}`
-      : `${preview ? 'theme-agenda-preview' : 'theme-agenda'}:${plan.meeting_date}:${options.themeId || 'all'}:${username}`;
 
     try {
       const sent = await sendClaimedThemeMeetingEmail(

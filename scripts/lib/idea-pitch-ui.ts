@@ -19,7 +19,9 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await page.goto(base + '/?view=checklists');
     const panel = page.locator('.project-idea-check');
     const title = panel.getByRole('textbox', { name: /^Pitch title/ });
-    const picker = page.getByRole('combobox', { name: 'Saved pitches', exact: true });
+    // The left rail is the only pitch navigator; each item carries its pitch id.
+    const railItem = (target: typeof page, pitchId: string) => target.locator(`.idea-rail-item[data-pitch-id="${pitchId}"]`);
+    const selectedId = () => page.locator('.idea-rail-item[aria-current="true"]').getAttribute('data-pitch-id');
     await title.waitFor();
     assert.equal(await title.inputValue(), '');
     assert.equal(await panel.getByRole('button', { name: 'Delete pitch', exact: true }).count(), 0);
@@ -46,7 +48,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     assert.equal(await title.inputValue(), 'DEMO — Low-cost cell counting', 'Cancelled switching preserves unsaved title.');
     await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
     await panel.getByText('Draft saved. Human decision pending.', { exact: true }).waitFor();
-    const id = await picker.inputValue(); assert.ok(id);
+    const id = (await selectedId())!; assert.ok(id);
     if (peers) {
       await panel.getByRole('combobox', { name: 'Add people', exact: true }).selectOption('bob');
       await panel.getByRole('button', { name: 'Add collaborator', exact: true }).click();
@@ -58,7 +60,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       const sharedPage = await sharedContext.newPage();
       await sharedPage.addLocatorHandler(sharedPage.locator('.welcome-dialog'), async () => { await sharedPage.getByLabel('Close welcome message').click(); });
       await sharedPage.goto(base + '/?view=checklists');
-      await sharedPage.getByRole('combobox', { name: 'Saved pitches', exact: true }).selectOption(id);
+      await railItem(sharedPage, id).click();
       await sharedPage.getByText('Shared with you · Read only.', { exact: false }).waitFor();
       assert.equal(await sharedPage.getByRole('button', { name: 'Save pitch draft', exact: true }).count(), 0);
       assert.equal(await sharedPage.getByRole('button', { name: 'Delete pitch', exact: true }).count(), 0);
@@ -69,16 +71,21 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       const piPage = await piContext.newPage();
       await piPage.addLocatorHandler(piPage.locator('.welcome-dialog'), async () => { await piPage.getByLabel('Close welcome message').click(); });
       await piPage.goto(base + '/?view=checklists');
-      await piPage.getByRole('heading', { name: 'PI / Admin overview · All pitches', exact: true }).waitFor();
+      // PI/admin find every proposer's pitch in the rail; there is no separate overview table.
       await piPage.getByRole('searchbox', { name: 'Find a pitch', exact: true }).fill('alice');
-      await piPage.getByRole('button', { name: 'DEMO — Low-cost cell counting', exact: true }).waitFor();
+      assert.equal(await piPage.getByRole('combobox', { name: 'Pitch status', exact: true }).count(), 1);
+      assert.equal(await piPage.locator('.idea-pi-overview').count(), 0);
+      const piItem = piPage.locator('.idea-rail-group').filter({ hasText: 'Other proposers' }).locator(`.idea-rail-item[data-pitch-id="${id}"]`);
+      await piItem.waitFor();
+      assert.match((await piItem.textContent())!, /DEMO — Low-cost cell counting@alice · Awaiting decision · v1/);
       await piPage.screenshot({ path: resolve(output, 'pi-overview.png') });
-      await piPage.getByRole('button', { name: 'DEMO — Low-cost cell counting', exact: true }).click();
+      await piItem.click();
       await piPage.locator('.idea-history').waitFor();
       assert.equal(await piPage.locator('.project-idea-check').getByRole('button', { name: 'Save pitch draft', exact: true }).count(), 1);
       await piPage.setViewportSize({ width: 390, height: 844 });
       assert.equal(await piPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-      await piPage.getByRole('heading', { name: 'PI / Admin overview · All pitches', exact: true }).scrollIntoViewIfNeeded();
+      await piPage.getByRole('button', { name: /^Saved pitches/ }).click();
+      await railItem(piPage, id).scrollIntoViewIfNeeded();
       await piPage.screenshot({ path: resolve(output, 'pi-mobile.png') });
       // A concurrent editor advances the server version while this editor has a local draft.
       await title.fill('DEMO — Unsaved local title');
@@ -103,7 +110,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await title.fill('DEMO — Cell counting feasibility pilot');
     await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
     await panel.getByRole('heading', { name: 'DEMO — Cell counting feasibility pilot', exact: true }).waitFor();
-    await page.reload(); await picker.waitFor(); await picker.selectOption(id);
+    await page.reload(); await railItem(page, id).click();
     await panel.getByRole('heading', { name: 'DEMO — Cell counting feasibility pilot', exact: true }).waitFor();
     assert.equal(await title.inputValue(), 'DEMO — Cell counting feasibility pilot');
     const payload = await (await context.request.get(base + '/api/idea-pitches/' + id)).json();
@@ -146,10 +153,10 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await panel.locator('.idea-delete-confirm').scrollIntoViewIfNeeded();
     await page.screenshot({ path: resolve(output, 'delete-confirmation.png') });
     await panel.getByRole('button', { name: 'Permanently delete pitch', exact: true }).click();
-    await page.waitForFunction(() => (document.querySelector('.idea-pitch-toolbar select') as HTMLSelectElement)?.value === '');
+    await railItem(page, id).waitFor({ state: 'detached' });
     assert.equal(await title.inputValue(), '');
     assert.equal((await context.request.get(base + '/api/idea-pitches/' + id)).status(), 403);
-    assert.equal(await picker.locator(`option[value="${id}"]`).count(), 0);
+    assert.equal(await page.locator('.idea-rail-item[aria-current="true"]').count(), 0);
     // A title is required before the draft can be saved.
     await panel.locator('.idea-fields').getByRole('textbox', { name: /^1\. The Why/ }).fill('DEMO — Can a smaller model work?');
     await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
@@ -161,12 +168,12 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await panel.getByRole('button', { name: 'Delete pitch', exact: true }).click();
     await panel.getByLabel('I understand this pitch and its history will be deleted.', { exact: true }).check();
     await panel.getByRole('button', { name: 'Permanently delete pitch', exact: true }).click();
-    await page.waitForFunction(() => (document.querySelector('.idea-pitch-toolbar select') as HTMLSelectElement)?.value === '');
+    await page.locator('.idea-rail-item[aria-current="true"]').waitFor({ state: 'detached' });
     const handoffPitch = await (await context.request.post(base + '/api/idea-pitches', { data: { title: 'DEMO — Project meeting handoff' } })).json();
     const handoffUrl = base + '/api/idea-pitches/' + handoffPitch.id;
     assert.equal((await context.request.post(handoffUrl, { data: { operation: 'save', version: 0, draft } })).status(), 200);
     assert.equal((await context.request.post(handoffUrl, { data: { operation: 'decide', version: 1, confirmed: true, decision: { outcome: 'proceed', rationale: 'A bounded pilot is agreed.', nextMilestone: 'Compare three pilot runs.' } } })).status(), 200);
-    await page.reload(); await picker.waitFor(); await picker.selectOption(handoffPitch.id);
+    await page.reload(); await railItem(page, handoffPitch.id).click();
     await panel.getByRole('textbox', { name: 'First next action', exact: true }).fill('Run three synthetic pilot comparisons');
     await panel.getByLabel('Action deadline', { exact: true }).fill('2099-11-06');
     await panel.getByLabel('I confirm this approved pitch should now become a project.', { exact: true }).check();

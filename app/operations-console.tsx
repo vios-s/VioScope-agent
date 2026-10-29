@@ -110,7 +110,7 @@ type ChatSession = {
 
 type ChatHistoryMode = 'owned' | 'shared';
 
-type MentionableUser = Pick<CurrentUser, 'id' | 'username' | 'displayName' | 'role'>;
+type MentionableUser = Pick<CurrentUser, 'id' | 'username' | 'displayName' | 'role'> & { avatarUrl?: string };
 
 type ChatMentionResult = {
   shared: MentionableUser[];
@@ -3337,6 +3337,7 @@ function ThemeMeetingPanel({
   viewer,
   projects,
   uiCopyPrompts,
+  onOpenProject,
 }: {
   payload: ThemeMeetingPayload | null;
   loading: boolean;
@@ -3344,6 +3345,7 @@ function ThemeMeetingPanel({
   viewer: CurrentUser;
   projects: ManagedProject[];
   uiCopyPrompts: UiCopyPrompts | null;
+  onOpenProject?: (projectId: string) => void;
 }) {
   const [themeId, setThemeId] = useState('');
   const [member, setMember] = useState('');
@@ -3772,6 +3774,10 @@ function ThemeMeetingPanel({
                     fallbackItems={activeMeeting.agenda_items}
                     memberNames={Object.fromEntries(activeMeeting.member_usernames.map((username, index) => [username, activeMeeting.members[index] || username]))}
                     onChanged={onChanged}
+                    onOpenProject={onOpenProject}
+                    openableProjectIds={projects.map((project) => project.id)}
+                    prefetchThemeIds={plan.meetings.filter((meeting) => managedThemeIds.has(meeting.theme_id)
+                      || meeting.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username))).map((meeting) => meeting.theme_id)}
                   >
                     {!activeMeeting.cancelled && (
                       <p className={`mt-awaiting${activeMeeting.missing_members.length ? '' : ' is-complete'}`}>
@@ -4336,6 +4342,8 @@ function ProjectsView({
   uiCopyPrompts,
   onProjectsChanged,
   onOpenMeeting,
+  openRequest = null,
+  onOpenRequestHandled,
 }: {
   projectsPayload: ProjectsPayload | null;
   projectsLoading: boolean;
@@ -4344,6 +4352,9 @@ function ProjectsView({
   uiCopyPrompts: UiCopyPrompts | null;
   onProjectsChanged: () => Promise<void>;
   onOpenMeeting: () => void;
+  /** Opens one project record when arriving from another view; consumed once via onOpenRequestHandled. */
+  openRequest?: { id: string; mode: ProjectDetailMode } | null;
+  onOpenRequestHandled?: () => void;
 }) {
   const canSeeAll = canSeeAllRole(viewer.role);
   const mode: ProjectsMode = canSeeAll ? 'pi' : 'member';
@@ -4378,6 +4389,16 @@ function ProjectsView({
     setDetailMode(mode);
     setDetailProject(project);
   }
+
+  useEffect(() => {
+    if (!openRequest || !projectsPayload) return;
+    const requested = projectsPayload.projects?.find((project) => project.id === openRequest.id);
+    if (requested) {
+      setDetailMode(openRequest.mode);
+      setDetailProject(requested);
+    } else setActionError('That project is not available to your account.');
+    onOpenRequestHandled?.();
+  }, [openRequest, projectsPayload, onOpenRequestHandled]);
 
   async function handleProjectSaved(project: ManagedProject) {
     setEditorOpen(false);
@@ -4688,6 +4709,7 @@ function MeetingView({
   viewer,
   projects,
   uiCopyPrompts,
+  onOpenProject,
 }: {
   payload: ThemeMeetingPayload | null;
   loading: boolean;
@@ -4695,6 +4717,7 @@ function MeetingView({
   viewer: CurrentUser;
   projects: ManagedProject[];
   uiCopyPrompts: UiCopyPrompts | null;
+  onOpenProject?: (projectId: string) => void;
 }) {
   const plan = payload?.overviewPlan || payload?.plan || null;
   const eyebrow = plan
@@ -4715,6 +4738,7 @@ function MeetingView({
         viewer={viewer}
         projects={projects}
         uiCopyPrompts={uiCopyPrompts}
+        onOpenProject={onOpenProject}
       />
     </ConsolePageFrame>
   );
@@ -5232,6 +5256,9 @@ function ChatView({
                     type="button"
                     onClick={() => chooseMention(user.username)}
                   >
+                    <span className="user-avatar mention-avatar" aria-hidden="true">
+                      {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initials(user.displayName || user.username)}
+                    </span>
                     <strong>@{user.username}</strong>
                     <span>{user.displayName}</span>
                   </button>
@@ -7982,6 +8009,14 @@ export function OperationsConsole() {
     setOpenChatThreadId(null);
   }, []);
 
+  // Cross-view link (e.g. from meeting actions): switch to Projects (pushing ?view=projects so Back returns) and open the record.
+  const [projectOpenRequest, setProjectOpenRequest] = useState<{ id: string; mode: ProjectDetailMode } | null>(null);
+  const openProjectRecord = useCallback((projectId: string, mode: ProjectDetailMode = 'workflow') => {
+    setProjectOpenRequest({ id: projectId, mode });
+    selectView('projects');
+  }, [selectView]);
+  const handleProjectOpenRequestHandled = useCallback(() => setProjectOpenRequest(null), []);
+
   function openChatSessionFromNotification(sessionId: string, notificationId?: string) {
     setNotificationsOpen(false);
     setOpenChatThreadId(sessionId);
@@ -8249,6 +8284,8 @@ export function OperationsConsole() {
               uiCopyPrompts={uiCopyPrompts}
               onProjectsChanged={loadProjects}
               onOpenMeeting={() => selectView('meeting')}
+              openRequest={projectOpenRequest}
+              onOpenRequestHandled={handleProjectOpenRequestHandled}
             />
           )}
           {activeView === 'chat' && (
@@ -8276,6 +8313,7 @@ export function OperationsConsole() {
               viewer={user}
               projects={projectsPayload?.projects || []}
               uiCopyPrompts={uiCopyPrompts}
+              onOpenProject={openProjectRecord}
             />
             </>
           )}

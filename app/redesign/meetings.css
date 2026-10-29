@@ -1112,33 +1112,9 @@
   color: var(--vs-ink-3);
 }
 
-.mt-drag-handle:focus-visible,
-.mt-skip-toggle:focus-within {
+.mt-drag-handle:focus-visible {
   outline: var(--vs-focus-ring);
   outline-offset: var(--vs-focus-offset);
-}
-
-.mt-skip-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--vs-border-control);
-  border-radius: var(--vs-radius-row-btn);
-  font-size: 13px;
-  color: var(--vs-ink-2);
-  cursor: pointer;
-}
-
-.mt-skip-toggle input {
-  margin: 0;
-}
-
-.mt-skip-toggle:has(input:checked) {
-  border-color: var(--vs-line);
-  background: var(--vs-muted-bg);
-  color: var(--vs-muted-fg);
 }
 
 .mt-skipped {
@@ -1617,4 +1593,87 @@
   .mt-email-hint {
     text-align: left;
   }
+}
+
+/* Project titles that open the project record (agenda snapshot and meeting actions) */
+.mt-project-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--vs-accent-strong);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.mt-project-link:hover {
+  color: var(--vs-accent-hover);
+}
+
+.mt-snapshot-record {
+  margin: 6px 0 0;
+  color: var(--vs-ink-2);
+}
+
+/* Email dialog: collapsible recipient names (never addresses) */
+.mt-email-recipients {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.mt-email-recipients summary {
+  width: fit-content;
+  color: var(--vs-accent-strong);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.mt-email-recipients ul {
+  max-height: 200px;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  overflow-y: auto;
+  color: var(--vs-ink-2);
+}
+
+.mt-email-recipients .vs-mono,
+.mt-email-recipients em {
+  color: var(--vs-ink-3);
+  font-style: normal;
+}
+
+/* Neutral agenda skeleton while a theme's workflow payload loads (never a provisional draft) */
+.mt-board-state.is-loading strong { color: var(--vs-ink-3); }
+.mt-board-state.is-loading strong::before { background: var(--vs-line); }
+
+.mt-agenda-list.is-loading .mt-item-main {
+  gap: 6px;
+}
+
+.mt-skeleton {
+  display: block;
+  height: 12px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-line);
+}
+
+.mt-skeleton.is-time { width: 40px; margin-top: 3px; }
+.mt-skeleton.is-title { width: min(260px, 70%); height: 14px; }
+.mt-skeleton.is-meta { width: min(180px, 50%); }
+.mt-skeleton.is-slot { width: 72px; height: 24px; }
+
+@media (max-width: 640px) {
+  .mt-skeleton.is-slot { grid-column: 2; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mt-skeleton { animation: mt-skeleton-pulse 1.4s ease-in-out infinite; }
+}
+
+@keyframes mt-skeleton-pulse {
+  50% { opacity: 0.55; }
 }

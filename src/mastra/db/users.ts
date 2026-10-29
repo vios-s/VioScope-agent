@@ -1155,15 +1155,19 @@ export async function upsertPublicTeamProfiles(
 }
 
 // Public account directory for authenticated collaboration pickers.
-export async function listActiveAccountDirectory(): Promise<Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role'>[]> {
+export type AccountDirectoryEntry = Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role'> & { avatarUrl?: string };
+
+export async function listActiveAccountDirectory(): Promise<AccountDirectoryEntry[]> {
   await ensureUsersTable();
   const postgres = createPostgresClient('vioscope-users');
   try {
-    const result = await postgres.pool.query<Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role'>>(
-      `SELECT id::text, username, display_name AS "displayName", role
+    const result = await postgres.pool.query<Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role'> & { hasAvatar: boolean }>(
+      `SELECT id::text, username, display_name AS "displayName", role,
+              coalesce(nullif(trim(metadata->>'avatar_url'), ''), '') <> '' AS "hasAvatar"
        FROM users WHERE provisioning_status = 'active' ORDER BY display_name, username`,
     );
-    return result.rows;
+    // Avatars are served by /api/users/:id/avatar so directory payloads stay small.
+    return result.rows.map(({ hasAvatar, ...user }) => (hasAvatar ? { ...user, avatarUrl: `/api/users/${user.id}/avatar` } : user));
   } finally {
     await postgres.disconnect();
   }

@@ -7,7 +7,7 @@ import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { getProjectForUser, listProjectsForUser } from '../../../../src/mastra/db/projects';
 import { getUserByUsername } from '../../../../src/mastra/db/users';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan, confirmedAgendaDeliveryPrefix, sendThemeMeetingAgendaEmails } from '../../../../src/mastra/theme-meetings/planner';
+import { buildThemeMeetingPlan, confirmedAgendaDeliveryPrefix, confirmedAgendaEmailAudience, sendThemeMeetingAgendaEmails } from '../../../../src/mastra/theme-meetings/planner';
 import { readThemeMeetingEmailDeliveries, resolveThemeMeetingUpdatesPath } from '../../../../src/mastra/theme-meetings/store';
 import { contentHash, withFileLock } from '../../../../src/mastra/atomic-file';
 import { addMeetingAction, agendaSelectionSchema, agendaSourceVersion, applyConfirmedAgendas, changeMeetingWorkflow, confirmAgenda,
@@ -57,7 +57,7 @@ export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const key = keySchema.parse({ meetingDate: params.get('meetingDate'), themeId: params.get('themeId') });
-    const { user, meeting, manager } = await context(request, key);
+    const { user, meeting, manager, payload } = await context(request, key);
     const state = await readMeetingWorkflow();
     const confirmation = latestConfirmation(state, key.meetingDate, key.themeId);
     const projects = await listProjectsForUser(user, { includeArchived: true });
@@ -69,6 +69,9 @@ export async function GET(request: Request) {
     return NextResponse.json({
       manager, cancelled: meeting.cancelled, duration: meeting.duration_minutes,
       sourceVersion: agendaSourceVersion(meeting, confirmation), emailedAt,
+      // Managers only: counts and names (never addresses) for the Email dialog, from the same rules the send uses.
+      emailAudience: manager && confirmation && !meeting.cancelled
+        ? await confirmedAgendaEmailAudience({ ...payload.plan, meetings: [meeting] }, payload.config, key.themeId, confirmation.version) : null,
       candidates: meeting.agenda_items.filter((item) => visible(item.member_username)),
       // Theme members see the whole confirmed agenda (the same content the confirmed agenda email circulates);
       // unconfirmed draft submissions stay visible only to their author and managers.

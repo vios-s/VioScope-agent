@@ -74,17 +74,17 @@ try {
   await page.setViewportSize({ width: 390, height: 900 });
   await page.locator('.idea-writing-sheet').screenshot({ path: join(root, '.local/checks/idea-five-blocks/mobile.png') });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.locator('.idea-fields select').first().selectOption('B');
+  await page.getByRole('combobox',{name:/^Track/}).selectOption('B');
   await page.locator('.idea-fields textarea').first().fill('Unsaved new idea');
   await refresh();
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Unsaved new idea');
-  assert.equal(await page.locator('.idea-fields select').first().inputValue(),'B');
-  await page.getByRole('combobox',{name:'Saved pitches',exact:true}).selectOption('pitch-demo');
+  assert.equal(await page.getByRole('combobox',{name:/^Track/}).inputValue(),'B');
+  await page.locator('.idea-rail-item[data-pitch-id="pitch-demo"]').click();
   // Switching away from unsaved changes asks for confirmation in the in-app dialog.
   await page.getByRole('button',{name:'Discard and switch',exact:true}).click();
   await page.locator('.idea-fields textarea').first().fill('Unsaved change to existing pitch');
   await refresh();
-  assert.equal(await page.getByRole('combobox',{name:'Saved pitches',exact:true}).inputValue(),'pitch-demo');
+  assert.equal(await page.locator('.idea-rail-item[aria-current="true"]').getAttribute('data-pitch-id'),'pitch-demo');
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Unsaved change to existing pitch');
   savedVersion = 2;
   await refresh();

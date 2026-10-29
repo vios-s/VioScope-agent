@@ -684,8 +684,8 @@
   min-height: 36px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  justify-content: flex-start;
+  gap: 10px;
   padding: 6px 10px;
   border: 0;
   border-radius: 6px;
@@ -704,8 +704,16 @@
   font-weight: 500;
 }
 
-.chat-page .mention-menu span {
+.chat-page .mention-menu button > span:last-child {
+  margin-left: auto;
   color: var(--vs-ink-3);
+}
+
+.chat-page .mention-menu .mention-avatar {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  font-size: 10px;
 }
 
 /* ---------- Narrow screens: one column, page scrolls, composer sticks to the bottom ---------- */

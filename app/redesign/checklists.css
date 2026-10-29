@@ -234,142 +234,15 @@
   margin-bottom: 16px !important;
 }
 
-/* PI / Admin overview: a compact, scannable table above the workspace. */
-.idea-pi-overview {
-  display: grid;
-  gap: var(--vs-space-3);
-  margin-bottom: var(--vs-space-8);
-}
-
-.idea-pi-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
-  gap: var(--vs-space-3) var(--vs-space-8);
-}
-
-.idea-pi-intro {
-  display: grid;
-  gap: 2px;
-  flex: 1 1 360px;
-  min-width: 0;
-}
-
-.idea-pi-intro > h2 {
-  font: var(--vs-text-heading);
-}
-
-.idea-pi-intro > p,
-.idea-pi-empty {
-  font-size: 13px;
-  color: var(--vs-ink-3);
-}
-
-.idea-export-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: var(--vs-space-3) var(--vs-space-4);
-}
-
-.idea-export-controls label {
-  flex: 1 1 200px;
-  max-width: 280px;
-}
-
-.idea-pi-head .idea-export-controls {
-  flex: 0 1 560px;
-}
-
-.idea-pi-list {
-  max-height: 264px;
-  overflow: auto;
-  border-top: 1px solid var(--vs-line);
-  border-bottom: 1px solid var(--vs-line);
-}
-
-.idea-pi-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.idea-pi-table th,
-.idea-pi-table td {
-  padding: 7px var(--vs-space-3);
-  border-bottom: 1px solid var(--vs-line-soft);
-  text-align: left;
-  vertical-align: baseline;
-}
-
-.idea-pi-table th:first-child,
-.idea-pi-table td:first-child {
-  padding-left: 0;
-}
-
-.idea-pi-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: var(--vs-surface);
-  box-shadow: inset 0 -1px 0 var(--vs-line-soft);
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--vs-ink-3);
-  white-space: nowrap;
-}
-
-.idea-pi-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.idea-pi-table tbody tr:hover {
-  background: var(--vs-row-hover);
-}
-
-.idea-pi-table tbody tr.active {
-  background: var(--vs-accent-selected);
-}
-
-.idea-pi-table td {
-  color: var(--vs-ink-2);
-  overflow-wrap: break-word;
-}
-
-.idea-pi-table td:first-child {
-  width: 46%;
-}
-
-.idea-pi-table td.vs-mono {
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.idea-pi-open {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--vs-accent-strong);
-  font-size: 14px;
-  font-weight: 500;
-  text-align: left;
-}
-
-.idea-pi-open:hover:not(:disabled) {
-  color: var(--vs-accent-hover);
-  text-decoration: underline;
-}
-
 /* Status = dot + word */
-.idea-pi-status {
+.idea-rail-status {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 5px;
   color: var(--vs-muted-fg);
 }
 
-.idea-pi-status::before {
+.idea-rail-status::before {
   content: "";
   flex: none;
   width: 6px;
@@ -379,14 +252,14 @@
   transform: translateY(-1px);
 }
 
-.idea-pi-status.is-revise { color: var(--vs-warn-fg); }
-.idea-pi-status.is-revise::before { background: var(--vs-warn-dot); }
-.idea-pi-status.is-proceed { color: var(--vs-ok-fg); }
-.idea-pi-status.is-proceed::before { background: var(--vs-ok-dot); }
-.idea-pi-status.is-stop { color: var(--vs-danger-fg); }
-.idea-pi-status.is-stop::before { background: var(--vs-danger-dot); }
-.idea-pi-status.is-project { color: var(--vs-accent-strong); }
-.idea-pi-status.is-project::before { background: var(--vs-accent); }
+.idea-rail-status.is-revise { color: var(--vs-warn-fg); }
+.idea-rail-status.is-revise::before { background: var(--vs-warn-dot); }
+.idea-rail-status.is-proceed { color: var(--vs-ok-fg); }
+.idea-rail-status.is-proceed::before { background: var(--vs-ok-dot); }
+.idea-rail-status.is-stop { color: var(--vs-danger-fg); }
+.idea-rail-status.is-stop::before { background: var(--vs-danger-dot); }
+.idea-rail-status.is-project { color: var(--vs-accent-strong); }
+.idea-rail-status.is-project::before { background: var(--vs-accent); }
 
 /* Layout grid (mobile first). Breakpoints live in "Responsive grid" at the end of this file. */
 .idea-workspace {
@@ -410,7 +283,65 @@
   width: 100%;
 }
 
-.idea-rail-select {
+/* Phones and tablets: the list collapses behind a toggle above the editor. */
+.idea-rail-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 6px 10px;
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.idea-rail-toggle {
+  position: relative;
+  padding-right: 34px;
+}
+
+.idea-rail-toggle svg {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 16px;
+  height: 16px;
+  color: var(--vs-ink-3);
+  transform: translateY(-50%);
+}
+
+.idea-rail-toggle[aria-expanded="true"] svg {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.idea-rail-toggle small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--vs-ink-3);
+}
+
+.idea-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.idea-rail-list[data-open="false"] {
+  display: none;
+}
+
+.idea-rail-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: 8px;
+}
+
+.idea-rail-filters label {
   font-size: 12px !important;
   color: var(--vs-ink-3) !important;
 }
@@ -468,6 +399,10 @@
 .idea-rail-item small {
   font-size: 12px;
   color: var(--vs-ink-3);
+}
+
+.idea-rail-item small .vs-mono {
+  font-size: 11px;
 }
 
 .idea-rail-note {
@@ -747,28 +682,9 @@
   padding: 16px 0 4px;
 }
 
-.idea-completeness {
-  font-size: 13px;
-  color: var(--vs-ink-3);
-}
-
-.idea-setup-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px 24px;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--vs-line-soft);
-}
-
-.idea-section-title {
-  font-size: 13px;
-  color: var(--vs-ink-2);
-}
-
 .idea-track {
-  flex: 0 1 220px;
+  max-width: 260px;
+  margin-top: 4px;
 }
 
 .idea-pitch-block {
@@ -810,17 +726,11 @@
   color: var(--vs-accent);
 }
 
-.idea-pitch-block textarea {
+/* The template guidance is the placeholder: grow with it (and with the text) so it reads without scrolling. */
+.idea-pitch-block textarea,
+.skeleton-block-body textarea {
   min-height: 96px;
-}
-
-/* Template guidance beside the textarea; shown only where the two-column block layout applies. */
-.idea-block-guide {
-  display: none;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--vs-ink-3);
-  white-space: pre-line;
+  field-sizing: content;
 }
 
 /* Conversion form and history */
@@ -946,6 +856,12 @@
 .idea-advice-status.is-addressed { color: var(--vs-ok-fg); }
 .idea-advice-status.is-partial { color: var(--vs-warn-fg); }
 .idea-advice-status.is-unanswered { color: var(--vs-danger-fg); }
+.idea-advice-status.is-ready { color: var(--vs-ok-fg); }
+.idea-advice-status.is-nearly { color: var(--vs-warn-fg); }
+.idea-advice-status.is-not { color: var(--vs-danger-fg); }
+.idea-readiness { display: grid; gap: 2px; }
+.idea-readiness .idea-advice-status { white-space: normal; }
+.idea-readiness small { font-size: 12px; color: var(--vs-ink-3); }
 .idea-advice-focus { font-size: 12px; color: var(--vs-ink-3); }
 
 .idea-advice-list blockquote {
@@ -1531,11 +1447,6 @@
   font-weight: 600;
 }
 
-.skeleton-block-body > p {
-  font-size: 13px;
-  color: var(--vs-ink-3);
-}
-
 .skeleton-block-body textarea {
   margin-top: 2px;
 }
@@ -1809,8 +1720,6 @@
    1280+    list (200) | editor | rail (300): tight three columns.
    1600+    list (260) | editor | rail (340).
    1800+    list (280) | editor | rail (360–440).
-   2200+    blocks put heading and guidance beside a textarea capped at a
-            reading measure (760px).
    The sticky action bar always spans only the editor column. */
 
 @media (min-width: 1100px) {
@@ -1835,9 +1744,34 @@
     position: sticky;
     top: var(--vs-space-4);
     max-height: calc(100dvh - 160px);
-    overflow-y: auto;
     padding: 2px 2px 0 0;
     border-bottom: 0;
+  }
+
+  .idea-rail-toggle {
+    display: none;
+  }
+
+  .idea-rail-list,
+  .idea-rail-list[data-open="false"] {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  /* Filters stay in view; only the grouped list scrolls. */
+  .idea-rail-list {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .idea-rail-filters {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 4px;
+    background: var(--vs-surface);
   }
 
   .idea-rail-group ul {
@@ -1868,41 +1802,7 @@
   }
 }
 
-@media (min-width: 1280px) {
-  /* The overview shares the workspace's left column: intro and filters beside the table. */
-  .idea-pi-overview {
-    grid-template-columns: 200px minmax(0, 1fr);
-    column-gap: var(--vs-space-6);
-    align-items: start;
-  }
-
-  .idea-pi-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .idea-pi-intro,
-  .idea-pi-head .idea-export-controls {
-    flex: none;
-  }
-
-  .idea-pi-head .idea-export-controls label {
-    max-width: none;
-  }
-
-  .idea-pi-list,
-  .idea-pi-empty {
-    grid-column: 2;
-    grid-row: 1;
-  }
-}
-
 @media (min-width: 1600px) {
-  .idea-pi-overview {
-    grid-template-columns: 260px minmax(0, 1fr);
-    column-gap: var(--vs-space-8);
-  }
-
   .idea-workspace,
   .skeleton-workspace,
   .project-idea-check,
@@ -1933,13 +1833,8 @@
   }
 
   .idea-workspace,
-  .skeleton-workspace,
-  .idea-pi-overview {
+  .skeleton-workspace {
     grid-template-columns: 280px minmax(0, 1fr);
-  }
-
-  .idea-pi-overview {
-    column-gap: var(--vs-space-10);
   }
 
   .project-idea-check,
@@ -1948,43 +1843,6 @@
     grid-template-columns: minmax(0, 1fr) clamp(360px, 18vw, 440px);
   }
 
-}
-
-@media (min-width: 2200px) {
-  /* Heading and guidance on the left (at least 280px), writing area on the right. */
-  .idea-pitch-block,
-  .idea-import,
-  .skeleton-block-body {
-    grid-template-columns: minmax(280px, 1fr) minmax(0, 760px);
-    grid-template-rows: auto 1fr;
-    column-gap: var(--vs-space-8);
-    align-items: start;
-  }
-
-  .idea-block-guide {
-    display: block;
-  }
-
-  .idea-pitch-block textarea,
-  .skeleton-block-body textarea {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-    align-self: stretch;
-    margin-top: 0;
-  }
-
-  .idea-pitches-panel .idea-pitch-block textarea::placeholder {
-    color: transparent;
-  }
-
-  .idea-import > fieldset {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-
-  .idea-import > .idea-preview {
-    grid-column: 1 / -1;
-  }
 }
 
 @media (max-width: 640px) {
@@ -2003,25 +1861,6 @@
 
   .idea-bar-state {
     flex-basis: 100%;
-  }
-
-  .idea-pi-table .is-version {
-    display: none;
-  }
-
-  .idea-pi-table th,
-  .idea-pi-table td {
-    padding-inline: 6px;
-  }
-
-  .idea-pi-table td:first-child {
-    width: auto;
-  }
-}
-
-@media (max-width: 480px) {
-  .idea-pi-table .is-updated {
-    display: none;
   }
 }
 

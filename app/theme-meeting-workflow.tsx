@@ -8,36 +8,77 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import { Check, GripVertical, Mail, RotateCcw } from 'lucide-react';
 import { requestJson } from './client-request';
 import type { AgendaConfirmation, MeetingAction } from '../src/mastra/theme-meetings/workflow';
+import type { ConfirmedAgendaEmailAudience } from '../src/mastra/theme-meetings/planner';
 import type { ThemeMeetingAgendaItem } from '../src/mastra/theme-meetings/schema';
 
 type Payload = {
   manager: boolean; cancelled: boolean; duration: number; sourceVersion: string; members: string[];
   candidates: ThemeMeetingAgendaItem[]; confirmation: AgendaConfirmation | null; emailedAt?: string | null;
+  emailAudience?: ConfirmedAgendaEmailAudience | null;
   projects: Array<{ id: string; title: string }>;
   actions: Array<MeetingAction & { version: string; projectTitle: string | null }>;
 };
 type Selection = { username: string; minutes: number; deferred: boolean };
 type Row = { item: ThemeMeetingAgendaItem; minutes: number; skipped: boolean };
 type Drag = { username: string; from: number; to: number; dy: number; height: number };
+/** Renders a project title as a link to its record when the viewer can open it, otherwise as plain text. */
+type ProjectLink = (projectId: string | null | undefined, title: string) => ReactNode;
 
 const ukTime = (value: string) => new Date(value).toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+const people = (count: number) => `${count} ${count === 1 ? 'person' : 'people'}`;
+
+function emailDialogMessage(version: number, audience: ConfirmedAgendaEmailAudience | null | undefined, emailedAt?: string | null) {
+  if (!audience || audience.version !== version) {
+    return `Send confirmed version ${version} to theme members, PIs and the administrator, and agenda subscribers.${emailedAt ? ' This version was already emailed; people who received it will not get a duplicate.' : ''}`;
+  }
+  const total = audience.recipients.length;
+  const already = audience.recipients.filter((recipient) => recipient.alreadySent).length;
+  const fresh = total - already;
+  return [
+    audience.emailEnabled ? '' : 'Email delivery is switched off on this server, so nothing will be sent.',
+    `Send version ${version} to ${people(total)} (theme members, PIs and the administrator, and agenda subscribers).`,
+    audience.skipped ? `${people(audience.skipped)} will be skipped (no email address, inactive account or email notifications turned off).` : '',
+    already ? (fresh ? `Already sent to ${already}; resending sends only to the ${people(fresh)} who have not received it.` : `Everyone who can receive it already has this version; nothing new will be sent.`) : '',
+  ].filter(Boolean).join(' ');
+}
 const sameSelections = (a: Selection[], b: Selection[]) => a.length === b.length &&
   a.every((entry, index) => entry.username === b[index].username && entry.minutes === b[index].minutes && entry.deferred === b[index].deferred);
 
+// Last payload per theme/date so switching theme cards renders instantly from cache and then revalidates silently.
+// ponytail: module-level cache for this tab; it is per account only because a login reloads the page.
+const workflowCache = new Map<string, Payload>();
+const workflowRequests = new Map<string, Promise<Payload>>();
+// Unsaved agenda order per theme/date, kept only while the server baseline (sourceVersion) is unchanged.
+const unsavedOrders = new Map<string, { sourceVersion: string; entries: Selection[] }>();
+const cacheKey = (themeId: string, date: string) => `${themeId}|${date}`;
+
+function loadWorkflow(themeId: string, date: string): Promise<Payload> {
+  const key = cacheKey(themeId, date);
+  const pending = workflowRequests.get(key);
+  if (pending) return pending;
+  const request = requestJson<Payload>(`/api/theme-meetings/workflow?${new URLSearchParams({ meetingDate: date, themeId })}`, 'Could not load meeting workflow.')
+    .then((payload) => { workflowCache.set(key, payload); return payload; },
+      (caught) => { workflowCache.delete(key); throw caught; })
+    .finally(() => workflowRequests.delete(key));
+  workflowRequests.set(key, request);
+  return request;
+}
+
 function useWorkflow(themeId: string, date: string, revision: number, enabled = true) {
-  const [data, setData] = useState<Payload | null>(null);
-  const [error, setError] = useState('');
+  const key = cacheKey(themeId, date);
+  const [state, setState] = useState<{ key: string; data: Payload | null; error: string }>(() => ({ key, data: workflowCache.get(key) || null, error: '' }));
   useEffect(() => {
     if (!enabled) return;
     let active = true;
-    setError('');
-    void requestJson<Payload>(`/api/theme-meetings/workflow?${new URLSearchParams({ meetingDate: date, themeId })}`, 'Could not load meeting workflow.')
-      .then((payload) => { if (active) setData(payload); })
-      .catch((caught) => { if (active) { setData(null); setError(caught instanceof Error ? caught.message : 'Could not load.'); } });
+    // Show the cached payload for this key at once (or none while loading), never another theme's payload.
+    setState((current) => current.key === key ? { ...current, error: '' } : { key, data: workflowCache.get(key) || null, error: '' });
+    void loadWorkflow(themeId, date)
+      .then((payload) => { if (active) setState({ key, data: payload, error: '' }); })
+      .catch((caught) => { if (active) setState({ key, data: null, error: caught instanceof Error ? caught.message : 'Could not load.' }); });
     return () => { active = false; };
-  }, [date, themeId, revision, enabled]);
-  return { data, error };
+  }, [key, themeId, date, revision, enabled]);
+  return state.key === key ? { data: state.data, error: state.error } : { data: workflowCache.get(key) || null, error: '' };
 }
 
 // Planned start times are derived from the meeting start and the minutes of each scheduled item.
@@ -57,7 +98,8 @@ function initialSelections(payload: Payload): Selection[] {
   const index = (username?: string) => { const i = existing.findIndex((item) => item.member_username === username); return i < 0 ? existing.length : i; };
   return [...payload.candidates].sort((a, b) => index(a.member_username) - index(b.member_username)).map((item) => {
     const saved = existing.find((entry) => entry.member_username === item.member_username);
-    return { username: item.member_username || '', deferred: saved?.deferred ?? false,
+    // Per-item skipping was retired: a new version always schedules every submission (older deferred entries stay read-only).
+    return { username: item.member_username || '', deferred: false,
       minutes: item.update_type === 'short_update' ? 5 : item.update_type === 'nothing_to_report' ? 0 : saved?.update_type === item.update_type ? saved.duration_minutes : item.duration_minutes };
   });
 }
@@ -70,21 +112,31 @@ function scrollParent(element: HTMLElement): HTMLElement {
   return document.scrollingElement as HTMLElement;
 }
 
-function ItemSummary({ item }: { item: ThemeMeetingAgendaItem }) {
+function ItemSummary({ item, projectLink }: { item: ThemeMeetingAgendaItem; projectLink: ProjectLink }) {
   return <span className="mt-item-main">
     <strong>{item.project_context?.title || item.member}</strong>
     <span>{item.project_context ? `${item.member} · Project stage ${item.project_context.stage ?? 'not recorded'}` : 'No linked project'}</span>
-    {item.project_context && <details className="mt-snapshot"><summary>Project snapshot</summary><MeetingProjectSummary context={item.project_context} /></details>}
+    {item.project_context && <details className="mt-snapshot"><summary>Project snapshot</summary>
+      <p className="mt-snapshot-record">Project record: {projectLink(item.project_context.projectId, item.project_context.title)}</p>
+      <MeetingProjectSummary context={item.project_context} /></details>}
   </span>;
 }
 
-function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, fallbackItems, revision, onSaved, onChanged }: {
+function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, fallbackItems, revision, onSaved, onChanged, projectLink }: {
   themeId: string; meetingDate: string; meetingTime: string; cancelled: boolean; canAccess: boolean;
-  fallbackItems: ThemeMeetingAgendaItem[]; revision: number; onSaved: () => void; onChanged: () => Promise<void> | void;
+  fallbackItems: ThemeMeetingAgendaItem[]; revision: number; onSaved: () => void; onChanged: () => Promise<void> | void; projectLink: ProjectLink;
 }) {
   const { data, error } = useWorkflow(themeId, meetingDate, revision, canAccess);
   // Local order and minutes; null means "same as the server baseline". Nothing is saved until Confirm.
-  const [edited, setEdited] = useState<Selection[] | null>(null);
+  // Kept per theme/date across card switches; dropped when the server baseline changes.
+  const orderKey = cacheKey(themeId, meetingDate);
+  const sourceVersion = data?.sourceVersion || '';
+  const savedOrder = () => { const saved = unsavedOrders.get(orderKey); return saved && saved.sourceVersion === sourceVersion ? saved.entries : null; };
+  const [edited, setEditedState] = useState<Selection[] | null>(savedOrder);
+  const setEdited = (next: Selection[] | null) => {
+    setEditedState(next);
+    if (next && sourceVersion) unsavedOrders.set(orderKey, { sourceVersion, entries: next }); else unsavedOrders.delete(orderKey);
+  };
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ error: boolean; text: string } | null>(null);
   const [dialog, setDialog] = useState<'confirm' | 'email' | null>(null);
@@ -93,8 +145,9 @@ function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, 
   const listRef = useRef<HTMLOListElement | null>(null);
   const dragRef = useRef<{ drag: Drag; mids: number[]; startY: number; clientY: number; scroller: HTMLElement; frame: number } | null>(null);
   const baseline = useMemo(() => data ? initialSelections(data) : [], [data]);
-  useEffect(() => { setEdited(null); }, [baseline]);
-  useEffect(() => { setDialog(null); setMessage(null); setEdited(null); }, [themeId, meetingDate, cancelled]);
+  // Restore only when the theme/date or the server baseline changes, not on every silent revalidation.
+  useEffect(() => { setEditedState(savedOrder()); }, [orderKey, sourceVersion]);
+  useEffect(() => { setDialog(null); setMessage(null); }, [themeId, meetingDate, cancelled]);
   useEffect(() => () => { if (dragRef.current) cancelAnimationFrame(dragRef.current.frame); }, []);
   if (cancelled) return null;
 
@@ -108,7 +161,9 @@ function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, 
     ? entries.map((entry) => ({ item: candidate(entry.username), minutes: entry.minutes, skipped: entry.deferred }))
     : confirmation
       ? confirmation.entries.map((entry) => ({ item: entry, minutes: entry.duration_minutes, skipped: entry.deferred }))
-      : (data?.candidates || fallbackItems).map((item) => ({ item, minutes: item.duration_minutes, skipped: false }));
+      // Members and managers wait for their workflow payload (never the plan fallback, which would flash a draft).
+      : (canAccess ? data?.candidates || [] : fallbackItems).map((item) => ({ item, minutes: item.duration_minutes, skipped: false }));
+  const loading = canAccess && !data;
   const scheduled = rows.filter((row) => !row.skipped);
   const skipped = rows.filter((row) => row.skipped);
   const starts = startTimes(meetingTime, scheduled.map((row) => row.minutes));
@@ -121,6 +176,8 @@ function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, 
   const upToDate = Boolean(confirmation && !changedSinceConfirmation && sameSelections(entries, confirmedSelections));
   const nextVersion = (confirmation?.version || 0) + 1;
   const scheduledNames = scheduled.map((row) => row.item.member_username || row.item.member);
+  // Read-only trace of retired per-item skipping in the latest confirmed version.
+  const legacyDeferred = (confirmation?.entries || []).filter((entry) => entry.deferred).map((entry) => entry.member);
 
   const update = (username: string, patch: Partial<Selection>) => setEdited(entries.map((entry) => entry.username === username ? { ...entry, ...patch } : entry));
   function reorder(from: number, to: number) {
@@ -129,7 +186,7 @@ function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, 
     const [moved] = order.splice(from, 1);
     order.splice(to, 0, moved);
     const byName = new Map(entries.map((entry) => [entry.username, entry]));
-    setEdited([...order.map((name) => byName.get(name)!), ...entries.filter((entry) => entry.deferred)]);
+    setEdited(order.map((name) => byName.get(name)!));
     const row = scheduled[from];
     setAnnouncement(`${row.item.member} moved to position ${to + 1} of ${order.length}.`);
   }
@@ -231,22 +288,20 @@ function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, 
     const fixed = item.update_type !== 'deep_dive';
     const dragging = drag?.username === username;
     return <li key={username} className={`${isSkipped ? 'is-skipped' : ''}${dragging ? ' is-dragging' : ''}`} style={isSkipped ? undefined : shift(index)}>
-      {editable && (isSkipped ? <span aria-hidden="true" /> : <button className="mt-drag-handle" type="button" data-agenda-handle={username}
+      {editable && (<button className="mt-drag-handle" type="button" data-agenda-handle={username}
         aria-label={`Reorder ${item.member}, position ${index + 1} of ${scheduled.length}`} aria-describedby={`mt-drag-hint-${themeId}`} disabled={busy}
         onPointerDown={(event) => startDrag(event, username)} onPointerMove={moveDrag} onPointerUp={() => endDrag(true)} onPointerCancel={() => endDrag(false)}
         onLostPointerCapture={() => endDrag(true)} onKeyDown={(event) => onHandleKey(event, username)}>
         <GripVertical aria-hidden="true" /></button>)}
       <time className="vs-mono" aria-label={start ? `Planned start ${start}` : undefined}>{isSkipped ? '—' : start}</time>
-      <ItemSummary item={item} />
+      <ItemSummary item={item} projectLink={projectLink} />
       {editable ? <span className="mt-arrange-controls">
         <span className={`mt-slot mt-slot-${item.update_type}`}>{themeUpdateTypeLabels[item.update_type]}</span>
         <label className="mt-minutes">
           <input type="number" inputMode="numeric" min={item.update_type === 'nothing_to_report' ? 0 : 1} max={60} required value={minutes} readOnly={fixed}
-            disabled={isSkipped || busy} aria-label={`Minutes for ${item.member}`} aria-describedby={`mt-drag-hint-${themeId}`}
+            disabled={busy} aria-label={`Minutes for ${item.member}`} aria-describedby={`mt-drag-hint-${themeId}`}
             onChange={(event) => update(username, { minutes: Number(event.target.value) })} />
           <span aria-hidden="true">min</span></label>
-        <label className="mt-skip-toggle"><input type="checkbox" checked={isSkipped} disabled={busy} aria-label={`Skip ${item.member} at this meeting`}
-          onChange={(event) => update(username, { deferred: event.target.checked })} /><span aria-hidden="true">Skip</span></label>
       </span> : <span className={`mt-slot mt-slot-${item.update_type}`}>{themeUpdateTypeLabels[item.update_type]}{isSkipped ? '' : ` · ${minutes} min`}</span>}
     </li>;
   }
@@ -254,8 +309,10 @@ function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, 
   const emailHintId = `mt-email-hint-${themeId}`;
   return <div className={`mt-board${editable ? ' is-editable' : ''}`} aria-busy={busy}>
     <div className="mt-board-bar">
-      <p className={`mt-board-state ${confirmation ? 'is-confirmed' : 'is-draft'}`}>
-        {confirmation ? <><strong>Confirmed</strong> · Version {confirmation.version} by @{confirmation.confirmedBy}, {ukTime(confirmation.confirmedAt)} (UK time){manager ? (data?.emailedAt ? ` · Emailed ${ukTime(data.emailedAt)}` : ' · Not emailed yet') : ''}</>
+      <p className={`mt-board-state ${loading || !canAccess ? 'is-loading' : confirmation ? 'is-confirmed' : 'is-draft'}`}>
+        {loading ? <strong>{error ? 'Agenda unavailable' : 'Loading agenda…'}</strong>
+          // Without workflow access the confirmation state is unknown, so never label the plan a draft.
+          : !canAccess ? <><strong>Planned agenda</strong> · Confirmation details are shown to theme members and managers.</> : confirmation ? <><strong>Confirmed</strong> · Version {confirmation.version} by @{confirmation.confirmedBy}, {ukTime(confirmation.confirmedAt)} (UK time){manager ? (data?.emailedAt ? ` · Emailed ${ukTime(data.emailedAt)}` : ' · Not emailed yet') : ''}</>
           : <><strong>Draft</strong> · From submitted updates; not yet confirmed by the coordinator.</>}
       </p>
       {dirty && <p className="mt-unsaved" role="status"><strong>Unsaved order</strong>
@@ -264,20 +321,25 @@ function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, 
     </div>
     {error && <p className="form-message error" role="alert">{error}</p>}
     {changedSinceConfirmation && <p className="mt-board-note" role="note">Submissions changed after version {confirmation!.version} was confirmed. This draft includes them; confirm again to save version {nextVersion}.</p>}
+    {editable && legacyDeferred.length > 0 && <p className="mt-board-note is-subtle" role="note">Deferred in an earlier version: {legacyDeferred.join(', ')}. A new version schedules every submitted update; adjust Deep Dive minutes instead.</p>}
     {!changedSinceConfirmation && confirmation && editable && !upToDate && <p className="mt-board-note is-subtle" role="note">This draft differs from confirmed version {confirmation.version}. Email still sends version {confirmation.version} until you confirm again.</p>}
     {message && <p className={`form-message${message.error ? ' error' : ''}`} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
     {editable && <p id={`mt-drag-hint-${themeId}`} className="mt-board-hint">Drag the handle, or focus it and press the arrow keys, to reorder. Updates are 5 minutes and Nothing to Report is 0 minutes; Deep Dive minutes can be edited.</p>}
     <p className="vs-sr-only" aria-live="polite">{announcement}</p>
-    {scheduled.length ? <ol ref={listRef} className={`mt-agenda-list${drag ? ' is-sorting' : ''}`} aria-label="Agenda">{scheduled.map((item, index) => row(item, starts[index], index))}</ol>
-      : <p className="mt-agenda-empty">{rows.length ? 'Every item is skipped.' : 'No planned updates yet'}</p>}
-    {skipped.length > 0 && <section className="mt-skipped" aria-label="Skipped items">
-      <h3>Skipped · not scheduled at this meeting</h3>
+    {loading ? (!error && <ol className="mt-agenda-list is-loading" role="status" aria-label="Loading agenda…">
+      {Array.from({ length: Math.max(1, fallbackItems.length) }, (_, index) => <li key={index} aria-hidden="true">
+        <span className="mt-skeleton is-time" /><span className="mt-item-main"><span className="mt-skeleton is-title" /><span className="mt-skeleton is-meta" /></span>
+        <span className="mt-skeleton is-slot" /></li>)}
+    </ol>) : scheduled.length ? <ol ref={listRef} className={`mt-agenda-list${drag ? ' is-sorting' : ''}`} aria-label="Agenda">{scheduled.map((item, index) => row(item, starts[index], index))}</ol>
+      : <p className="mt-agenda-empty">{rows.length ? 'No items are scheduled.' : 'No planned updates yet'}</p>}
+    {skipped.length > 0 && <section className="mt-skipped" aria-label="Deferred items">
+      <h3>Deferred in an earlier version · not scheduled</h3>
       <ul className="mt-agenda-list">{skipped.map((item, index) => row(item, '', index))}</ul>
     </section>}
     {manager && <div className="mt-arrange-footer">
       <div className={`mt-arrange-total${over ? ' is-over' : ''}`} role="status">
         <span className={`mt-meter${over ? ' is-over' : ''}`} aria-hidden="true"><span style={{ width: `${Math.min(100, Math.round((total / duration) * 100))}%` }} /></span>
-        <span className="mt-num">{total} of {duration} min{over ? ` · ${total - duration} min over. Shorten or skip items.` : ` · ${duration - total} min free`}</span>
+        <span className="mt-num">{total} of {duration} min{over ? ` · ${total - duration} min over. Shorten Deep Dive minutes.` : ` · ${duration - total} min free`}</span>
       </div>
       <div className="mt-arrange-buttons">
         <button className="ops-primary" type="button" disabled={busy || over || !editable || upToDate} onClick={() => setDialog('confirm')}
@@ -290,16 +352,22 @@ function AgendaBoard({ themeId, meetingDate, meetingTime, cancelled, canAccess, 
       {!confirmation && <p id={emailHintId} className="mt-email-hint">Confirm the agenda first.</p>}
     </div>}
     <ConfirmDialog id={`mt-confirm-agenda-${themeId}`} open={dialog === 'confirm'} tone="default" title="Confirm this agenda?"
-      message={`This saves version ${nextVersion} with ${plural(scheduled.length, 'item')} (${total} of ${duration} minutes)${skipped.length ? ` and ${skipped.length} skipped` : ''}. Emailing the agenda is a separate step.`}
+      message={`This saves version ${nextVersion} with ${plural(scheduled.length, 'item')} (${total} of ${duration} minutes). Emailing the agenda is a separate step.`}
       confirmLabel="Confirm" cancelLabel="Cancel" busy={busy} onCancel={() => setDialog(null)} onConfirm={() => void confirm()} />
     <ConfirmDialog id={`mt-email-agenda-${themeId}`} open={dialog === 'email'} tone="default" title="Email this agenda?"
-      message={confirmation ? `Send confirmed version ${confirmation.version} to theme members, PIs and the administrator, and agenda subscribers.${data?.emailedAt ? ' This version was already emailed; people who received it will not get a duplicate.' : ''}` : ''}
-      confirmLabel="Email" cancelLabel="Cancel" busy={busy} onCancel={() => setDialog(null)} onConfirm={() => void sendEmail()} />
+      message={confirmation ? emailDialogMessage(confirmation.version, data?.emailAudience, data?.emailedAt) : ''}
+      confirmLabel="Email" cancelLabel="Cancel" busy={busy} onCancel={() => setDialog(null)} onConfirm={() => void sendEmail()}>
+      {confirmation && data?.emailAudience?.version === confirmation.version && data.emailAudience.recipients.length > 0 && <details className="mt-email-recipients">
+        <summary>Recipients ({data.emailAudience.recipients.length})</summary>
+        <ul>{data.emailAudience.recipients.map((recipient) => <li key={recipient.username}>
+          {recipient.displayName} <span className="vs-mono">@{recipient.username}</span>{recipient.alreadySent && <em> · already sent</em>}</li>)}</ul>
+      </details>}
+    </ConfirmDialog>
   </div>;
 }
 
-function FollowUp({ themeId, meetingDate, revision, memberNames, onChanged }: {
-  themeId: string; meetingDate: string; revision: number; memberNames: Record<string, string>; onChanged: () => Promise<void> | void;
+function FollowUp({ themeId, meetingDate, revision, memberNames, onChanged, projectLink }: {
+  themeId: string; meetingDate: string; revision: number; memberNames: Record<string, string>; onChanged: () => Promise<void> | void; projectLink: ProjectLink;
 }) {
   const [date, setDate] = useState(meetingDate);
   const [local, setLocal] = useState(0);
@@ -341,7 +409,7 @@ function FollowUp({ themeId, meetingDate, revision, memberNames, onChanged }: {
         {date !== meetingDate && <>
           <p className={`theme-workflow-state ${data.confirmation ? 'is-confirmed' : 'is-draft'}`}>{data.confirmation ? `Confirmed v${data.confirmation.version} by @${data.confirmation.confirmedBy} on ${ukTime(data.confirmation.confirmedAt)} (UK time)` : 'No confirmed agenda for this date.'}</p>
           {data.confirmation && <ol className="theme-workflow-confirmed">{data.confirmation.entries.map((entry) => <li key={entry.member_username || entry.member}>
-            <strong>{entry.member}</strong> <span>{themeUpdateTypeLabels[entry.update_type]} · {entry.duration_minutes} min{entry.deferred ? ' · Skipped at this meeting' : ''}</span>
+            <strong>{entry.member}</strong> <span>{themeUpdateTypeLabels[entry.update_type]} · {entry.duration_minutes} min{entry.deferred ? ' · Deferred, not scheduled' : ''}</span>
             <MeetingProjectSummary context={entry.project_context} />
           </li>)}</ol>}
         </>}
@@ -370,7 +438,7 @@ function FollowUp({ themeId, meetingDate, revision, memberNames, onChanged }: {
             <fieldset disabled={busy}><legend>{item.task}</legend>
               <dl className="theme-workflow-facts">
                 <div><dt>Responsible</dt><dd>{person(item.owner)}</dd></div>
-                <div><dt>Project</dt><dd>{item.projectTitle ? <>{item.projectTitle} <span className="theme-workflow-where">· in Research workflow → Project tasks</span></> : 'No project — group action'}</dd></div>
+                <div><dt>Project</dt><dd>{item.projectTitle ? <>{projectLink(item.projectId, item.projectTitle)} <span className="theme-workflow-where">· in Research workflow → Project tasks</span></> : 'No project — group action'}</dd></div>
                 <div><dt>Due</dt><dd className="vs-mono">{item.dueDate}</dd></div>
                 <div><dt>Status</dt><dd><span className={`theme-workflow-status is-${item.status}${overdue ? ' is-overdue' : ''}`}>{item.status === 'done' ? 'Done' : 'Open'}{overdue ? ' · Overdue' : ''}</span></dd></div>
               </dl>
@@ -390,15 +458,29 @@ function FollowUp({ themeId, meetingDate, revision, memberNames, onChanged }: {
 }
 
 /** The current agenda (view, reorder, confirm, email) followed by decisions and actions for the theme. */
-export function ThemeMeetingWorkflow({ themeId, meetingDate, meetingTime, cancelled, canAccess, fallbackItems, memberNames = {}, onChanged, children }: {
+export function ThemeMeetingWorkflow({ themeId, meetingDate, meetingTime, cancelled, canAccess, fallbackItems, memberNames = {}, onChanged, children,
+  onOpenProject, openableProjectIds = [], prefetchThemeIds = [] }: {
   themeId: string; meetingDate: string; meetingTime: string; cancelled: boolean; canAccess: boolean;
   fallbackItems: ThemeMeetingAgendaItem[]; memberNames?: Record<string, string>; onChanged: () => Promise<void> | void; children?: ReactNode;
+  /** Opens a project record; links render only for projects in the viewer's own project list. */
+  onOpenProject?: (projectId: string) => void; openableProjectIds?: string[];
+  /** Other accessible themes on this date whose payload is fetched in the background so switching cards is instant. */
+  prefetchThemeIds?: string[];
 }) {
   const [revision, setRevision] = useState(0);
+  const prefetchKey = prefetchThemeIds.join('|');
+  useEffect(() => {
+    for (const id of prefetchKey.split('|')) {
+      if (id && id !== themeId && !workflowCache.has(cacheKey(id, meetingDate))) void loadWorkflow(id, meetingDate).catch(() => undefined);
+    }
+  }, [prefetchKey, themeId, meetingDate]);
+  const projectLink: ProjectLink = (projectId, title) => onOpenProject && projectId && openableProjectIds.includes(projectId)
+    ? <button className="mt-project-link" type="button" aria-label={`Open project ${title}`} onClick={() => onOpenProject(projectId)}>{title}</button>
+    : title;
   return <>
     <AgendaBoard themeId={themeId} meetingDate={meetingDate} meetingTime={meetingTime} cancelled={cancelled} canAccess={canAccess}
-      fallbackItems={fallbackItems} revision={revision} onSaved={() => setRevision((value) => value + 1)} onChanged={onChanged} />
+      fallbackItems={fallbackItems} revision={revision} onSaved={() => setRevision((value) => value + 1)} onChanged={onChanged} projectLink={projectLink} />
     {children}
-    {canAccess && <FollowUp themeId={themeId} meetingDate={meetingDate} revision={revision} memberNames={memberNames} onChanged={onChanged} />}
+    {canAccess && <FollowUp themeId={themeId} meetingDate={meetingDate} revision={revision} memberNames={memberNames} onChanged={onChanged} projectLink={projectLink} />}
   </>;
 }

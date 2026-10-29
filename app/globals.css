@@ -4601,7 +4601,6 @@ input::placeholder, textarea::placeholder { font-weight: 400; }
 .project-title-link { border: 0; padding: 4px 0; background: transparent; color: var(--ink); text-align: left; font: inherit; font-weight: 600; }
 .project-title-link:hover { color: var(--accent-strong); text-decoration: underline; }
 .project-target-summary { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; line-height: 1.5; max-width: 28ch; }
-.idea-pi-overview h2 { font-size: 1rem; margin: 0 0 8px; }
 @media (min-width: 1100px) {
 
   .settings-sidebar { width: 216px; }

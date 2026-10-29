@@ -27,9 +27,27 @@ export type LegacyIdeaReview = { recommendation: string; summary: string; nextSt
 export type SavedIdeaReview = { id: string; pitchVersion: number; report: IdeaReview | LegacyIdeaReview; rulesHash: string; model: string; by: string; at: string };
 export const isLegacyIdeaReview = (report: IdeaReview | LegacyIdeaReview): report is LegacyIdeaReview => 'checks' in report;
 
+type Quote = { field: (typeof ideaReviewBlocks)[number] | 'track'; quote: string };
+/** Map a model quotation to the exact pitch text it reproduces. Models sometimes recapitalise a clause, add a full stop,
+ *  reflow spaces or name the neighbouring block; the saved quote is always the verbatim pitch substring, or null. */
+function locateQuote(item: Quote, draft: IdeaDraft): Quote | null {
+  if (draft[item.field].includes(item.quote)) return item;
+  const words = item.quote.trim().replace(/[.,;:!?]+$/, '').split(/\s+/).filter(Boolean);
+  if (words.length < 3) return null;
+  const pattern = new RegExp(words.map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'iu');
+  for (const field of [item.field, ...ideaReviewBlocks, 'track' as const]) {
+    const match = pattern.exec(draft[field]);
+    if (match) return { field, quote: match[0] };
+  }
+  return null;
+}
+
 export function validateIdeaReview(value: unknown, draft: IdeaDraft): IdeaReview {
-  const report = ideaReviewSchema.parse(value);
   draft = ideaDraftSchema.parse(draft);
+  const parsed = ideaReviewSchema.parse(value);
+  const located = (evidence: Quote[]) => evidence.map(item => locateQuote(item, draft) ?? item);
+  const report: IdeaReview = { ...parsed, blocks: parsed.blocks.map(item => ({ ...item, evidence: located(item.evidence) })),
+    discussant: { delta: { ...parsed.discussant.delta, evidence: located(parsed.discussant.delta.evidence) }, poc: { ...parsed.discussant.poc, evidence: located(parsed.discussant.poc.evidence) } } };
   const advice = [report.summary, ...report.blocks.flatMap(item => [item.gap, item.improvement]), report.discussant.delta.answer, report.discussant.poc.answer, ...report.nextSteps];
   if (advice.some(text => /\p{Script=Han}/u.test(text))) throw new Error('AI advice must be in English. Please try again. Original evidence quotations may remain in their source language.');
   if (new Set(report.blocks.map(item => item.block)).size !== ideaReviewBlocks.length) throw new Error('The review must cover every pitch block once.');

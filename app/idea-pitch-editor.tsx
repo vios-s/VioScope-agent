@@ -7,7 +7,7 @@ import { checklistDraftKey, readChecklistDraft, writeChecklistDraft, removeCheck
 import { requestJson } from './client-request';
 import { ConfirmDialog } from './confirm-dialog';
 import { checkIdea, ideaDraftSchema, ideaFields, defaultPitchExportFormat, type PitchExportFormat, type IdeaCheckPayload, type IdeaDecision, type IdeaDraft, type IdeaSource } from '../src/mastra/projects/idea-check';
-import { ideaBlockStatusLabels, ideaDiscussantQuestions, ideaDiscussantStatusLabels, isLegacyIdeaReview, type SavedIdeaReview } from '../src/mastra/projects/idea-review-schema';
+import { ideaBlockStatusLabels, ideaDiscussantQuestions, ideaDiscussantStatusLabels, isLegacyIdeaReview, type IdeaReview, type SavedIdeaReview } from '../src/mastra/projects/idea-review-schema';
 
 export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, onDeleted, onStateChanged }: { userId: string; pitchId: string; onChanged: (id: string) => Promise<void>; onProjectCreated: () => Promise<void>; onDeleted: () => Promise<void>; onStateChanged: (state: { dirty: boolean; busy: boolean }) => void }) {
   const prefix = useId();
@@ -175,6 +175,11 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       <div className="idea-title-block">
         <label className="idea-title-label" htmlFor={`${prefix}-title`}>Pitch title</label>
         <input id={`${prefix}-title`} form={formId} className="idea-title-input" disabled={locked} readOnly={!data.canEdit} required={data.canEdit} maxLength={200} value={title} onChange={(event) => { setTitle(event.target.value); setConfirmed(false); setCreateConfirmed(false); }} placeholder="e.g. Smaller models for low-cost research" />
+        <label className="idea-track">Track
+          <select value={draft.track} disabled={locked || !data.canEdit} onChange={event => { setDraft({ ...draft, track: event.target.value as '' | 'A' | 'B' }); setConfirmed(false); setCreateConfirmed(false); }}>
+            <option value="">Select a track</option><option value="A">Track A — Flagship</option><option value="B">Track B — Momentum</option>
+          </select>
+        </label>
         <div className="idea-record-header">
           {resolvedId.current && <h2 className="vs-sr-only">{data.pitch.id ? data.pitch.title : 'Unsaved pitch'}</h2>}
           <p className="idea-meta">
@@ -213,15 +218,6 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       </section>}
       <form id={formId} className="idea-writing-sheet" onSubmit={(event) => { event.preventDefault(); void save('save'); }}>
         <fieldset disabled={locked} className="idea-fields"><legend>Pitch blocks</legend>
-          <p className="idea-completeness">{missing.length ? `${missing.length} of ${checks.length} blocks still need information. You can save an incomplete draft.` : 'All blocks contain text. A person must still judge the evidence and feasibility.'}</p>
-          <div className="idea-setup-row">
-            <p className="idea-section-title">Lead: {data.pitch.ownerUsername ? `@${data.pitch.ownerUsername}` : 'You'}</p>
-            <label className="idea-track">Track
-              <select value={draft.track} disabled={!data.canEdit} onChange={event => { setDraft({ ...draft, track: event.target.value as '' | 'A' | 'B' }); setConfirmed(false); setCreateConfirmed(false); }}>
-                <option value="">Select a track</option><option value="A">Track A — Flagship</option><option value="B">Track B — Momentum</option>
-              </select>
-            </label>
-          </div>
           {ideaFields.map((field, index) => {
             const [, number = String(index + 1), heading = field.label] = /^(\d+)\.\s*(.*)$/.exec(field.label) || [];
             return <div key={field.key} className="idea-pitch-block">
@@ -229,9 +225,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
                 <label htmlFor={`${prefix}-${field.key}`}><span className="idea-block-num" aria-hidden="true" data-num={number.padStart(2, '0')} /><span className="vs-sr-only">{number}.</span> {heading}</label>
                 {!checks[index].present && <span className="idea-empty-chip">Empty</span>}
               </div>
-              {/* Wide screens show the guidance beside the textarea; assistive technology reads it from the placeholder. */}
-              <p className="idea-block-guide" aria-hidden="true">{field.hint}</p>
-              <textarea id={`${prefix}-${field.key}`} readOnly={!data.canEdit} placeholder={field.hint} rows={5} maxLength={24000}
+              {/* The guidance is the placeholder; rows are a fallback where CSS field-sizing is unsupported. */}
+              <textarea id={`${prefix}-${field.key}`} readOnly={!data.canEdit} placeholder={field.hint} rows={field.hint.split('\n').length + 2} maxLength={24000}
                 value={draft[field.key] || ''} onChange={event => { setDraft({ ...draft, [field.key]: event.target.value }); setConfirmed(false); setCreateConfirmed(false); }} />
             </div>;
           })}
@@ -273,6 +268,13 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
           <h3 id={`${prefix}-advice-heading`}>Agent advice</h3>
           <span className="idea-advisory-tag">Advisory</span>
         </div>
+        {data.reviews[0] && !isLegacyIdeaReview(data.reviews[0].report) && (() => {
+          const readiness = reviewReadiness(data.reviews[0].report);
+          return <div className="idea-readiness">
+            <span className={`idea-advice-status is-${readiness.tone}`}>{readiness.label}</span>
+            <small>Derived by a fixed rule from the saved review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span>{reviewIsStale(data.reviews[0].pitchVersion) ? ', before the latest changes' : ''}. It is not a decision.</small>
+          </div>;
+        })()}
         <p className="idea-advice-meta">{data.reviews[0] ? <>Latest review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span> · <span className="vs-mono">{formatRecordTime(data.reviews[0].at)}</span>. </> : 'No AI review yet. '}The agent gives suggestions on evidence and feasibility. It cannot approve, decide or change a stage.</p>
         {data.reviews.map((review) => <details key={review.id} className="idea-review" open={review === data.reviews[0]}>
           <summary>Review of <span className="vs-mono">v{review.pitchVersion}</span> · {reviewHeadline(review.report)}{reviewIsStale(review.pitchVersion) ? ' · Draft changed — review again' : ''}</summary>
@@ -346,6 +348,16 @@ export function reviewHeadline(report: ReviewReport) {
   if (isLegacyIdeaReview(report)) return `Earlier eight-criteria review · ${report.recommendation.replaceAll('_', ' ')}`;
   const open = report.blocks.filter(item => item.status === 'missing' || item.status === 'needs_work').length;
   return open ? `${open} of ${report.blocks.length} blocks need work` : 'All blocks adequate or better';
+}
+const blocks = (count: number) => `${count} block${count === 1 ? '' : 's'}`;
+/** Deterministic, advisory readiness derived from a saved v2 review; never asked from the model and never a decision. */
+export function reviewReadiness(report: IdeaReview): { tone: 'ready' | 'nearly' | 'not'; label: string } {
+  const missing = report.blocks.filter(item => item.status === 'missing').length;
+  const needsWork = report.blocks.filter(item => item.status === 'needs_work').length;
+  const answered = report.discussant.delta.status === 'addressed' && report.discussant.poc.status === 'addressed';
+  if (!missing && !needsWork && answered) return { tone: 'ready', label: 'Ready for group discussion' };
+  if (!missing && needsWork <= 2) return { tone: 'nearly', label: needsWork ? `Nearly ready — ${blocks(needsWork)} need${needsWork === 1 ? 's' : ''} work` : 'Nearly ready — discussant questions need fuller answers' };
+  return { tone: 'not', label: `Not ready for discussion — ${[missing && `${blocks(missing)} missing`, needsWork && `${blocks(needsWork)} need${needsWork === 1 ? 's' : ''} work`].filter(Boolean).join(', ')}` };
 }
 function Quotes({ evidence, own }: { evidence: Array<{ field: string; quote: string }>; own?: string }) {
   return evidence.map((item, index) => <blockquote key={index}>{item.field === own ? '' : `${blockLabel(item.field)}: `}{item.quote}</blockquote>);

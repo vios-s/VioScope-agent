@@ -70,6 +70,7 @@ try {
   const entries = draft.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: 30, deferred: false }));
   assert.equal((await post('alice', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries })).status, 403);
   assert.equal((await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries })).status, 400, 'Reject overbooking.');
+  // Legacy data: per-item deferral is no longer offered in the UI, but the server still reads and stores it.
   entries[2].deferred = true;
   entries.reverse();
   await ok(await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries }));
@@ -90,7 +91,9 @@ try {
   assert.equal((await planner.buildThemeMeetingPlan({ meetingDate: date })).plan.meetings[0].agenda_items.at(-1)!.progress_text, 'alice original evidence.', 'Later updates cannot mutate a confirmed snapshot.');
   draft = await ok(await get('chair'));
   assert.equal(draft.candidates.find((item: { member_username: string }) => item.member_username === 'alice').progress_text, 'Updated evidence before cutoff.');
-  const next = draft.candidates.map((item: { member_username: string; duration_minutes: number }) => ({ username: item.member_username, minutes: item.duration_minutes, deferred: item.member_username === 'carol' }));
+  // Without per-item skipping, managers fit the hour by shortening Deep Dive minutes.
+  const next = draft.candidates.map((item: { member_username: string; duration_minutes: number; update_type: string }) => ({ username: item.member_username,
+    minutes: item.update_type === 'deep_dive' ? 25 : item.duration_minutes, deferred: false }));
   const concurrent = await Promise.all([post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next }), post('principal', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next })]);
   assert.deepEqual(concurrent.map((response) => response.status).sort(), [200, 409]);
   assert.equal((await workflow.readMeetingWorkflow()).confirmations.length, 2, 'Preserve previous versions.');
@@ -102,36 +105,58 @@ try {
   assert.equal((await email('outsider', 1, 'B')).status, 400, 'No confirmation, no email.');
   assert.equal((await email('chair', 1)).status, 409, 'Only the latest confirmed version can be emailed.');
   assert.equal((await ok(await get('chair'))).emailedAt, null);
+  // The Email dialog audience uses the send's own rules: counts and names only, managers only.
+  type Audience = { version: number; emailEnabled: boolean; skipped: number; recipients: { username: string; displayName: string; alreadySent: boolean }[] };
+  let audience: Audience = (await ok(await get('chair'))).emailAudience;
+  assert.equal(audience.version, 2); assert.equal(audience.emailEnabled, true);
+  assert.deepEqual(audience.recipients.map((recipient) => recipient.username).sort(), ['alice', 'carol', 'chair', 'principal']);
+  assert.equal(audience.skipped, 1, 'The muted account is counted as skipped, not listed.');
+  assert.ok(audience.recipients.every((recipient) => !recipient.alreadySent));
+  assert.doesNotMatch(JSON.stringify(audience), /@example\.test/, 'The audience never exposes email addresses.');
+  assert.equal((await ok(await get('alice'))).emailAudience, null, 'Members do not receive the email audience.');
   let delivery = await ok(await email('chair', 2));
   assert.deepEqual(delivery.emails, { sent: 4, skipped: 1, failed: 0 }, 'PI, coordinator and members except the muted account.');
+  assert.deepEqual(delivery.emails, { sent: audience.recipients.length, skipped: audience.skipped, failed: 0 }, 'The dialog preview matches the send.');
+  audience = (await ok(await get('principal'))).emailAudience;
+  assert.ok(audience.recipients.length === 4 && audience.recipients.every((recipient) => recipient.alreadySent), 'Delivered recipients are marked already sent.');
   assert.deepEqual(sent.map((mail) => mail.to).sort(), ['alice', 'carol', 'chair', 'principal'].map((name) => `${name}@example.test`));
   const v2 = (await workflow.readMeetingWorkflow()).confirmations.at(-1)!;
   const v2Order = v2.entries.filter((entry) => !entry.deferred).map((entry) => entry.member);
   assert.match(sent[0].subject, /confirmed theme meeting agenda 2026-10-28 Theme A \(version 2\)/);
   assert.match(sent[0].html, /CONFIRMED AGENDA &middot; VERSION 2/);
   assert.ok(sent[0].text.indexOf(v2Order[0]) < sent[0].text.indexOf(v2Order[1]), 'Confirmed order is preserved.');
-  assert.match(sent[0].text, /Skipped at this meeting\n\s*carol \| Deep Dive \| not scheduled/);
+  assert.doesNotMatch(sent[0].text, /Skipped at this meeting/, 'New versions schedule every submission, so the email lists no skipped items.');
+  assert.match(sent[0].text, /carol/, 'Every submission is scheduled.');
   assert.match(sent[0].text, /10:00 \| /, 'Start times follow the confirmed order.');
   assert.ok((await ok(await get('chair'))).emailedAt, 'The confirmed version records its email time.');
   delivery = await ok(await email('principal', 2));
   assert.deepEqual(delivery.emails, { sent: 0, skipped: 5, failed: 0 }, 'Resending a version does not duplicate mail.');
+  assert.deepEqual(delivery.emails, { sent: audience.recipients.filter((recipient) => !recipient.alreadySent).length,
+    skipped: audience.skipped + audience.recipients.filter((recipient) => recipient.alreadySent).length, failed: 0 }, 'Dedupe preview matches the resend.');
   assert.equal(sent.length, 4);
   draft = await ok(await get('chair'));
   await ok(await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next.slice().reverse() }));
   assert.equal((await ok(await get('chair'))).emailedAt, null, 'A new version has not been emailed yet.');
+  // A leftover claim (send interrupted before the delivery was recorded) blocks a resend; the preview must agree.
+  const store = await import('../src/mastra/theme-meetings/store');
+  assert.ok(await store.claimThemeMeetingEmailDelivery(`${planner.confirmedAgendaDeliveryPrefix(date, 'A', 3)}alice`));
+  audience = (await ok(await get('chair'))).emailAudience;
+  assert.deepEqual(audience.recipients.filter((recipient) => recipient.alreadySent).map((recipient) => recipient.username), ['alice']);
   delivery = await ok(await email('chair', 3));
-  assert.equal(delivery.emails.sent, 4, 'A new confirmed version can be circulated.');
+  assert.equal(delivery.emails.sent, 3, 'A new confirmed version can be circulated.');
+  assert.deepEqual(delivery.emails, { sent: 3, skipped: audience.skipped + 1, failed: 0 }, 'Claim-aware preview matches the send.');
   assert.match(sent.at(-1)!.subject, /\(version 3\)/);
   await planner.cancelThemeMeeting({ meetingDate: date, themeId: 'A', cancelledByUsername: 'chair', reason: 'Workshop week' });
   draft = await ok(await get('chair'));
   assert.equal(draft.cancelled, true);
+  assert.equal(draft.emailAudience, null, 'A skipped meeting has no email audience.');
   assert.equal((await email('chair', 3)).status, 400, 'A skipped meeting cannot be emailed.');
   assert.equal((await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next })).status, 400, 'A skipped meeting cannot be confirmed.');
   assert.deepEqual(await planner.sendThemeMeetingAgendaEmails((await planner.buildThemeMeetingPlan({ meetingDate: date })).plan, config, { themeId: 'A' }), { sent: 0, skipped: 0, failed: 0 }, 'Cutoff agenda excludes a skipped meeting.');
   assert.equal((await planner.buildThemeMeetingReminderRun('first_reminder', { meetingDate: date, previewOnly: true })).notifications.some((item) => item.theme_id === 'A'), false, 'Reminders exclude a skipped meeting.');
   const { removeThemeMeetingCancellation } = await import('../src/mastra/theme-meetings/store');
   await removeThemeMeetingCancellation(date, 'A');
-  assert.equal(sent.length, 8);
+  assert.equal(sent.length, 7);
   const action = { decision: 'Proceed with the baseline check.', task: 'Run the baseline and attach results.', owner: 'alice', dueDate: '2026-10-30' };
   assert.equal((await post('alice', { operation: 'add_action', action })).status, 403);
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, owner: 'outsider' } })).status, 400);

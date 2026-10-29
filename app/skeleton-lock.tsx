@@ -137,8 +137,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
                 <span className="skeleton-block-num vs-mono" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
                 <div className="skeleton-block-body">
                   <div className="skeleton-block-head"><label htmlFor={`skeleton-input-${field.key}`}>{field.label}</label>{!draft[field.key].trim() && <span className="idea-empty-chip">Empty</span>}</div>
-                  <p id={`skeleton-hint-${field.key}`}>{field.hint}</p>
-                  <textarea id={`skeleton-input-${field.key}`} aria-describedby={`skeleton-hint-${field.key}`} rows={4} maxLength={6000} value={draft[field.key]} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))} />
+                  <textarea id={`skeleton-input-${field.key}`} placeholder={field.hint} rows={4} maxLength={6000} value={draft[field.key]} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))} />
                 </div>
               </div>)}</div>}
               {mode === 'paste' && <label className="skeleton-method">Paste outline <textarea required rows={10} maxLength={55000} value={text} onChange={event => setText(event.target.value)} /></label>}
