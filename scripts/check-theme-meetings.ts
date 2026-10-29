@@ -9,7 +9,7 @@ import {
   submitThemeMeetingUpdate,
 } from '../src/mastra/theme-meetings/planner';
 import { readThemeMeetingPlanTool, submitThemeMeetingUpdateTool } from '../src/mastra/tools/theme-meetings';
-import { managedThemeIdsForUser, visiblePlanForUser } from '../src/mastra/theme-meetings/access';
+import { managedThemeIdsForUser, reminderStatusForManager, visibleNotificationsForUser, visiblePlanForUser } from '../src/mastra/theme-meetings/access';
 import { defaultNotificationPreferences, type AuthUser } from '../src/mastra/db/users';
 import { registeredNotificationEmail } from '../src/mastra/email';
 import {
@@ -445,6 +445,37 @@ async function main() {
     )
   ) {
     throw new Error('Expected agenda cutoff notifications to be persisted for browser/email delivery paths.');
+  }
+
+  // Reminder visibility: only the addressed member sees a reminder; cutoff notifications keep the manager audience.
+  const sample = (action: 'first_reminder' | 'manual_missing_update_reminder' | 'agenda_cutoff', username: string, createdAt: string) => ({
+    ...agendaCutoff.notifications[0],
+    id: `${action}:${username}`,
+    action,
+    member_username: username,
+    created_at: createdAt,
+  });
+  const aliceUsername = fakeUser('Alice').username;
+  const samples = [
+    sample('first_reminder', aliceUsername, '2026-11-02T08:00:00.000Z'),
+    sample('manual_missing_update_reminder', aliceUsername, '2026-11-03T10:00:00.000Z'),
+    sample('agenda_cutoff', aliceUsername, '2026-11-04T08:00:00.000Z'),
+  ];
+  for (const viewer of [fakeUser('Coordinator A'), fakeUser('PI One', 'pi')]) {
+    const visible = visibleNotificationsForUser(samples, afterUpdate.config, viewer).map((notification) => notification.action);
+    if (visible.join(',') !== 'agenda_cutoff') {
+      throw new Error(`Expected ${viewer.displayName} to see only the cutoff notification, got ${visible.join(',')}.`);
+    }
+    const status = reminderStatusForManager(samples, afterUpdate.config, viewer);
+    if (status.length !== 1 || status[0].action !== 'manual_missing_update_reminder' || status[0].sent_at !== '2026-11-03T10:00:00.000Z') {
+      throw new Error(`Expected ${viewer.displayName} reminder status to report the latest manual reminder.`);
+    }
+  }
+  if (visibleNotificationsForUser(samples, afterUpdate.config, fakeUser('Alice')).length !== 3) {
+    throw new Error('Expected Alice to see every notification addressed to her.');
+  }
+  if (reminderStatusForManager(samples, afterUpdate.config, fakeUser('Alice')).length !== 0) {
+    throw new Error('Expected reminder status to be manager-only.');
   }
 
   await submitThemeMeetingUpdate({

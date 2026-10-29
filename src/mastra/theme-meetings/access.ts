@@ -75,16 +75,47 @@ export function visiblePlanForUser(plan: ThemeMeetingPlan, config: ThemeMeetingC
   };
 }
 
+const memberReminderActions = new Set<ThemeMeetingNotification['action']>([
+  'first_reminder',
+  'gentle_missing_update_reminder',
+  'manual_missing_update_reminder',
+]);
+
+// Reminders are addressed to one member (exact users.username) and visible only to that member.
+// Broadcast notifications (agenda cutoff) keep the addressed member plus theme managers.
 export function visibleNotificationsForUser(
   notifications: ThemeMeetingNotification[],
   config: ThemeMeetingConfig,
   user: AuthUser,
 ): ThemeMeetingNotification[] {
-  return canSeeAll(user)
-    ? notifications
-    : notifications.filter(
-        (notification) =>
-          canManageTheme(config, notification.theme_id, user) ||
-          normalizeUsername(notification.member_username) === normalizeUsername(user.username),
-      );
+  return notifications.filter((notification) =>
+    normalizeUsername(notification.member_username) === normalizeUsername(user.username) ||
+    (!memberReminderActions.has(notification.action) && canManageTheme(config, notification.theme_id, user)),
+  );
+}
+
+export type ThemeReminderStatus = {
+  theme_id: string;
+  member_username: string;
+  action: ThemeMeetingNotification['action'];
+  sent_at: string;
+};
+
+// Manager-only summary: the latest reminder per member of a managed theme, without notification bodies.
+export function reminderStatusForManager(
+  notifications: ThemeMeetingNotification[],
+  config: ThemeMeetingConfig,
+  user: AuthUser,
+): ThemeReminderStatus[] {
+  const latest = new Map<string, ThemeReminderStatus>();
+  for (const notification of notifications) {
+    const username = normalizeUsername(notification.member_username);
+    if (!username || !memberReminderActions.has(notification.action) || !canManageTheme(config, notification.theme_id, user)) continue;
+    const key = `${notification.theme_id}:${username}`;
+    const current = latest.get(key);
+    if (!current || notification.created_at > current.sent_at) {
+      latest.set(key, { theme_id: notification.theme_id, member_username: username, action: notification.action, sent_at: notification.created_at });
+    }
+  }
+  return [...latest.values()];
 }

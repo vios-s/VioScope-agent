@@ -335,6 +335,49 @@ async function main() {
       assert.equal(agendaCutoff.agendaEmails.failed, 0, 'Disabled agenda email transport should not fail.');
       assert.ok(agendaCutoff.agendaEmails.skipped > 0, 'Agenda email should find recipients and skip them while disabled.');
 
+      // Reminders are visible only to the addressed member; managers get a body-free reminder status instead.
+      const isReminder = (notification: { action: string }) => notification.action !== 'agenda_cutoff';
+      const remindedUsername = reminder.notifications[0].member_username as string;
+      const managerView = await expectJson<any>(
+        `${coordinator.username} dashboard after reminder`,
+        await themeMeetingsRoute.GET(requestFor(user, `/api/theme-meetings?date=${coordinator.meetingDate}`)),
+      );
+      assert.equal(
+        managerView.notifications.some((notification: { action: string; member_username?: string }) =>
+          isReminder(notification) && notification.member_username !== coordinator.username),
+        false,
+        'Managers must not see reminders addressed to other members.',
+      );
+      assert.ok(
+        managerView.notifications.some((notification: { action: string; theme_id: string }) =>
+          notification.action === 'agenda_cutoff' && notification.theme_id === coordinator.themeId),
+        'Managers keep agenda cutoff notifications for their theme.',
+      );
+      const status = managerView.reminderStatus.find((entry: { theme_id: string; member_username: string }) =>
+        entry.theme_id === coordinator.themeId && entry.member_username === remindedUsername);
+      assert.equal(status?.action, 'manual_missing_update_reminder');
+      assert.equal(typeof status?.sent_at, 'string');
+      assert.equal('body' in status, false, 'Reminder status must not carry notification bodies.');
+      assert.ok(
+        managerView.reminderStatus.every((entry: { theme_id: string }) => entry.theme_id === coordinator.themeId),
+        'Reminder status is limited to managed themes.',
+      );
+      const remindedView = await expectJson<any>(
+        `${remindedUsername} dashboard after reminder`,
+        await themeMeetingsRoute.GET(requestFor(await activeUser(remindedUsername), `/api/theme-meetings?date=${coordinator.meetingDate}`)),
+      );
+      assert.ok(
+        remindedView.notifications.some((notification: { action: string; member_username?: string }) =>
+          notification.action === 'manual_missing_update_reminder' && notification.member_username === remindedUsername),
+        'The addressed member sees their own reminder.',
+      );
+      assert.equal(
+        remindedView.notifications.some((notification: { member_username?: string }) => notification.member_username !== remindedUsername),
+        false,
+        'Members see only notifications addressed to them.',
+      );
+      assert.deepEqual(remindedView.reminderStatus, [], 'Reminder status is manager-only.');
+
       await expectJson(
         `${coordinator.username} cross-theme reminder blocked`,
         await remindersRoute.POST(
@@ -393,6 +436,23 @@ async function main() {
         `Expected ${coordinator.addCandidate} to be removed from Theme ${coordinator.themeId}.`,
       );
     }
+
+    const adminView = await expectJson<any>(
+      'admin dashboard reminder visibility',
+      await themeMeetingsRoute.GET(requestFor(await activeUser('theme.admin'), '/api/theme-meetings?date=2027-06-30')),
+    );
+    assert.equal(
+      adminView.notifications.some((notification: { action: string; member_username?: string }) =>
+        notification.action !== 'agenda_cutoff' && notification.member_username !== 'theme.admin'),
+      false,
+      'Administrators must not see reminders addressed to other members.',
+    );
+    assert.ok(adminView.notifications.some((notification: { action: string }) => notification.action === 'agenda_cutoff'));
+    assert.deepEqual(
+      unique(adminView.reminderStatus.map((entry: { theme_id: string }) => entry.theme_id)).sort(),
+      ['C', 'D'],
+      'Administrators see reminder status for every active theme.',
+    );
 
     const coordinatorB = await activeUser('coordinator.b');
     const cancelled = await expectJson<any>(

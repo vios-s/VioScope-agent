@@ -378,6 +378,39 @@
   color: var(--vs-ok-fg);
 }
 
+/* Reminder status per missing member (managers only) */
+.mt-reminder-status {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.mt-reminder-status li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--vs-line-soft);
+}
+
+.mt-reminder-status li:last-child {
+  border-bottom: 0;
+}
+
+.mt-reminder-status strong {
+  font-weight: 500;
+  color: var(--vs-ink);
+}
+
+.mt-reminder-status span {
+  color: var(--vs-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Members (coordinator/PI/admin only) */
 .mt-members {
   display: flex;

@@ -529,6 +529,9 @@
   margin: 0 32px;
   padding: 0;
   overflow-x: auto;
+  /* Tabs overlap the rule by 1px; never let that show a vertical scrollbar. */
+  overflow-y: hidden;
+  scrollbar-width: none;
   border: 0;
   border-bottom: 1px solid var(--vs-line);
   border-radius: 0;
@@ -591,16 +594,19 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 20px;
 }
 
+/* Flat sections separated by hairlines: no cards inside the record dialog. */
 .vs-rail-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 20px;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius-panel);
+}
+
+.vs-record-rail > section + section {
+  padding-top: 20px;
+  border-top: 1px solid var(--vs-line);
 }
 
 .vs-rail-head {
@@ -920,9 +926,11 @@
 }
 
 .users-modal.project-detail-modal .project-meeting-panel {
-  padding: 20px;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius-panel);
+  padding: 20px 0 0;
+  border: 0;
+  border-top: 1px solid var(--vs-line);
+  border-radius: 0;
+  background: none;
   color: var(--vs-ink-2);
   font-size: 13px;
 }
@@ -1040,19 +1048,18 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   padding: 0;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius-panel);
-  background: var(--vs-surface);
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: none;
 }
 
 .users-modal.project-detail-modal .project-update-form > * {
-  margin-inline: 24px;
+  margin-inline: 0;
 }
 
 .project-update-form .vs-form-head {
   margin: 0;
-  padding: 18px 24px 14px;
+  padding: 0 0 14px;
   border-bottom: 1px solid var(--vs-line-soft);
 }
 
@@ -1119,7 +1126,7 @@
 }
 
 .users-modal.project-detail-modal .project-update-form > .form-message {
-  margin-inline: 24px;
+  margin-inline: 0;
 }
 
 .users-modal.project-detail-modal .vs-form-footer {
@@ -1129,7 +1136,7 @@
   justify-content: flex-end;
   gap: 8px;
   margin: 0;
-  padding: 14px 24px 18px;
+  padding: 14px 0 0;
   border-top: 1px solid var(--vs-line-soft);
 }
 
@@ -1270,6 +1277,8 @@
   max-width: 100%;
   margin: 0;
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
 
 .users-modal.project-detail-modal .project-workflow .workflow-tabs button {
@@ -1536,12 +1545,6 @@
   font-size: 13px;
 }
 
-.users-modal.project-detail-modal .project-workflow .workflow-record.vs-workflow-card {
-  padding: 18px 20px;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius-panel);
-}
-
 .users-modal.project-detail-modal .project-workflow pre {
   margin: 0;
   padding: 10px 12px;
@@ -1708,10 +1711,6 @@
   .users-modal.project-modal:not(.project-detail-modal) .modal-fieldset,
   .users-modal.project-detail-modal .project-workflow form > fieldset fieldset {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .users-modal.project-detail-modal .project-update-form > * {
-    margin-inline: 16px;
   }
 
   .users-modal.project-detail-modal .project-workflow form > fieldset > label:not(.workflow-confirm),

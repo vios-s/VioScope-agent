@@ -9,6 +9,7 @@ import { isThemeAgendaSubscriptionRequired } from '../../../src/mastra/theme-mee
 import { notificationStateForUser } from '../../../src/mastra/theme-meetings/notification-state';
 import {
   managedThemeIdsForUser,
+  reminderStatusForManager,
   visibleNotificationsForUser,
   visiblePlanForUser,
 } from '../../../src/mastra/theme-meetings/access';
@@ -172,6 +173,8 @@ export async function GET(request: Request) {
       access: {
         canManageThemeIds: managedThemeIds,
       },
+      // Latest reminder per member, only for themes this user manages; no notification bodies.
+      reminderStatus: reminderStatusForManager(currentNotifications, payload.config, user),
       users,
       source: payload.configPath.includes('/fixtures/') ? 'fixture' : 'configured',
       paths: canSeeAll(user)

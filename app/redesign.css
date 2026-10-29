@@ -597,6 +597,8 @@ textarea:focus-visible {
   padding: 0;
   border-bottom: 1px solid var(--vs-line);
   overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
 }
 
 .console-page-tabs button {

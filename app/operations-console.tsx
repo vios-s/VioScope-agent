@@ -334,6 +334,8 @@ type ThemeMeetingPayload = {
   access?: {
     canManageThemeIds: string[];
   };
+  // Manager-only: latest reminder per member of a managed theme (no notification bodies).
+  reminderStatus?: { theme_id: string; member_username: string; action: ThemeMeetingNotification['action']; sent_at: string }[];
   users?: ThemeUserOption[];
   source: 'configured' | 'fixture';
 };
@@ -1709,13 +1711,15 @@ function AuthFrame({ children }: { children: ReactNode }) {
   return (
     <main className="vs-auth">
       <div className="vs-auth-panel">
-        <div className="vs-auth-brand">
-          <img className="vs-wordmark" src="/art/vios-wordmark.png" alt="VIOS Lab" />
-          <span className="vs-brand-divider" aria-hidden="true" />
-          <span className="vs-brand-name">VioScope</span>
-        </div>
-        <section className="vs-auth-card">{children}</section>
-        <p className="vs-auth-footer">Internal tool. Access is restricted to VIOS Lab members.</p>
+        <section className="vs-auth-card">
+          <div className="vs-auth-brand">
+            <img className="vs-wordmark" src="/art/vios-wordmark.png" alt="VIOS Lab" />
+            <span className="vs-brand-divider" aria-hidden="true" />
+            <span className="vs-brand-name">VioScope</span>
+          </div>
+          {children}
+        </section>
+        <p className="vs-auth-footer">VIOS Lab · Internal tool. Access is restricted to VIOS Lab members.</p>
       </div>
     </main>
   );
@@ -3865,6 +3869,23 @@ function ThemeMeetingPanel({
                           <span>All updates received</span>
                         )}
                       </p>
+                    )}
+                    {!activeMeeting.cancelled && canManageActive && activeMeeting.missing_members.length > 0 && (
+                      <ul className="mt-reminder-status" aria-label="Reminder status for missing updates">
+                        {activeMeeting.missing_members.map((name, index) => {
+                          const username = normalizedName(activeMeeting.missing_member_usernames[index] || '');
+                          const status = payload?.reminderStatus?.find((entry) => entry.theme_id === activeMeeting.theme_id && entry.member_username === username);
+                          const kind = status?.action === 'manual_missing_update_reminder' ? 'manual' : status?.action === 'gentle_missing_update_reminder' ? 'gentle' : 'first';
+                          return (
+                            <li key={`${activeMeeting.theme_id}-${username || name}`}>
+                              <strong>{name}</strong>
+                              <span>{status
+                                ? `Reminded ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }).format(new Date(status.sent_at)).replace(',', '')} (${kind})`
+                                : 'Not reminded yet'}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     )}
                   </ThemeMeetingWorkflow>
                 ) : !activeCard.cancelled && (
