@@ -3,7 +3,7 @@ import { AuthError, canSeeAll } from '../auth/session';
 import type { AuthUser } from './users';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { ensureProjectTables, getProjectForUser, listProjectsForUser } from './projects';
-import { skeletonDecisionSchema, skeletonProjectSnapshot, latestSkeletonDecisions, type SkeletonRecord, type SkeletonProjectSnapshot } from '../submission/skeleton-record';
+import { assertSkeletonStage, skeletonDecisionSchema, skeletonProjectSnapshot, latestSkeletonDecisions, type SkeletonRecord, type SkeletonProjectSnapshot } from '../submission/skeleton-record';
 import type { SubmissionReviewResult } from '../submission/review';
 
 async function ensureTable() {
@@ -49,6 +49,7 @@ export async function saveSkeletonReview(projectId: string, snapshot: SkeletonPr
     const project = await lockProject(projectId, user);
     if (project.lifecycle !== 'active') throw new Error('Only active projects can receive a new check.');
     if (!project.access.canEdit) throw new AuthError('Only the project owner, PI or administrator can request a check.', 403, 'forbidden');
+    assertSkeletonStage(project);
     if (!isDeepStrictEqual(skeletonProjectSnapshot(project), snapshot)) throw new AuthError('Project details changed during the AI check. Reload and check again.', 409, 'conflict');
     const saved = await createPostgresClient().pool.query(`INSERT INTO skeleton_reviews(project_id,created_by,project_snapshot,draft_text,result)
       VALUES($1,$2,$3::jsonb,$4,$5::jsonb) RETURNING ${columns}`, [projectId,user.username,JSON.stringify(snapshot),draftText,JSON.stringify(result)]);
@@ -83,8 +84,9 @@ export async function decideSkeletonReview(id: string, input: unknown, user: Aut
       if (!pdra) throw new Error('Record the PDRA judgment before PI skeleton checkpoint confirmation.');
       if (pdra.by === user.username) throw new AuthError('You recorded the PDRA judgment for this review, so another person must record the PI confirmation.', 403, 'forbidden');
       if (command.outcome === 'approved' && pdra.outcome === 'revise') throw new Error('The PDRA requested revision. Resolve it before skeleton approval.');
+      if (command.outcome === 'approved' && pdra.outcome === 'SLIDE') throw new Error('The PDRA judged that this project should slide to the next submission cycle. Run a new check before skeleton approval.');
     }
-    const decision = { kind: command.kind, outcome: command.outcome, note: command.note, by: user.username, at: new Date().toISOString(), ...(override ? { override: true } : {}) };
+    const decision = { kind: command.kind, outcome: command.outcome, ...(command.kind === 'pdra' && command.reevaluateOn ? { reevaluateOn: command.reevaluateOn } : {}), note: command.note, by: user.username, at: new Date().toISOString(), ...(override ? { override: true } : {}) };
     const saved = await db.pool.query(`UPDATE skeleton_reviews SET decisions=decisions || $2::jsonb,revision=revision+1 WHERE id=$1 RETURNING ${columns}`, [id,JSON.stringify([decision])]);
     return saved.rows[0] as SkeletonRecord;
   });

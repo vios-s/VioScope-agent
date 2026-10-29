@@ -1866,3 +1866,98 @@
   padding-top: 0;
   border-top: 0;
 }
+
+/* Skeleton Lock: stage gate in the project picker and the advisory Paper Skeleton checklist */
+.skeleton-project-option:disabled {
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--vs-ink-3);
+}
+
+.skeleton-project-reason {
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.skeleton-paper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-paper-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.skeleton-paper-head h5 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.skeleton-paper-group th {
+  background: var(--vs-surface-2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vs-ink-2);
+}
+
+.skeleton-review-table th[scope="row"] {
+  background: transparent;
+  color: var(--vs-ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.skeleton-review-table th[scope="row"] p {
+  margin-top: 4px;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.skeleton-finding.skeleton-paper-status {
+  text-transform: none;
+}
+
+.skeleton-paper table {
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.skeleton-paper thead th:nth-child(1) { width: 36%; }
+.skeleton-paper thead th:nth-child(2) { width: 15%; }
+.skeleton-paper thead th:nth-child(4) { width: 17%; }
+
+.skeleton-paper td,
+.skeleton-paper th {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .skeleton-paper thead,
+  .skeleton-paper .skeleton-paper-measured.is-empty {
+    display: none;
+  }
+
+  .skeleton-paper tbody tr:not(.skeleton-paper-group) {
+    display: grid;
+    border-bottom: 1px solid var(--vs-line-soft);
+  }
+
+  .skeleton-paper tbody tr:not(.skeleton-paper-group) > * {
+    padding: 4px 12px;
+    border-bottom: 0;
+  }
+
+  .skeleton-paper tbody tr:not(.skeleton-paper-group) > :first-child { padding-top: 10px; }
+  .skeleton-paper tbody tr:not(.skeleton-paper-group) > :last-child { padding-bottom: 10px; }
+  .skeleton-paper-group th { display: block; }
+  .skeleton-paper-measured:not(.is-empty)::before {
+    content: "Measured: ";
+    color: var(--vs-ink-3);
+    font-size: 12px;
+  }
+}

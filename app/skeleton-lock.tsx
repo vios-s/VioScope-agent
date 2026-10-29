@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProjectRecord } from '../src/mastra/db/projects';
-import { skeletonFields, skeletonDraftSchema } from '../src/mastra/submission/skeleton';
-import { latestSkeletonDecisions, skeletonOutcomeLabels, skeletonVerdictLabels, type SkeletonDecision, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
+import { paperSkeletonRequirements, paperSkeletonStatusLabels, skeletonFields, skeletonDraftSchema } from '../src/mastra/submission/skeleton';
+import { latestSkeletonDecisions, legacySkeletonOutcomes, londonToday, skeletonOutcomeLabels, skeletonVerdictLabels, type SkeletonDecision, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
+import type { SubmissionReviewStructured } from '../src/mastra/submission/schema';
 import { checklistDraftKey, useChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
 import { ConfirmDialog } from './confirm-dialog';
@@ -12,6 +13,10 @@ import { formatRecordTime } from './idea-pitch-editor';
 
 type Summary = Pick<SkeletonRecord, 'id' | 'projectId' | 'createdAt' | 'revision' | 'projectSnapshot' | 'decisions'> & { verdict: string };
 type Payload = { projects: ProjectRecord[]; reviews: Summary[]; viewer: { username: string; manager: boolean; administrator: boolean } };
+
+const addDays = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+const formatDay = (day: string) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${day}T00:00:00Z`));
+const stageGateReason = (stage: number) => `Skeleton Lock opens at stage 4 · currently stage ${stage}`;
 
 function ProjectContext({ project }: { project: SkeletonRecord['projectSnapshot'] }) {
   return <dl className="skeleton-project-context">
@@ -88,11 +93,11 @@ export function SkeletonLock({ userId }: { userId: string }) {
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not run check.'); }
     finally { setBusy(false); }
   }
-  async function judge(kind: 'pdra' | 'pi', outcome: string, note: string, override: boolean) {
+  async function judge(kind: 'pdra' | 'pi', outcome: string, note: string, override: boolean, reevaluateOn?: string) {
     if (!selected) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      const result = await requestJson<{ review: SkeletonRecord }>(`/api/skeleton-lock/${selected.id}`, 'Could not record judgment.', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, outcome, note, revision: selected.revision, confirmed: true, ...(override ? { override: true } : {}) }) });
+      const result = await requestJson<{ review: SkeletonRecord }>(`/api/skeleton-lock/${selected.id}`, 'Could not record judgment.', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, outcome, note, revision: selected.revision, confirmed: true, ...(override ? { override: true } : {}), ...(reevaluateOn ? { reevaluateOn } : {}) }) });
       setSelectedId(result.review.id); setSelected(result.review); await refresh(); setMessage(kind === 'pdra' ? 'PDRA judgment recorded. PI skeleton checkpoint confirmation remains separate.' : 'PI confirmation recorded. Project stage is unchanged.');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not record judgment.'); }
     finally { setBusy(false); }
@@ -139,7 +144,8 @@ export function SkeletonLock({ userId }: { userId: string }) {
         <ProjectContext project={project} />
         {(!project.piUsername || !project.pdraUsername || !project.venue || !project.submissionDeadline) && <p className="ops-notice">Some project details are missing. Set the PI, assigned PDRA, target venue and deadline in Projects. Missing values will remain explicit in the AI check.</p>}
       </aside>}
-      {project && <form onSubmit={run} className="skeleton-input">
+      {project && project.stage !== 4 && <p className="ops-notice skeleton-stage-gate" role="status">Skeleton Lock opens at stage 4 (Pre-Submission). This project is currently at stage {project.stage}; update the stage in Projects when it is ready. Earlier reviews remain available below.</p>}
+      {project && project.stage === 4 && <form onSubmit={run} className="skeleton-input">
         <fieldset disabled={busy} className="skeleton-input-panel"><legend className="vs-sr-only">Project evidence</legend>
             {project.access.canEdit && project.lifecycle === 'active' ? <>
               <label className="skeleton-method">Input method <select value={mode} onChange={event => setMode(event.target.value)}><option value="blocks">Fill the skeleton sections</option><option value="paste">Paste an outline or draft</option><option value="upload">Upload a draft or deck</option></select></label>
@@ -173,6 +179,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
             </div>
             <p>{selected.result.structured.summary}</p>
             <div className="skeleton-review-table"><table><thead><tr><th>Area</th><th>Status</th><th>Evidence</th><th>Gap / next action</th></tr></thead><tbody>{selected.result.structured.findings.map((item,index) => <tr key={index}><td>{item.area}</td><td><span className={`skeleton-finding is-${item.status}`}>{item.status}</span></td><td className="vs-mono">{item.evidence.join(', ')}</td><td>{item.gap}<p>{item.requiredAction}</p></td></tr>)}</tbody></table></div>
+            {selected.result.structured.paperSkeleton && <PaperSkeletonChecklist items={selected.result.structured.paperSkeleton} />}
             <details><summary>Source evidence with line numbers</summary><pre>{selected.draftText.split('\n').map((line,index) => `${index + 1}: ${line}`).join('\n')}</pre></details>
             <details><summary>Complete AI report</summary><pre>{reportText}</pre></details>
             <div className="skeleton-downloads"><button type="button" className="ops-secondary" onClick={() => download('md')}><Download aria-hidden="true" />Download AI report (MD)</button><button type="button" className="ops-secondary" onClick={() => download('json')}><Download aria-hidden="true" />Download AI report (JSON)</button></div>
@@ -193,7 +200,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
           </section>
           <section className="skeleton-judgment-history" aria-labelledby="skeleton-history-list-heading">
             <h4 id="skeleton-history-list-heading">Judgment history</h4>{!selected.decisions.length && <p className="skeleton-muted">No human judgment recorded.</p>}
-            <ol>{selected.decisions.map((decision,index) => <li key={index}><strong>{decision.kind === 'pdra' ? 'PDRA judgment' : 'PI confirmation'}: {skeletonOutcomeLabels[decision.outcome] || decision.outcome}</strong>{decision.override ? ' · Administrator override' : ''} · @{decision.by} · <span className="vs-mono">{formatRecordTime(decision.at)}</span><p>{decision.note}</p></li>)}</ol>
+            <ol>{selected.decisions.map((decision,index) => <li key={index}><strong>{decision.kind === 'pdra' ? 'PDRA judgment' : 'PI confirmation'}: {skeletonOutcomeLabels[decision.outcome] || decision.outcome}</strong>{decision.reevaluateOn ? <> · Re-evaluate on <span className="vs-mono">{formatDay(decision.reevaluateOn)}</span></> : ''}{decision.kind === 'pdra' && legacySkeletonOutcomes.has(decision.outcome) ? ' · Earlier verdict scale' : ''}{decision.override ? ' · Administrator override' : ''} · @{decision.by} · <span className="vs-mono">{formatRecordTime(decision.at)}</span><p>{decision.note}</p></li>)}</ol>
           </section>
         </aside>
       </section>}
@@ -205,7 +212,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
           const decisions = latestSkeletonDecisions(review.decisions);
           return <button key={review.id} type="button" className={`skeleton-review-row${review.id === selected?.id ? ' active' : ''}`} aria-current={review.id === selected?.id ? 'true' : undefined} disabled={busy} onClick={() => void openReview(review.id)}>
             <strong>{review.projectSnapshot.title}</strong><span className="skeleton-row-meta">@{review.projectSnapshot.ownerUsername} · <span className="vs-mono">{formatRecordTime(review.createdAt)}</span></span>
-            <span className="skeleton-row-states">AI: {skeletonVerdictLabels[review.verdict] || review.verdict} · PDRA: {decisions.pdra ? skeletonOutcomeLabels[decisions.pdra.outcome] || decisions.pdra.outcome : 'Pending'} · PI: {decisions.pi ? skeletonOutcomeLabels[decisions.pi.outcome] || decisions.pi.outcome : 'Pending'}</span>
+            <span className="skeleton-row-states">AI: {skeletonVerdictLabels[review.verdict] || review.verdict} · PDRA: {decisions.pdra ? `${skeletonOutcomeLabels[decisions.pdra.outcome] || decisions.pdra.outcome}${decisions.pdra.reevaluateOn ? ` (re-evaluate ${formatDay(decisions.pdra.reevaluateOn)})` : ''}` : 'Pending'} · PI: {decisions.pi ? skeletonOutcomeLabels[decisions.pi.outcome] || decisions.pi.outcome : 'Pending'}</span>
           </button>;
         })}</div>
       </section>
@@ -217,16 +224,19 @@ export function SkeletonLock({ userId }: { userId: string }) {
 }
 function DecisionRecord({ decision }: { decision: SkeletonDecision }) {
   return <div className="skeleton-decision-record">
-    <span className="skeleton-decision-meta">{decision.kind === 'pdra' ? 'PDRA judgment' : 'PI confirmation'}{decision.override ? ' · Administrator override' : ''} · @{decision.by} · <span className="vs-mono">{formatRecordTime(decision.at)}</span></span>
-    <span><strong>{skeletonOutcomeLabels[decision.outcome] || decision.outcome}.</strong> {decision.note}</span>
+    <span className="skeleton-decision-meta">{decision.kind === 'pdra' ? 'PDRA judgment' : 'PI confirmation'}{decision.kind === 'pdra' && legacySkeletonOutcomes.has(decision.outcome) ? ' · Earlier verdict scale' : ''}{decision.override ? ' · Administrator override' : ''} · @{decision.by} · <span className="vs-mono">{formatRecordTime(decision.at)}</span></span>
+    <span><strong>{skeletonOutcomeLabels[decision.outcome] || decision.outcome}.</strong>{decision.reevaluateOn && <> Re-evaluate on <span className="vs-mono">{formatDay(decision.reevaluateOn)}</span>.</>} {decision.note}</span>
   </div>;
 }
-function JudgmentForm({ kind, override, busy, onSave }: { kind: 'pdra' | 'pi'; override: boolean; busy: boolean; onSave: (kind: 'pdra' | 'pi', outcome: string, note: string, override: boolean) => Promise<void> }) {
-  const [outcome, setOutcome] = useState(kind === 'pdra' ? 'revise' : 'needs_revision'); const [note, setNote] = useState(''); const [confirmed, setConfirmed] = useState(false);
-  return <form className="skeleton-judgment" onSubmit={event => { event.preventDefault(); void onSave(kind, outcome, note, override); }}><fieldset disabled={busy}>
+function JudgmentForm({ kind, override, busy, onSave }: { kind: 'pdra' | 'pi'; override: boolean; busy: boolean; onSave: (kind: 'pdra' | 'pi', outcome: string, note: string, override: boolean, reevaluateOn?: string) => Promise<void> }) {
+  const [outcome, setOutcome] = useState(kind === 'pdra' ? '' : 'needs_revision'); const [note, setNote] = useState(''); const [confirmed, setConfirmed] = useState(false);
+  const [today] = useState(londonToday); const [reevaluateOn, setReevaluateOn] = useState(() => addDays(today, 3));
+  const conditional = kind === 'pdra' && outcome === 'CONDITIONAL';
+  return <form className="skeleton-judgment" onSubmit={event => { event.preventDefault(); void onSave(kind, outcome, note, override, conditional ? reevaluateOn : undefined); }}><fieldset disabled={busy}>
     <legend>{override ? 'Administrator override — ' : ''}{kind === 'pdra' ? 'PDRA judgment' : 'PI skeleton checkpoint confirmation'}</legend>
     {override && <p className="skeleton-muted">You are not the assigned {kind === 'pdra' ? 'PDRA' : 'project PI'}. This judgment is recorded and shown as an administrator override.</p>}
-    <label>Judgment <select value={outcome} onChange={event => { setOutcome(event.target.value); setConfirmed(false); }}>{(kind === 'pdra' ? [['revise','Revise before locking'],['conditional','Conditional — actions required'],['locked','Ready to lock']] : [['needs_revision','Return for revision'],['approved','Confirm skeleton lock']]).map(([value,label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+    <label>Judgment <select required value={outcome} onChange={event => { setOutcome(event.target.value); setConfirmed(false); }}>{kind === 'pdra' && <option value="" disabled>Choose a verdict</option>}{(kind === 'pdra' ? [['CLEARED',skeletonVerdictLabels.CLEARED],['CONDITIONAL',skeletonVerdictLabels.CONDITIONAL],['SLIDE',skeletonVerdictLabels.SLIDE]] : [['needs_revision','Return for revision'],['approved','Confirm skeleton lock']]).map(([value,label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+    {conditional && <label>Re-evaluation date (Europe/London) <input type="date" required min={addDays(today, 1)} value={reevaluateOn} onChange={event => { setReevaluateOn(event.target.value); setConfirmed(false); }} /><span className="skeleton-muted">72-hour sprint on the named gaps, then re-evaluate on this date.</span></label>}
     <label>Reason, evidence and required actions <textarea required rows={4} maxLength={4000} value={note} onChange={event => { setNote(event.target.value); setConfirmed(false); }} /></label>
     <label className="skeleton-confirm"><input type="checkbox" required checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I have reviewed the source evidence and AI advice and confirm this is my human judgment{override ? ', recorded as an administrator override' : ''}.</label>
     <button type="submit" className="ops-primary" disabled={!confirmed}>{kind === 'pdra' ? 'Record PDRA judgment' : 'Record PI confirmation'}</button>
@@ -240,7 +250,8 @@ function ProjectPicker({ projects, value, disabled, onSelect }: { projects: Proj
   const triggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
   const selected = projects.find(project => project.id === value);
-  const matches = projects.filter(project => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(query.trim().toLowerCase()));
+  // Projects open for Skeleton Lock (stage 4) first; others stay listed but disabled with the reason.
+  const matches = projects.filter(project => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(query.trim().toLowerCase())).sort((a, b) => Number(b.stage === 4) - Number(a.stage === 4));
   function close() { setOpen(false); triggerRef.current?.focus(); }
   return <div className="skeleton-project-picker" onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); close(); } }}>
     <span id="skeleton-project-label">Existing project</span>
@@ -250,7 +261,7 @@ function ProjectPicker({ projects, value, disabled, onSelect }: { projects: Proj
     {open && <div id="skeleton-project-options" className="skeleton-project-options">
       <label className="skeleton-project-search"><Search aria-hidden="true" /><input aria-label="Search projects" ref={searchRef} type="search" value={query} placeholder="Search by title or owner" onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') event.preventDefault(); }} /></label>
       <p className="skeleton-project-count" role="status">{matches.length} projects found.</p>
-      <ul>{matches.map(project => <li key={project.id}><button type="button" className="skeleton-project-option" aria-pressed={value === project.id} onClick={() => { onSelect(project.id); close(); }}><span className="skeleton-project-identity"><strong>{project.title}</strong><span className="skeleton-project-owner">@{project.ownerUsername}{project.lifecycle !== 'active' ? ` · ${project.lifecycle}` : ''}</span></span>{value === project.id && <Check aria-hidden="true" />}</button></li>)}</ul>
+      <ul>{matches.map(project => <li key={project.id}><button type="button" className="skeleton-project-option" aria-pressed={value === project.id} disabled={project.stage !== 4} onClick={() => { onSelect(project.id); close(); }}><span className="skeleton-project-identity"><strong>{project.title}</strong><span className="skeleton-project-owner">@{project.ownerUsername}{project.lifecycle !== 'active' ? ` · ${project.lifecycle}` : ''}</span>{project.stage !== 4 && <span className="skeleton-project-reason">{stageGateReason(project.stage)}</span>}</span>{value === project.id && <Check aria-hidden="true" />}</button></li>)}</ul>
       {!matches.length && <p>No matching projects.</p>}
     </div>}
   </div>;
@@ -266,4 +277,25 @@ function SkeletonFollowUp({review,owner}:{review:SkeletonRecord;owner:string}) {
   <label>Assignee username<input name="owner" defaultValue={owner} required/></label><label>Due date<input name="dueDate" type="date"/></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High — required before submission clearance</option></select></label>
   <label className="skeleton-confirm"><input type="checkbox" required/>I confirm this action should be added to the project.</label><button type="submit" className="ops-primary">Create follow-up task</button>{status&&<p role="status">{status}</p>}{error&&<p role="alert">{error}</p>}
  </fieldset></form></details>;
+}
+
+const paperTone: Record<string, string> = { met: 'is-pass', partly: 'is-partial', missing: 'is-missing', unknown: 'is-unknown' };
+function PaperSkeletonChecklist({ items }: { items: NonNullable<SubmissionReviewStructured['paperSkeleton']> }) {
+  const groups = [...new Set(paperSkeletonRequirements.map(item => item.group))];
+  return <section className="skeleton-paper" aria-labelledby="skeleton-paper-heading">
+    <div className="skeleton-paper-head"><h5 id="skeleton-paper-heading">Paper Skeleton minimum content</h5><span className="idea-advisory-tag">Advisory</span></div>
+    <p className="skeleton-muted">AI reading of the VIOS Paper Skeleton requirements. Measured values are counted by VioScope from the supplied text and may differ from the AI reading.</p>
+    <div className="skeleton-review-table"><table><thead><tr><th>Requirement</th><th>AI reading</th><th>Evidence</th><th>Measured</th></tr></thead>
+      {groups.map(group => <tbody key={group}><tr className="skeleton-paper-group"><th colSpan={4} scope="colgroup">{group}</th></tr>
+        {paperSkeletonRequirements.filter(item => item.group === group).map(requirement => {
+          const item = items.find(entry => entry.id === requirement.id);
+          if (!item) return null;
+          const notFound = item.evidence.trim().toLowerCase() === 'not found';
+          return <tr key={item.id}><th scope="row">{requirement.label}<p>{requirement.requirement}</p></th>
+            <td><span className={`skeleton-finding skeleton-paper-status ${paperTone[item.status] || ''}`}>{paperSkeletonStatusLabels[item.status] || item.status}</span></td>
+            <td>{notFound ? <span className="skeleton-muted">Not found</span> : <>“{item.evidence}”{!item.quoteFound && <p>Quote not located in the source text.</p>}</>}</td>
+            <td className={item.measured ? 'skeleton-paper-measured' : 'skeleton-paper-measured is-empty'}>{item.measured ? <span className="vs-mono">{item.measured}</span> : <span className="skeleton-muted">Not measured</span>}</td></tr>;
+        })}</tbody>)}
+    </table></div>
+  </section>;
 }

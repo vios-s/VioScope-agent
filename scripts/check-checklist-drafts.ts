@@ -29,7 +29,7 @@ try {
   let account = 'draft_owner', savedVersion = 1, writes = 0;
   page.on('dialog', dialog => dialog.accept());
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
-  const project = {id:'project-demo',title:'Draft test project',ownerUsername:account,piUsername:'pi_demo',pdraUsername:'pdra_demo',collaborators:[],venue:'Demo',submissionDeadline:'2027-01-01',lifecycle:'active',access:{canEdit:true}};
+  const project = {id:'project-demo',title:'Draft test project',stage:4,ownerUsername:account,piUsername:'pi_demo',pdraUsername:'pdra_demo',collaborators:[],venue:'Demo',submissionDeadline:'2027-01-01',lifecycle:'active',access:{canEdit:true}};
   const pitch = {id:'pitch-demo',title:'Saved pitch',ownerUsername:account,projectId:null,outcome:null,access:'owner'};
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;

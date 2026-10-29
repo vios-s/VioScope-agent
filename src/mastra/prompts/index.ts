@@ -18,6 +18,7 @@ const submissionReviewPromptSchema = z.object({
   system: textSchema,
   reviewTemplate: textSchema,
   jsonResponseTemplate: textSchema,
+  paperSkeletonTemplate: textSchema,
 });
 
 export const uiCopyPromptsSchema = z.object({

@@ -16,7 +16,12 @@ reviewTemplate: |-
   - Cite draft evidence with line references like `draft:L12-L18`.
   - If evidence is missing, write "missing" and explain what the user should provide.
   - Do not invent experiments, results, citations, deadlines, or author decisions.
-  - Suggest one overall verdict: CLEARED, CONDITIONAL, or SLIDE.
+  - Suggest one overall verdict using the VIOS OS verdict table:
+    - CLEARED: all checklist boxes are evidenced and the narrative is sound; proceed to the Internal Review phase.
+    - CONDITIONAL: one or two minor experimental gaps; a 72-hour sprint, then re-evaluation on a human-chosen date.
+    - SLIDE: fundamental flaws or missing baselines; slide to the next submission cycle and focus on quality.
+  - If a supplied skill uses an older verdict name such as LOCKED, map it to CLEARED. Never use LOCKED in the output.
+  - The verdict is a suggestion only; the assigned PDRA records the human judgment.
   - Also provide per-skill findings.
 
   Required structured output:
@@ -79,3 +84,13 @@ jsonResponseTemplate: |-
       }
     ]
   }
+paperSkeletonTemplate: |-
+  Additionally assess the VIOS Paper Skeleton minimum content expected at T-minus six weeks. This is an advisory checklist; it does not replace the human PDRA judgment.
+  Add one more top-level field, "paperSkeleton": an array with exactly one object per requirement below, in the same order, each shaped as
+  {"id": "<id>", "status": "met" | "partly" | "missing" | "unknown", "evidence": "<short verbatim quote or not found>"}.
+  - met: the draft shows the requirement is satisfied. partly: some of it is present. missing: the draft shows it is absent or explicitly not done. unknown: the input does not let you tell (for example, an outline that does not include that part of the paper).
+  - evidence must be a short quote (at most 25 words) copied exactly from the numbered draft without line prefixes or ellipses, or exactly "not found".
+  - Do not count words or references yourself in a way that contradicts the text; the server measures abstract length and reference counts separately.
+
+  Requirements:
+  {{requirements}}

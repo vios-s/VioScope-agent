@@ -33,6 +33,14 @@ const humanSignOffSchema = z.object({
   remainingEvidenceNeeded: z.array(z.string()),
 });
 
+// Skeleton Lock only: advisory per-requirement reading of the VIOS Paper Skeleton minimum content.
+export const paperSkeletonStatusSchema = z.enum(['met', 'partly', 'missing', 'unknown']);
+const paperSkeletonItemSchema = z.object({
+  id: z.string().min(1),
+  status: paperSkeletonStatusSchema,
+  evidence: z.string().describe('A short verbatim quote from the draft, or "not found".'),
+});
+
 const perSkillNoteSchema = z.object({
   skill: z.string().min(1),
   notes: z.array(z.string()),
@@ -47,10 +55,14 @@ export const submissionReviewModelOutputSchema = z.object({
   mitigations: z.array(mitigationSchema),
   humanSignOff: humanSignOffSchema,
   perSkillNotes: z.array(perSkillNoteSchema),
+  paperSkeleton: z.array(paperSkeletonItemSchema).optional(),
 });
 
 export const submissionReviewStructuredSchema = submissionReviewModelOutputSchema.extend({
   appliedSkills: z.array(appliedSkillSchema),
+  // Saved reviews before this checklist have no paperSkeleton. `measured` is computed by the server, never by the model;
+  // `quoteFound` records whether the quoted evidence occurs in the supplied text.
+  paperSkeleton: z.array(paperSkeletonItemSchema.extend({ quoteFound: z.boolean(), measured: z.string().optional() })).optional(),
 });
 
 export type SubmissionReviewStructured = z.infer<typeof submissionReviewStructuredSchema>;

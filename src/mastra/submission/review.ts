@@ -4,6 +4,7 @@ import { renderPromptTemplate, submissionReviewPrompt } from '../prompts';
 import { runtimeEnvNumber } from '../runtime-config';
 import { readViosSkill, type ViosSkill } from '../skills/loader';
 import { readDraftFile, type DraftSource } from './draft';
+import { measurePaperSkeleton, paperSkeletonRequirements, paperSkeletonStatusLabels } from './skeleton';
 import {
   submissionReviewModelOutputSchema,
   submissionReviewStructuredSchema,
@@ -27,6 +28,8 @@ export type SubmissionReviewInput = {
   maxDraftChars?: number;
   maxOutputTokens?: number;
   reportTitle?: string;
+  /** Skeleton Lock: also return the advisory VIOS Paper Skeleton checklist. */
+  paperSkeleton?: boolean;
 };
 
 export type SubmissionReviewResult = {
@@ -214,7 +217,12 @@ ${mitigations || '| P3 | missing | missing | missing | missing | missing |'}
 
 ## Per-Skill Notes
 ${perSkillNotes || '### missing\n- No notes.'}
-`;
+${review.paperSkeleton ? `
+## Paper Skeleton Checklist (advisory)
+| Requirement | AI reading | Evidence | Measured |
+|---|---|---|---|
+${review.paperSkeleton.map((item) => `| ${escapeTableCell(paperSkeletonRequirements.find((entry) => entry.id === item.id)?.label || item.id)} | ${escapeTableCell(paperSkeletonStatusLabels[item.status] || item.status)} | ${escapeTableCell(item.evidence)}${item.quoteFound || item.evidence.toLowerCase() === 'not found' ? '' : ' (quote not located in the source)'} | ${escapeTableCell(item.measured || 'not measured')} |`).join('\n')}
+` : ''}`;
 }
 
 function extractJsonObject(text: string): string | null {
@@ -243,6 +251,19 @@ function parseReviewJson(text: string) {
   } catch (error) {
     throw new Error(`Submission review model returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+const quoteKey = (value: string) => value.toLowerCase().replace(/[“”"‘’'`]/g, '').replace(/\s+/g, ' ').trim();
+/** One item per requirement in template order; quotes are checked against the source and counts are measured in code. */
+export function normalizePaperSkeleton(items: Array<{ id: string; status: 'met' | 'partly' | 'missing' | 'unknown'; evidence: string }> | undefined, draftText: string) {
+  const source = quoteKey(draftText);
+  const measured = measurePaperSkeleton(draftText);
+  return paperSkeletonRequirements.map(({ id }) => {
+    const item = items?.find((entry) => entry.id === id) || { id, status: 'unknown' as const, evidence: 'not found' };
+    const evidence = item.evidence.trim() || 'not found';
+    const quote = quoteKey(evidence);
+    return { id, status: item.status, evidence, quoteFound: quote !== 'not found' && quote.length > 0 && source.includes(quote), ...(measured[id] ? { measured: measured[id] } : {}) };
+  });
 }
 
 function buildPrompt({
@@ -289,7 +310,11 @@ export async function reviewSubmission(input: SubmissionReviewInput): Promise<Su
 
 ${renderPromptTemplate(submissionReviewPrompt.jsonResponseTemplate, {
     exampleSkill: skills[0]?.name || 'skill-name',
-  })}`;
+  })}${input.paperSkeleton ? `
+
+${renderPromptTemplate(submissionReviewPrompt.paperSkeletonTemplate, {
+    requirements: paperSkeletonRequirements.map((item) => `- ${item.id}: ${item.label} — ${item.requirement}`).join('\n'),
+  })}` : ''}`;
 
   const result = await generateText({
     model: elmChatModel,
@@ -297,9 +322,11 @@ ${renderPromptTemplate(submissionReviewPrompt.jsonResponseTemplate, {
     prompt: jsonPrompt,
     maxOutputTokens: input.maxOutputTokens || defaultMaxOutputTokens,
   });
+  const parsed = parseReviewJson(result.text);
   const structured = submissionReviewStructuredSchema.parse({
-    ...parseReviewJson(result.text),
+    ...parsed,
     appliedSkills: skillMetadata(skills),
+    paperSkeleton: input.paperSkeleton ? normalizePaperSkeleton(parsed.paperSkeleton, draft.text) : undefined,
   });
 
   return {

@@ -8,7 +8,7 @@ import { getProjectForUser } from '../../../src/mastra/db/projects';
 import { listSkeletonReviews, saveSkeletonReview } from '../../../src/mastra/db/skeleton-reviews';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { withDatabaseTransaction } from '../../../src/mastra/db/postgres';
-import { skeletonProjectSnapshot } from '../../../src/mastra/submission/skeleton-record';
+import { assertSkeletonStage, skeletonProjectSnapshot } from '../../../src/mastra/submission/skeleton-record';
 import { renderSkeletonDraft, skeletonDraftSchema } from '../../../src/mastra/submission/skeleton';
 import { extractPptxBuffer } from '../../../src/mastra/submission/pptx';
 import { reviewSubmission } from '../../../src/mastra/submission/review';
@@ -27,6 +27,7 @@ export async function POST(request: Request) {
     const project = await getProjectForUser(projectId, user);
     if (!project.access.canEdit) throw new AuthError('Only the project owner, PI or administrator can request a check.', 403, 'forbidden');
     if (project.lifecycle !== 'active') throw new Error('Choose an active project.');
+    assertSkeletonStage(project);
     const mode = z.enum(['blocks','paste','upload']).parse(form.get('mode'));
     let text = '';
     if (mode === 'blocks') text = renderSkeletonDraft(skeletonDraftSchema.parse(JSON.parse(String(form.get('blocks')))));
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
     const snapshot = skeletonProjectSnapshot(project);
     const draftText = `Project context (recorded in Projects):\n${JSON.stringify(snapshot)}\n\n${text.trim()}`;
     if (!text.trim() || draftText.length > 60000) throw new Error('Provide readable evidence within 60,000 characters. Content is never silently truncated.');
-    const result = await reviewSubmission({ draftText, draftName: `${project.title} — Skeleton Lock`, skills: ['vios-skeleton-lock'], reportTitle: 'VIOS Skeleton Lock review', targetVenue: project.venue || undefined, deadline: project.submissionDeadline || undefined, maxDraftChars: 60000 });
+    const result = await reviewSubmission({ draftText, draftName: `${project.title} — Skeleton Lock`, skills: ['vios-skeleton-lock'], reportTitle: 'VIOS Skeleton Lock review', targetVenue: project.venue || undefined, deadline: project.submissionDeadline || undefined, maxDraftChars: 60000, paperSkeleton: true });
     const review = await withDatabaseTransaction(async () => {
       const saved = await saveSkeletonReview(projectId, snapshot, draftText, result, user);
       await recordAuditLog({ actor: user, action: 'skeleton.review_created', targetType: 'project', targetId: projectId, summary: 'Project-bound Skeleton Lock AI check saved.', metadata: { reviewId: saved.id } });
