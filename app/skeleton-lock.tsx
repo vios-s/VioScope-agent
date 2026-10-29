@@ -6,6 +6,7 @@ import { skeletonFields, skeletonDraftSchema } from '../src/mastra/submission/sk
 import { latestSkeletonDecisions, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
 import { requestJson } from './client-request';
 import styles from './review-form.module.css';
+import { Check, ChevronDown, Search } from 'lucide-react';
 
 type Summary = Pick<SkeletonRecord, 'id' | 'projectId' | 'createdAt' | 'revision' | 'projectSnapshot' | 'decisions'> & { verdict: string };
 type Payload = { projects: ProjectRecord[]; reviews: Summary[]; viewer: { username: string; manager: boolean; administrator: boolean } };
@@ -154,13 +155,13 @@ function ProjectPicker({ projects, value, onSelect }: { projects: ProjectRecord[
   function close() { setOpen(false); triggerRef.current?.focus(); }
   return <div className="skeleton-project-picker" onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); close(); } }}>
     <span id="skeleton-project-label">Existing project</span>
-    <button ref={triggerRef} type="button" className="ops-secondary skeleton-project-trigger" aria-labelledby="skeleton-project-label skeleton-project-value" aria-expanded={open} aria-controls="skeleton-project-options" onClick={() => { setQuery(''); setOpen(current => !current); }}>
-      <span id="skeleton-project-value">{selected ? `${selected.title} · @${selected.ownerUsername}` : 'Choose a project'}</span><span aria-hidden="true">{open ? '▴' : '▾'}</span>
+    <button ref={triggerRef} type="button" className="skeleton-project-trigger" aria-labelledby="skeleton-project-label skeleton-project-value" aria-expanded={open} aria-controls="skeleton-project-options" onClick={() => { setQuery(''); setOpen(current => !current); }}>
+      <span className="skeleton-project-identity"><span id="skeleton-project-value">{selected?.title || 'Choose a project'}</span>{selected && <span className="skeleton-project-owner">@{selected.ownerUsername}</span>}</span><ChevronDown aria-hidden="true" className={open ? 'is-open' : ''} />
     </button>
     {open && <div id="skeleton-project-options" className="skeleton-project-options">
-      <label>Search projects <input ref={searchRef} type="search" value={query} placeholder="Search by title or owner" onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') event.preventDefault(); }} /></label>
-      <p role="status">{matches.length} projects found. Select a project below.</p>
-      <ul>{matches.map(project => <li key={project.id}><button type="button" className="ops-secondary" aria-pressed={value === project.id} onClick={() => { onSelect(project.id); close(); }}><strong>{project.title}</strong><span>@{project.ownerUsername}{project.lifecycle !== 'active' ? ` · ${project.lifecycle}` : ''}</span></button></li>)}</ul>
+      <label className="skeleton-project-search"><Search aria-hidden="true" /><input aria-label="Search projects" ref={searchRef} type="search" value={query} placeholder="Search by title or owner" onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') event.preventDefault(); }} /></label>
+      <p className="skeleton-project-count" role="status">{matches.length} projects found.</p>
+      <ul>{matches.map(project => <li key={project.id}><button type="button" className="skeleton-project-option" aria-pressed={value === project.id} onClick={() => { onSelect(project.id); close(); }}><span className="skeleton-project-identity"><strong>{project.title}</strong><span className="skeleton-project-owner">@{project.ownerUsername}{project.lifecycle !== 'active' ? ` · ${project.lifecycle}` : ''}</span></span>{value === project.id && <Check aria-hidden="true" />}</button></li>)}</ul>
       {!matches.length && <p>No matching projects.</p>}
     </div>}
   </div>;

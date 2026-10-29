@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Route } from 'playwright';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium,getFreePort,startNextServer,waitForServer,stopServer } from './playwright-smoke';
 export async function checkSkeletonProjectUi(cookieName:string,tokens:{owner:string;pdra:string;pi:string},projectId:string,reviewId:string){
   const port=await getFreePort();const base=`http://127.0.0.1:${port}`;const server=startNextServer({port,mode:'start',env:{...process.env,EMAIL_NOTIFICATIONS_ENABLED:'false'}});let browser;
@@ -17,6 +17,12 @@ export async function checkSkeletonProjectUi(cookieName:string,tokens:{owner:str
     const picker=owner.getByRole('button',{name:/^Existing project/});await picker.click();
     await owner.getByRole('status').filter({hasText:'101 projects found.'}).waitFor();
     assert.equal(await picker.getAttribute('aria-expanded'),'true');
+    await mkdir('/tmp/vioscope-skeleton-taste',{recursive:true});
+    for (const width of [1440,768,390]) { await owner.setViewportSize({width,height:1000}); await picker.scrollIntoViewIfNeeded(); await owner.screenshot({path:`/tmp/vioscope-skeleton-taste/picker-${width}.png`}); assert.equal(await owner.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true); }
+    const specimen=await owner.evaluate(()=>{const css=Array.from(document.styleSheets).map(sheet=>{try{return Array.from(sheet.cssRules).map(rule=>rule.cssText).join('\n');}catch{return '';}}).join('\n');return `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css} body{padding:24px;margin:0;background:var(--surface-2)}h1{font-size:24px;margin:0 0 24px}</style></head><body><h1>Project selection</h1><section class="skeleton-lock">${document.querySelector('.skeleton-project-picker')!.outerHTML}</section></body></html>`;});
+    await writeFile('/tmp/vioscope-skeleton-taste/component.html',specimen);
+    await owner.setViewportSize({width:1440,height:1000});
+
     const search=owner.getByRole('searchbox',{name:'Search projects',exact:true});await search.fill('no matching project');await owner.getByText('No matching projects.',{exact:true}).waitFor();
     await search.fill('Synthetic bound skeleton');await search.press('Enter');assert.equal(await picker.getAttribute('aria-expanded'),'true');
     await owner.locator('.skeleton-project-options button').filter({hasText:'Synthetic bound skeleton'}).click();assert.equal(await picker.getAttribute('aria-expanded'),'false');
