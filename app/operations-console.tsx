@@ -41,7 +41,6 @@ import {
   Users,
 } from 'lucide-react';
 import { DotMatrixIcon } from './dot-matrix-icon';
-import { ReviewForm } from './review-form';
 import { SkeletonLock } from './skeleton-lock';
 import { IdeaPitches } from './idea-pitches';
 import { ProjectIdeaOrigin } from './project-idea-origin';
@@ -556,22 +555,7 @@ type SettingsTab =
   | 'audit'
   | 'about';
 type PasswordStrength = 'weak' | 'medium' | 'strong';
-type ChecklistTemplateId = 'idea' | 'skeleton' | 'pdra' | 'red';
-type ChecklistTag = 'Core' | 'Required' | 'Advisory';
-
-type ChecklistTemplate = {
-  id: ChecklistTemplateId;
-  label: string;
-  shortLabel: string;
-  version: string;
-  status: 'preview' | 'available';
-  description: string;
-  items: Array<{
-    title: string;
-    detail: string;
-    tag: ChecklistTag;
-  }>;
-};
+type ChecklistTemplateId = 'idea' | 'skeleton';
 
 const notificationPreferenceRows: Array<{
   key: NotificationPreferenceTopic;
@@ -701,67 +685,9 @@ const themeMeetingReminderRows = [
   { name: 'agenda_cutoff', label: 'Submission deadline and agenda', weekday: 'Wednesday', time: '08:00' },
 ];
 
-const checklistTemplates: ChecklistTemplate[] = [
-  {
-    id: 'idea',
-    label: 'Idea Pitch',
-    shortLabel: 'Idea Pitch',
-    version: '2.1',
-    status: 'preview',
-    description: 'Sanity-checks a new project idea before it goes to a theme meeting: novelty, feasibility, and fit with lab tracks.',
-    items: [
-      { title: 'Problem clearly framed', detail: 'One-sentence problem statement a non-specialist can follow.', tag: 'Core' },
-      { title: 'Novelty vs prior work', detail: "How this differs from the lab's existing projects and key external work.", tag: 'Core' },
-      { title: 'Feasibility in 6 months', detail: 'Realistic given equipment, participants, and personnel.', tag: 'Core' },
-      { title: 'Track fit', detail: 'Maps to an existing lab track or justifies a new one.', tag: 'Advisory' },
-      { title: 'Ethics flag raised early', detail: 'Human-subjects or data-sensitivity concerns are noted up front.', tag: 'Required' },
-    ],
-  },
-  {
-    id: 'skeleton',
-    label: 'Skeleton Lock',
-    shortLabel: 'Skeleton Lock',
-    version: '1.4',
-    status: 'available',
-    description: 'Confirms the paper skeleton is locked before writing: structure, claims, figures, and method are in place.',
-    items: [
-      { title: 'Section structure complete', detail: 'All sections present with one-line intent each.', tag: 'Core' },
-      { title: 'Central claim stated', detail: 'The single contribution the paper defends.', tag: 'Core' },
-      { title: 'Figures planned', detail: 'Each results figure has a placeholder and caption stub.', tag: 'Core' },
-      { title: 'Method matches claim', detail: 'Analysis plan actually tests the stated claim.', tag: 'Required' },
-      { title: 'Author order agreed', detail: 'Contributions logged and order signed off.', tag: 'Advisory' },
-    ],
-  },
-  {
-    id: 'pdra',
-    label: 'PDRA Meta-Review',
-    shortLabel: 'PDRA',
-    version: '3.0',
-    status: 'available',
-    description: 'A senior post-doc style meta-review pass over a near-final draft: rigour, framing, and reviewer-readiness.',
-    items: [
-      { title: 'Claims supported by evidence', detail: 'Every claim traces to a result or citation.', tag: 'Core' },
-      { title: 'Stats reported correctly', detail: 'Effect sizes, CIs, and corrections present.', tag: 'Required' },
-      { title: 'Limitations honest', detail: 'Threats to validity acknowledged, not buried.', tag: 'Core' },
-      { title: 'Related work fair', detail: 'Key competing work cited and represented fairly.', tag: 'Core' },
-      { title: 'Reproducibility package', detail: 'Code, data, and seeds referenced.', tag: 'Required' },
-    ],
-  },
-  {
-    id: 'red',
-    label: 'Red-Team',
-    shortLabel: 'Red-Team',
-    version: '1.2',
-    status: 'available',
-    description: 'An adversarial pass that surfaces where a hostile reviewer could attack before submission.',
-    items: [
-      { title: 'Strongest counter-argument', detail: 'The single best reason to reject, stated plainly.', tag: 'Core' },
-      { title: 'Confound check', detail: 'Alternative explanations for the main result ruled out.', tag: 'Required' },
-      { title: 'Overclaiming scan', detail: 'Language tightened where evidence is thin.', tag: 'Core' },
-      { title: 'Generalisability limits', detail: 'Scope of claims matches the sample.', tag: 'Core' },
-      { title: 'Ethics and dual-use', detail: 'Potential for misuse considered.', tag: 'Advisory' },
-    ],
-  },
+const checklistTemplates: Array<{ id: ChecklistTemplateId; label: string }> = [
+  { id: 'idea', label: 'Idea Pitch' },
+  { id: 'skeleton', label: 'Skeleton Lock' },
 ];
 
 const userPermissionOptions: CurrentUser['role'][] = ['administrator', 'pi', 'organizer', 'member'];
@@ -1794,9 +1720,7 @@ function PromptCopyButton({ prompt, label }: { prompt: string; label: string }) 
   );
 }
 
-function ChecklistTagPill({ tag }: { tag: ChecklistTag }) {
-  return <span className={`checklist-tag tag-${tag.toLowerCase()}`}>{tag}</span>;
-}
+
 
 function ConsolePageFrame({
   title,
@@ -5469,7 +5393,7 @@ function ChatView({
     </ConsolePageFrame>
   );
 }
-function ChecklistsView({ userId, canSignOff, onProjectCreated }: { userId: string; canSignOff: boolean; onProjectCreated: () => Promise<void> }) {
+function ChecklistsView({ userId, onProjectCreated }: { userId: string; onProjectCreated: () => Promise<void> }) {
   const [activeChecklistId, setActiveChecklistId] = useChecklistDraft<ChecklistTemplateId>(checklistDraftKey(userId, 'tab'), 'idea');
   const activeChecklist = checklistTemplates.find((template) => template.id === activeChecklistId) || checklistTemplates[0];
 
@@ -5498,36 +5422,9 @@ function ChecklistsView({ userId, canSignOff, onProjectCreated }: { userId: stri
       tabs={checklistTabs}
     >
 
-      {activeChecklistId === 'idea' ? <IdeaPitches userId={userId} onProjectCreated={onProjectCreated} /> : activeChecklistId === 'skeleton' ? <SkeletonLock userId={userId} /> : <>
-      <details className="checklist-reference">
-        <summary>Review criteria · {activeChecklist.label}</summary>
-      <div className="checklist-layout">
-        <section className="checklist-template-card" aria-label={`${activeChecklist.label} checklist`}>
-          <header>
-            <div>
-              <h2>{activeChecklist.label}</h2>
-              <p>{activeChecklist.description}</p>
-            </div>
-            <span>v{activeChecklist.version}</span>
-          </header>
-          <div className="checklist-items">
-            {activeChecklist.items.map((item, index) => (
-              <article key={`${activeChecklist.id}-${item.title}`} className="checklist-item">
-                <span className="checklist-index">{index + 1}</span>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.detail}</p>
-                </div>
-                <ChecklistTagPill tag={item.tag} />
-              </article>
-            ))}
-          </div>
-        </section>
-
-      </div>
-      </details>
-      <ReviewForm draftKey={checklistDraftKey(userId, 'review')} embedded canSignOff={canSignOff} selectedSkillId={activeChecklistId === 'pdra' ? 'vios-pdra-meta-review' : 'vios-internal-red-team'} />
-      </>}
+      {activeChecklist.id === 'idea'
+        ? <IdeaPitches userId={userId} onProjectCreated={onProjectCreated} />
+        : <SkeletonLock userId={userId} />}
     </ConsolePageFrame>
   );
 }
@@ -8583,7 +8480,7 @@ export function OperationsConsole() {
             />
             </>
           )}
-          {activeView === 'checklists' && <ChecklistsView key={user.id} userId={user.id} canSignOff={canSeeAllRole(user.role)} onProjectCreated={loadProjects} />}
+          {activeView === 'checklists' && <ChecklistsView key={user.id} userId={user.id} onProjectCreated={loadProjects} />}
           {activeView === 'feedback' && <FeedbackView />}
           {activeView === 'users' && (
             <UsersView

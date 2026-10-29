@@ -6,7 +6,6 @@ import { skeletonFields, skeletonDraftSchema } from '../src/mastra/submission/sk
 import { latestSkeletonDecisions, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
 import { checklistDraftKey, useChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
-import styles from './review-form.module.css';
 import { Check, ChevronDown, Search } from 'lucide-react';
 
 type Summary = Pick<SkeletonRecord, 'id' | 'projectId' | 'createdAt' | 'revision' | 'projectSnapshot' | 'decisions'> & { verdict: string };
@@ -120,7 +119,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
         </fieldset>
       </form>}
       <h3>{view === 'pdra' ? 'Assigned PDRA reviews' : view === 'pi' ? 'All project reviews' : 'Project review history'}</h3>
-      {!visible.length && <p>No project-bound reviews yet. Earlier unlinked runs remain in the B2 workbench.</p>}
+      {!visible.length && <p>No project-bound reviews yet. Earlier unlinked runs are retained separately.</p>}
       <div className="skeleton-review-list">{visible.map(review => {
         const decisions = latestSkeletonDecisions(review.decisions);
         return <button key={review.id} type="button" className="ops-secondary" disabled={busy} onClick={() => void openReview(review.id)}>
@@ -133,7 +132,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
         <ProjectContext project={selected.projectSnapshot} />
         <div className="ops-button-row"><button type="button" className="ops-secondary" onClick={() => download('md')}>Download AI report (MD)</button><button type="button" className="ops-secondary" onClick={() => download('json')}>Download AI report (JSON)</button></div>
         <h4>AI recommendation: {selected.result.structured.verdict}</h4><p>{selected.result.structured.summary}</p>
-        <div className={styles['table-wrap']}><table><thead><tr><th>Area</th><th>Status</th><th>Evidence</th><th>Gap / next action</th></tr></thead><tbody>{selected.result.structured.findings.map((item,index) => <tr key={index}><td>{item.area}</td><td>{item.status}</td><td>{item.evidence.join(', ')}</td><td>{item.gap}<p>{item.requiredAction}</p></td></tr>)}</tbody></table></div>
+        <div className="skeleton-review-table"><table><thead><tr><th>Area</th><th>Status</th><th>Evidence</th><th>Gap / next action</th></tr></thead><tbody>{selected.result.structured.findings.map((item,index) => <tr key={index}><td>{item.area}</td><td>{item.status}</td><td>{item.evidence.join(', ')}</td><td>{item.gap}<p>{item.requiredAction}</p></td></tr>)}</tbody></table></div>
         <details><summary>Source evidence with line numbers</summary><pre>{selected.draftText.split('\n').map((line,index) => `${index + 1}: ${line}`).join('\n')}</pre></details>
         <details><summary>Complete AI report</summary><pre>{selected.result.report}</pre></details>
         <p>PDRA: {latestSkeletonDecisions(selected.decisions).pdra?.outcome || 'pending'} · PI: {latestSkeletonDecisions(selected.decisions).pi?.outcome || 'pending'}</p>

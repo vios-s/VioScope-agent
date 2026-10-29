@@ -75,16 +75,14 @@ try {
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Unsaved change to existing pitch');
   console.log('PASS: Skeleton project/blocks/paste and new/existing Idea drafts survive refresh; stale Idea version is not restored');
 
-  await tab('PDRA Meta-Review').click();
-  await page.locator('textarea[name="draftText"]').fill('Unsaved review draft');
-  await page.locator('input[name="targetVenue"]').fill('Demo venue');
-  await refresh();
-  assert.equal(await tab('PDRA Meta-Review').getAttribute('aria-selected'),'true');
-  assert.equal(await page.locator('textarea[name="draftText"]').inputValue(),'Unsaved review draft');
-  assert.equal(await page.locator('input[name="targetVenue"]').inputValue(),'Demo venue');
-  await tab('Red-Team').click(); await refresh();
-  assert.equal(await tab('Red-Team').getAttribute('aria-selected'),'true');
-  assert.equal(await page.locator('textarea[name="draftText"]').inputValue(),'Unsaved review draft');
+  assert.equal(await tab('PDRA Meta-Review').count(), 0);
+  assert.equal(await tab('Red-Team').count(), 0);
+  for (const removed of ['pdra', 'red']) {
+    await page.evaluate(value => sessionStorage.setItem('vios-checklist:v1:draft_owner:tab', JSON.stringify(value)), removed);
+    await refresh();
+    assert.equal(await tab('Idea Pitch').getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('.idea-fields textarea').first().inputValue(), 'Unsaved change to existing pitch');
+  }
   await tab('Skeleton Lock').click();
   await page.getByLabel('Input method').selectOption('blocks');
   assert.equal(await page.locator('#skeleton-input-claim').inputValue(),'Unsaved central claim');
@@ -95,7 +93,7 @@ try {
   assert.ok((await page.locator('.skeleton-project-trigger').textContent())?.includes('Choose a project'));
   assert.equal(writes,0);
   assert.deepEqual(errors,[]);
-  console.log('PASS: PDRA/Red Team tabs and inputs restored; account separation; zero automatic server writes');
+  console.log('PASS: removed tabs fall back safely; account separation; zero automatic server writes');
 } catch (error) {
   if (debugPage) console.log(await debugPage.evaluate(() => ({ text: document.body.innerText.slice(-2500), storage: {...sessionStorage} })));
   throw error;

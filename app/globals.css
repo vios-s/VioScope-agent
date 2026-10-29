@@ -6761,7 +6761,11 @@ html[data-theme="dark"] .briefing-hero::after {
 .skeleton-review-list button { display: grid; gap: 6px; text-align: left; white-space: normal; }
 .skeleton-review-detail { margin-top: 24px; }
 .skeleton-review-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 480px; overflow-y: auto; }
-.skeleton-review-detail td, .skeleton-review-detail th { padding: 10px; text-align: left; vertical-align: top; }
+.skeleton-review-table { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+.skeleton-review-table table { width: 100%; min-width: 840px; border-collapse: collapse; font-size: .88rem; }
+.skeleton-review-table th, .skeleton-review-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.skeleton-review-table th { background: var(--surface-2); color: var(--muted); font-size: .78rem; text-transform: uppercase; }
+.skeleton-review-table tr:last-child td { border-bottom: 0; }
 .skeleton-lock .skeleton-confirm { display: flex; align-items: flex-start; }
 .skeleton-confirm input { width: auto; flex: 0 0 auto; }
 @media (max-width: 720px) { .skeleton-project-context, .skeleton-blocks { grid-template-columns: minmax(0, 1fr); } }
@@ -6862,10 +6866,6 @@ input::placeholder, textarea::placeholder { font-weight: 400; }
 .chat-empty .prompt-grid { max-width: 760px; }
 .chat-history-empty { font-size: 0.875rem; line-height: 1.6; }
 .chat-input input { font-weight: 400; }
-.checklist-reference { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.checklist-reference > summary { padding: 16px 20px; cursor: pointer; font-weight: 600; }
-.checklist-reference .checklist-layout { display: block; }
-.checklist-reference .checklist-template-card { border: 0; box-shadow: none; }
 .feedback-submit-panel { position: static; }
 .feedback-form input, .feedback-form textarea { font-size: 0.875rem; }
 .feedback-form input[type="file"] { padding: 8px; }
