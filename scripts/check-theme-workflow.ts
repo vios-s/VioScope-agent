@@ -149,7 +149,11 @@ try {
   assert.equal(completed.history[1].by, 'alice');
   await ok(await post('chair', { ...update, version: completed.version, status: 'open', note: 'Repeat with another seed.' }));
   assert.equal((await ok(await get('chair', '2026-11-04'))).actions[0].status, 'open', 'Carry unfinished work to the next meeting.');
-  assert.equal((await ok(await get('alice'))).confirmation.entries.length, 1, 'Preserve existing agenda privacy.');
+  const memberView = await ok(await get('alice'));
+  const managerView = await ok(await get('chair'));
+  assert.ok(memberView.confirmation.entries.length > 1, 'Theme members see the full confirmed agenda.');
+  assert.deepEqual(memberView.confirmation.entries, managerView.confirmation.entries, 'Members and managers see the same confirmed agenda.');
+  assert.ok(memberView.candidates.every((item: { member_username: string }) => item.member_username === 'alice'), 'Unconfirmed submissions stay private to their author.');
   // Optional project links share only the selected action with authorized project viewers.
   const projects = await import('../src/mastra/db/projects');
   const projectRoute = await import('../app/api/projects/[projectId]/meeting-actions/route');

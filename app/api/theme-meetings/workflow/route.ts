@@ -70,7 +70,9 @@ export async function GET(request: Request) {
       manager, cancelled: meeting.cancelled, duration: meeting.duration_minutes,
       sourceVersion: agendaSourceVersion(meeting, confirmation), emailedAt,
       candidates: meeting.agenda_items.filter((item) => visible(item.member_username)),
-      confirmation: confirmation ? { ...confirmation, entries: confirmation.entries.filter((item) => visible(item.member_username)) } : null,
+      // Theme members see the whole confirmed agenda (the same content the confirmed agenda email circulates);
+      // unconfirmed draft submissions stay visible only to their author and managers.
+      confirmation,
       projects: manager ? projects.filter((project) => project.lifecycle !== 'archived').map(({ id, title }) => ({ id, title })) : [],
       members: manager ? meeting.member_usernames : [user.username],
       actions: state.actions.filter((action) => action.themeId === key.themeId && action.meetingDate <= key.meetingDate &&
