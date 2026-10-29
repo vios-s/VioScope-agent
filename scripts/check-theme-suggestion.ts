@@ -29,8 +29,12 @@ try {
   assert.equal(validateThemeSuggestion(valid, context).slot, 'deep_dive');
   assert.throws(() => validateThemeSuggestion({ ...valid, evidence: [{ source: 'blocker', quote: 'Invented result' }] }, context), /absent/);
   assert.throws(() => validateThemeSuggestion({ ...valid, progress: '- ' + 'word '.repeat(80) }, context), /75-word/);
-  assert.throws(() => validateThemeSuggestion({ ...valid, progress: '● Wrong bullet' }, context), /hyphen/);
-  answer = valid;
+  for (const marker of ['-', '*', '+', '•', '●', '–', '—', '']) {
+    const progress = `  ${marker} The Signal: No validated result recorded.\r\n\r\n  ${marker} The Risk: High variance across seeds.  `;
+    assert.equal(validateThemeSuggestion({ ...valid, progress }, context).progress, valid.progress);
+  }
+  assert.throws(() => validateThemeSuggestion({ ...valid, progress: '● ' + 'word '.repeat(80) }, context), /75-word/);
+  answer = { ...valid, progress: valid.progress.replaceAll('- ', '● ').replace('\n', '\r\n\r\n') };
   globalThis.fetch = async (_input, init) => {
     calls++;
     const request = String(init?.body || '');

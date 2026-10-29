@@ -43,8 +43,10 @@ export const themeSuggestionSchema = z.object({
 export type ThemeSuggestion = z.infer<typeof themeSuggestionSchema>;
 export function validateThemeSuggestion(value: unknown, context: ReturnType<typeof meetingSuggestionContext>) {
   const result = themeSuggestionSchema.parse(value);
+  // Model list formatting varies; preserve the text while canonicalizing its presentation.
+  result.progress = result.progress.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+    .map(line => `- ${line.replace(/^[-*+•●–—]\s+/, '')}`).join('\n');
   if (result.progress.split(/\s+/).length > 75) throw new Error('The suggestion exceeded the 75-word limit. Try again.');
-  if (!result.progress.split('\n').every(line => line.startsWith('- '))) throw new Error('The suggestion must use hyphen bullets. Try again.');
   for (const evidence of result.evidence) {
     if (!context.sources[evidence.source]?.includes(evidence.quote)) throw new Error('The suggestion cited evidence absent from the project. Try again.');
   }
