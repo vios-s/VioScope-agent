@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProjectRecord } from '../src/mastra/db/projects';
 import { skeletonFields, skeletonDraftSchema } from '../src/mastra/submission/skeleton';
 import { latestSkeletonDecisions, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
+import { checklistDraftKey, useChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
 import styles from './review-form.module.css';
 import { Check, ChevronDown, Search } from 'lucide-react';
@@ -22,14 +23,16 @@ function ProjectContext({ project }: { project: SkeletonRecord['projectSnapshot'
   </dl>;
 }
 
-export function SkeletonLock() {
+export function SkeletonLock({ userId }: { userId: string }) {
+  const key = (name: string) => checklistDraftKey(userId, 'skeleton:' + name);
   const [data, setData] = useState<Payload | null>(null);
-  const [projectId, setProjectId] = useState('');
-  const [view, setView] = useState<'projects' | 'pdra' | 'pi'>('projects');
+  const [projectId, setProjectId] = useChecklistDraft(key('project'), '');
+  const [view, setView] = useChecklistDraft<'projects' | 'pdra' | 'pi'>(key('view'), 'projects');
+  const [selectedId, setSelectedId] = useChecklistDraft(key('review'), '');
   const [selected, setSelected] = useState<SkeletonRecord | null>(null);
-  const [draft, setDraft] = useState(() => skeletonDraftSchema.parse({}));
-  const [mode, setMode] = useState('blocks');
-  const [text, setText] = useState('');
+  const [draft, setDraft] = useChecklistDraft(key('blocks'), skeletonDraftSchema.parse({}));
+  const [mode, setMode] = useChecklistDraft(key('mode'), 'blocks');
+  const [text, setText] = useChecklistDraft(key('text'), '');
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -39,6 +42,14 @@ export function SkeletonLock() {
     setData(payload); return payload;
   }
   useEffect(() => { let active = true; void requestJson<Payload>('/api/skeleton-lock', 'Could not load project checks.').then(payload => { if (active) setData(payload); }).catch(caught => { if (active) setError(caught.message); }); return () => { active = false; }; }, []);
+  useEffect(() => {
+    if (!data || !selectedId || !data.reviews.some(review => review.id === selectedId)) return;
+    let active = true;
+    void requestJson<{ review: SkeletonRecord }>(`/api/skeleton-lock/${selectedId}`, 'Could not restore saved review.')
+      .then(payload => { if (active) setSelected(payload.review); })
+      .catch(caught => { if (active) setError(caught.message); });
+    return () => { active = false; };
+  }, [selectedId, data]);
   const project = data?.projects.find(item => item.id === projectId);
   const selectedProject = data?.projects.find(item => item.id === selected?.projectId);
   const pdraAvailable = data?.viewer.administrator || data?.projects.some(item => item.pdraUsername === data.viewer.username);
@@ -55,6 +66,7 @@ export function SkeletonLock() {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   async function openReview(id: string) {
+    setSelectedId(id);
     setBusy(true); setError(''); setMessage('');
     try { setSelected((await requestJson<{ review: SkeletonRecord }>(`/api/skeleton-lock/${id}`, 'Could not open review.')).review); }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not open review.'); }
@@ -68,7 +80,7 @@ export function SkeletonLock() {
       if (mode === 'paste') form.set('text', text);
       if (mode === 'upload' && file) form.set('file', file);
       const result = await requestJson<{ review: SkeletonRecord }>('/api/skeleton-lock', 'Could not complete the AI check. Your input is retained.', { method: 'POST', body: form });
-      setSelected(result.review); await refresh(); setMessage('AI check saved to the project. PDRA judgment and PI confirmation are pending.');
+      setSelectedId(result.review.id); setSelected(result.review); await refresh(); setMessage('AI check saved to the project. PDRA judgment and PI confirmation are pending.');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not run check.'); }
     finally { setBusy(false); }
   }
@@ -77,12 +89,12 @@ export function SkeletonLock() {
     setBusy(true); setError(''); setMessage('');
     try {
       const result = await requestJson<{ review: SkeletonRecord }>(`/api/skeleton-lock/${selected.id}`, 'Could not record judgment.', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, outcome, note, revision: selected.revision, confirmed: true }) });
-      setSelected(result.review); await refresh(); setMessage(kind === 'pdra' ? 'PDRA judgment recorded. PI skeleton checkpoint confirmation remains separate.' : 'PI confirmation recorded. Project stage is unchanged.');
+      setSelectedId(result.review.id); setSelected(result.review); await refresh(); setMessage(kind === 'pdra' ? 'PDRA judgment recorded. PI skeleton checkpoint confirmation remains separate.' : 'PI confirmation recorded. Project stage is unchanged.');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not record judgment.'); }
     finally { setBusy(false); }
   }
   return <section className="skeleton-lock" aria-busy={busy}>
-    <h2>Skeleton Lock</h2><p>Project evidence → AI check → PDRA judgment → PI confirmation. Project details are inherited; edit them in Projects.</p>
+    <h2>Skeleton Lock</h2><p>Draft text is kept in this browser tab until you sign out. Uploaded files must be selected again after refreshing. AI checks and judgments still require explicit submission.</p><p>Project evidence → AI check → PDRA judgment → PI confirmation. Project details are inherited; edit them in Projects.</p>
     {error && <p role="alert" className="ops-error">{error}</p>}{message && <p role="status">{message}</p>}
     {!data ? <p>Loading project checks…</p> : <>
       <div className="ops-button-row" aria-label="Skeleton review views">
@@ -92,7 +104,7 @@ export function SkeletonLock() {
       </div>
       {view === 'projects' && <form onSubmit={run}>
         <fieldset disabled={busy} className="skeleton-input-panel"><legend>Project evidence</legend>
-          <ProjectPicker projects={data.projects} value={projectId} onSelect={nextId => { if ((text || file || Object.values(draft).some(value => value.trim())) && !window.confirm('Switch projects and discard the current input? Saved reviews are retained.')) return; setProjectId(nextId); setSelected(null); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null); }} />
+          <ProjectPicker projects={data.projects} value={projectId} onSelect={nextId => { if ((text || file || Object.values(draft).some(value => value.trim())) && !window.confirm('Switch projects and discard the current input? Saved reviews are retained.')) return; setProjectId(nextId); setSelectedId(''); setSelected(null); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null); }} />
           {!data.projects.length && <p>Create or join a project before starting Skeleton Lock.</p>}
           {project && <><ProjectContext project={project} />
             {(!project.piUsername || !project.pdraUsername || !project.venue || !project.submissionDeadline) && <p>Some project details are missing. Set the PI, assigned PDRA, target venue and deadline in Projects. Missing values will remain explicit in the AI check.</p>}

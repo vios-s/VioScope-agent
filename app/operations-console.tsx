@@ -1,5 +1,6 @@
 'use client';
 
+import { checklistDraftKey, clearChecklistDrafts, useChecklistDraft } from './checklist-drafts';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
 import {
   AlertCircle,
@@ -5468,8 +5469,8 @@ function ChatView({
     </ConsolePageFrame>
   );
 }
-function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean; onProjectCreated: () => Promise<void> }) {
-  const [activeChecklistId, setActiveChecklistId] = useState<ChecklistTemplateId>('idea');
+function ChecklistsView({ userId, canSignOff, onProjectCreated }: { userId: string; canSignOff: boolean; onProjectCreated: () => Promise<void> }) {
+  const [activeChecklistId, setActiveChecklistId] = useChecklistDraft<ChecklistTemplateId>(checklistDraftKey(userId, 'tab'), 'idea');
   const activeChecklist = checklistTemplates.find((template) => template.id === activeChecklistId) || checklistTemplates[0];
 
   const checklistTabs = (
@@ -5497,7 +5498,7 @@ function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean;
       tabs={checklistTabs}
     >
 
-      {activeChecklistId === 'idea' ? <IdeaPitches onProjectCreated={onProjectCreated} /> : activeChecklistId === 'skeleton' ? <SkeletonLock /> : <>
+      {activeChecklistId === 'idea' ? <IdeaPitches userId={userId} onProjectCreated={onProjectCreated} /> : activeChecklistId === 'skeleton' ? <SkeletonLock userId={userId} /> : <>
       <details className="checklist-reference">
         <summary>Review criteria · {activeChecklist.label}</summary>
       <div className="checklist-layout">
@@ -5525,7 +5526,7 @@ function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean;
 
       </div>
       </details>
-      <ReviewForm embedded canSignOff={canSignOff} selectedSkillId={activeChecklistId === 'pdra' ? 'vios-pdra-meta-review' : 'vios-internal-red-team'} />
+      <ReviewForm draftKey={checklistDraftKey(userId, 'review')} embedded canSignOff={canSignOff} selectedSkillId={activeChecklistId === 'pdra' ? 'vios-pdra-meta-review' : 'vios-internal-red-team'} />
       </>}
     </ConsolePageFrame>
   );
@@ -8357,6 +8358,7 @@ export function OperationsConsole() {
   }
 
   async function logout() {
+    if (user) clearChecklistDrafts(user.id);
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     setUser(null);
     setAccountMenuOpen(false);
@@ -8581,7 +8583,7 @@ export function OperationsConsole() {
             />
             </>
           )}
-          {activeView === 'checklists' && <ChecklistsView canSignOff={canSeeAllRole(user.role)} onProjectCreated={loadProjects} />}
+          {activeView === 'checklists' && <ChecklistsView key={user.id} userId={user.id} canSignOff={canSeeAllRole(user.role)} onProjectCreated={loadProjects} />}
           {activeView === 'feedback' && <FeedbackView />}
           {activeView === 'users' && (
             <UsersView

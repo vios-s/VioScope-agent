@@ -54,7 +54,7 @@ try {
 
   // A separate source copy keeps Next's generated files away from the deployed runtime.
   const runtime = join(directory, 'app');
-  for (const file of execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).trim().split('\n')) {
+  for (const file of execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' }).trim().split('\n')) {
     const destination = join(runtime, file);
     await mkdir(dirname(destination), { recursive: true });
     await copyFile(join(root, file), destination);

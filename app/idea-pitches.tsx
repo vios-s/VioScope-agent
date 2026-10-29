@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { checklistDraftKey, readChecklistDraft, removeChecklistDraft, writeChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
 import { IdeaPitchEditor } from './idea-pitch-editor';
 import type { IdeaPitch } from '../src/mastra/projects/idea-check';
 
-export function IdeaPitches({ onProjectCreated }: { onProjectCreated: () => Promise<void> }) {
+export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onProjectCreated: () => Promise<void> }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [pitches, setPitches] = useState<IdeaPitch[] | null>(null);
-  const [selected, setSelected] = useState('');
-  const [displayed, setDisplayed] = useState('');
+  const selectionKey = checklistDraftKey(userId, 'idea:selected');
+  const [selected, setSelected] = useState(() => readChecklistDraft(selectionKey, ''));
+  const [displayed, setDisplayed] = useState(selected);
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [scope, setScope] = useState('personal');
@@ -19,6 +21,8 @@ export function IdeaPitches({ onProjectCreated }: { onProjectCreated: () => Prom
   const [editorState, setEditorState] = useState({ dirty: false, busy: false });
   function openPitch(id: string) {
     if (editorState.busy || (editorState.dirty && !window.confirm('Discard unsaved changes and switch pitches?'))) return;
+    removeChecklistDraft(checklistDraftKey(userId, 'idea:' + (displayed || 'new')));
+    writeChecklistDraft(selectionKey, id);
     setStatus(''); setSelected(id); setDisplayed(id); setNewDraft(value => value + 1);
   }
   useEffect(() => { if (scope === 'all' && newDraft > 0) editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [newDraft, scope]);
@@ -59,6 +63,6 @@ export function IdeaPitches({ onProjectCreated }: { onProjectCreated: () => Prom
       <button className="ops-secondary" type="button" disabled={editorState.busy} onClick={() => openPitch('')}>New pitch</button>
       {pitches === null && <span role="status">{error ? 'Saved pitches unavailable.' : 'Loading saved pitches…'}</span>}
     </div>
-    <div ref={editorRef}><IdeaPitchEditor key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { setStatus(''); setDisplayed(id); await load(); }} /></div>
+    <div ref={editorRef}><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { removeChecklistDraft(checklistDraftKey(userId, 'idea:' + (displayed || 'new'))); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
   </section>;
 }

@@ -14,6 +14,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type { ReviewResult, ReviewRunRecord, ReviewRunSummary, ReviewSignoffStatus, ReviewVerdict } from './review-types';
+import { useChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
 import styles from './review-form.module.css';
 
@@ -129,17 +130,18 @@ function checkedSkillIds(results: Partial<Record<SkillId, ReviewResult>>): Skill
   return reviewSkills.map((skill) => skill.id).filter((skillId) => Boolean(results[skillId]));
 }
 
-export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillId = 'vios-skeleton-lock' }: { embedded?: boolean; canSignOff?: boolean; selectedSkillId?: SkillId } = {}) {
+export function ReviewForm({ draftKey, embedded = false, canSignOff = true, selectedSkillId = 'vios-skeleton-lock' }: { draftKey: string; embedded?: boolean; canSignOff?: boolean; selectedSkillId?: SkillId }) {
   const [activeSkillId, setActiveSkillId] = useState<SkillId>(selectedSkillId);
   // Keep the surrounding checklist selection in sync without discarding the draft or results.
   useEffect(() => setActiveSkillId(selectedSkillId), [selectedSkillId]);
-  const [results, setResults] = useState<Partial<Record<SkillId, ReviewResult>>>({});
+  const [results, setResults] = useChecklistDraft<Partial<Record<SkillId, ReviewResult>>>(draftKey + ':results', {});
   const [signoffs, setSignoffs] = useState<Partial<Record<SkillId, SignoffState>>>({});
   const [errors, setErrors] = useState<Partial<Record<SkillId, string>>>({});
   const [busySkillId, setBusySkillId] = useState<SkillId | 'all' | null>(null);
   const [fileName, setFileName] = useState('');
-  const [runMeta, setRunMeta] = useState<RunMeta>(emptyRunMeta);
-  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [draftText, setDraftText] = useChecklistDraft(draftKey + ':text', '');
+  const [runMeta, setRunMeta] = useChecklistDraft<RunMeta>(draftKey + ':meta', emptyRunMeta);
+  const [currentRunId, setCurrentRunId] = useChecklistDraft<string | null>(draftKey + ':run', null);
   const [history, setHistory] = useState<ReviewRunSummary[]>([]);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -163,6 +165,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
 
   useEffect(() => {
     void loadHistory();
+    if (currentRunId) void openRun(currentRunId, true);
   }, []);
 
   async function loadHistory() {
@@ -247,6 +250,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
   function resetForm() {
     formRef.current?.reset();
     setFileName('');
+    setDraftText('');
     setResults({});
     setSignoffs({});
     setErrors({});
@@ -365,7 +369,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
     }
   }
 
-  async function openRun(runId: string) {
+  async function openRun(runId: string, restoring = false) {
     setLoadingRunId(runId);
     setStatusMessage(null);
 
@@ -373,12 +377,13 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
       const payload = await requestJson<{ run?: ReviewRunRecord }>(`/api/review-runs/${runId}`, 'Could not open review run.');
       if (!payload.run) throw new Error('Could not open review run.');
 
-      formRef.current?.reset();
+      if (!restoring) { formRef.current?.reset(); setDraftText(''); }
       setFileName('');
       draftRevision.current += 1;
       applyPersistedRun(payload.run);
-      setStatusMessage('Opened saved results. To start a new review, upload or paste the draft again.');
+      setStatusMessage(restoring ? 'Saved review restored from the server.' : 'Opened saved results. To start a new review, upload or paste the draft again.');
     } catch (caught) {
+      if (restoring) { setResults({}); setSignoffs({}); setCurrentRunId(null); }
       setStatusMessage(caught instanceof Error ? caught.message : 'Could not open review run.');
     } finally {
       setLoadingRunId(null);
@@ -467,6 +472,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
             <h2>Draft</h2>
           </div>
 
+          <p>Text and review results are kept in this browser tab until sign-out. Select uploaded files again after refreshing.</p>
           <label className={cx('file-drop')}>
             <input
               disabled={inputLocked}
@@ -484,7 +490,7 @@ export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillI
 
           <label className={cx('field')}>
             <span>Paste Draft</span>
-            <textarea disabled={inputLocked} name="draftText" rows={10} placeholder="Optional if a file is selected" onChange={clearDraftReviewState} />
+            <textarea disabled={inputLocked} name="draftText" rows={10} placeholder="Optional if a file is selected" value={draftText} onChange={event => { setDraftText(event.target.value); clearDraftReviewState(); }} />
           </label>
 
           <div className={cx('field-row')}>
