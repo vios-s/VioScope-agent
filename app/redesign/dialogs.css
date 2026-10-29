@@ -8,6 +8,7 @@
 
 .users-modal-backdrop,
 .audit-modal-backdrop {
+  align-items: center;
   padding: 32px 24px;
   background: var(--vs-scrim);
 }
@@ -32,15 +33,30 @@
 }
 
 .users-modal {
-  width: min(560px, 100%);
   max-height: calc(100dvh - 64px);
   gap: 16px;
   padding: 0 24px 20px;
   scroll-padding-block: 90px 80px;
 }
 
-.users-modal.user-edit-modal {
-  width: min(640px, 100%);
+/* ---------- Dialog width scale ----------
+ * Every overlay uses one of four fixed widths (tokens in app/tokens.css) and never exceeds the viewport
+ * gutter. Below 768px they keep a 16px gutter, except the project record, which becomes a full-screen sheet.
+ */
+.users-modal,
+.vs-dialog-form { width: var(--vs-dialog-form); }
+.vs-dialog-confirm { width: var(--vs-dialog-confirm); }
+.vs-dialog-wide { width: var(--vs-dialog-wide); }
+.vs-dialog-record { width: var(--vs-dialog-record); }
+
+.users-modal-backdrop > *,
+.audit-modal-backdrop > * {
+  max-width: 100%;
+}
+
+dialog.vs-dialog-confirm,
+dialog.vs-dialog-form {
+  max-width: calc(100vw - 48px);
 }
 
 /* Header: title + optional subtitle, close X at the right, hairline below */
@@ -211,7 +227,6 @@
 /* ---------- Confirmation (alertdialog) ---------- */
 
 .confirm-dialog {
-  width: min(440px, calc(100vw - 32px));
   padding: 0;
   border: 0;
   border-radius: var(--vs-radius-dialog);
@@ -287,7 +302,6 @@
 /* ---------- Welcome dialog ---------- */
 
 .welcome-dialog {
-  width: min(640px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
   padding: 0;
   border: 0;
@@ -418,7 +432,6 @@
 /* ---------- Audit JSON dialog ---------- */
 
 .audit-json-modal {
-  width: min(960px, 100%);
   max-height: min(820px, calc(100dvh - 64px));
   overflow: hidden;
 }
@@ -474,7 +487,12 @@
 @media (max-width: 767px) {
   .users-modal-backdrop,
   .audit-modal-backdrop {
-    padding: 16px 12px;
+    padding: 16px;
+  }
+
+  dialog.vs-dialog-confirm,
+  dialog.vs-dialog-form {
+    max-width: calc(100vw - 32px);
   }
 
   .users-modal {
@@ -482,10 +500,18 @@
     padding: 0 16px 16px;
   }
 
-  .users-modal > header,
-  .audit-json-modal header {
+  .users-modal > header {
     margin: 0 -16px;
     padding: 16px 16px 12px;
+  }
+
+  .audit-json-modal header {
+    padding: 16px 16px 12px;
+  }
+
+  .audit-log-fields,
+  .audit-json-viewer {
+    padding-inline: 16px;
   }
 
   .users-modal > footer {

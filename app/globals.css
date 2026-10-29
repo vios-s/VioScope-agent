@@ -1079,7 +1079,6 @@ button.notification-row:hover {
 }
 
 .confirm-dialog {
-  width: min(420px, calc(100vw - 32px));
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -1146,7 +1145,6 @@ button.notification-row:hover {
 }
 
 .welcome-dialog {
-  width: min(680px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
   padding: 0;
   border: 0;
@@ -2471,7 +2469,6 @@ button.notification-row:hover {
 }
 
 .audit-json-modal {
-  width: min(960px, 100%);
   max-height: min(820px, calc(100dvh - 48px));
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -2784,7 +2781,6 @@ button.notification-row:hover {
 }
 
 .users-modal {
-  width: min(440px, 100%);
   max-height: calc(100dvh - 48px);
   display: grid;
   gap: 15px;
@@ -2794,10 +2790,6 @@ button.notification-row:hover {
   border-radius: 8px;
   background: var(--surface);
   box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.5);
-}
-
-.users-modal.user-edit-modal {
-  width: min(640px, 100%);
 }
 
 .modal-fieldset {
@@ -2902,14 +2894,6 @@ button.notification-row:hover {
   padding: 0;
 }
 
-.project-modal {
-  width: min(920px, 100%);
-}
-
-.users-modal.user-edit-modal.project-modal {
-  width: min(920px, 100%);
-}
-
 .project-modal .modal-fieldset {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -2969,15 +2953,6 @@ button.notification-row:hover {
   font-size: 0.78rem;
   font-weight: 700;
   line-height: 1.45;
-}
-
-.project-detail-modal {
-  width: min(1320px, calc(100vw - 48px));
-  gap: 14px;
-}
-
-.users-modal.user-edit-modal.project-detail-modal {
-  width: min(1320px, calc(100vw - 48px));
 }
 
 .project-manage-form {
@@ -4461,10 +4436,6 @@ button.notification-row:hover {
   .notification-list {
     padding-right: 14px;
     padding-left: 14px;
-  }
-
-  .welcome-dialog {
-    width: min(100%, calc(100vw - 24px));
   }
 
   .welcome-dialog-card {

@@ -240,7 +240,7 @@
 }
 
 .mt-agenda-actions .ops-secondary {
-  min-height: 34px;
+  min-height: var(--vs-control-sm);
   padding: 0 12px;
   font-size: 13px;
 }
@@ -553,7 +553,7 @@
 }
 
 .mt-form .prompt-copy-button {
-  min-height: 28px;
+  min-height: var(--vs-control-sm);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1049,7 +1049,7 @@
 .mt-board-actions .ops-primary,
 .mt-arrange-buttons .ops-secondary,
 .mt-arrange-buttons .ops-primary {
-  min-height: 34px;
+  min-height: var(--vs-control-sm);
   padding: 0 12px;
   font-size: 13px;
 }
@@ -1266,9 +1266,9 @@
 }
 
 .mt-form .theme-project-advice .ops-secondary {
-  min-height: 30px;
-  padding: 0 10px;
-  font-size: 12px;
+  min-height: var(--vs-control-sm);
+  padding: 0 12px;
+  font-size: 13px;
 }
 
 /* ---------- Narrow screens ---------- */
@@ -1458,7 +1458,7 @@
 }
 
 .mt-form .prompt-copy-button {
-  width: 28px;
+  width: var(--vs-control-sm);
   justify-content: center;
   padding: 0;
 }

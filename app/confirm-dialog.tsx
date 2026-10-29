@@ -66,7 +66,7 @@ export function ConfirmDialog({
   return (
     <dialog
       ref={dialogRef}
-      className={`confirm-dialog${tone === 'default' ? ' is-default' : ''}`}
+      className={`confirm-dialog vs-dialog-confirm${tone === 'default' ? ' is-default' : ''}`}
       aria-labelledby={titleId}
       aria-describedby={messageId}
       onClick={(event) => {

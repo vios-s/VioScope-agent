@@ -56,11 +56,12 @@
 }
 
 .settings-sidebar button {
-  min-height: 0;
-  display: block;
-  padding: 7px 10px;
+  min-height: var(--vs-control-md);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
   border: 0;
-  border-radius: var(--vs-radius-row-btn);
+  border-radius: var(--vs-radius-control);
   background: transparent;
   color: var(--vs-ink-2);
   font-size: 14px;
@@ -1034,7 +1035,7 @@
   border-bottom-color: var(--vs-accent);
   background: transparent;
   color: var(--vs-accent-strong);
-  font-weight: 600;
+  font-weight: 500;
   box-shadow: none;
 }
 

@@ -895,8 +895,8 @@
 
 .idea-pitches-panel .idea-advice-run {
   width: 100%;
-  min-height: 34px;
-  font-size: 13px;
+  min-height: var(--vs-control-md);
+  font-size: 14px;
 }
 
 .idea-decision-state {
@@ -984,9 +984,9 @@
 }
 
 .idea-sharing li .ops-secondary {
-  min-height: 28px;
-  padding: 0 10px;
-  font-size: 12px;
+  min-height: var(--vs-control-sm);
+  padding: 0 12px;
+  font-size: 13px;
 }
 
 /* Sticky bottom action bar */
@@ -1217,7 +1217,22 @@
 
 .skeleton-views {
   align-self: flex-start;
-  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+/* Narrow screens: one row of equal segments, like the Chat History / Shared control. */
+@media (max-width: 767px) {
+  .skeleton-views {
+    align-self: stretch;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+
+  .skeleton-views button {
+    line-height: 1.25;
+    white-space: normal;
+  }
 }
 
 .skeleton-input {
@@ -1256,7 +1271,7 @@
 
 .skeleton-project-trigger {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--vs-control-lg);
   display: flex;
   align-items: center;
   justify-content: space-between;

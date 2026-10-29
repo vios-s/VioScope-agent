@@ -1452,7 +1452,7 @@ function WelcomeDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="welcome-dialog"
+      className="welcome-dialog vs-dialog-form"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onClick={(event) => {
@@ -2306,7 +2306,7 @@ function ProjectEditorModal({
   return (
     <div className="users-modal-backdrop" role="presentation" onClick={onClose}>
       <form
-        className="users-modal user-edit-modal project-modal"
+        className="users-modal user-edit-modal project-modal vs-dialog-wide"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -2746,7 +2746,7 @@ function ProjectDetailModal({
   return (
     <div className="users-modal-backdrop" role="presentation" onClick={onClose}>
       <div
-        className="users-modal user-edit-modal project-modal project-detail-modal"
+        className="users-modal user-edit-modal project-modal project-detail-modal vs-dialog-record"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -2775,19 +2775,17 @@ function ProjectDetailModal({
 
         <div className="project-modal-tabs vs-record-tabs" role="group" aria-label="Project modal section">
           <button className={mode === 'details' ? 'selected' : ''} aria-pressed={mode === 'details'} type="button" onClick={() => setMode('details')}>
-            <FileText aria-hidden="true" />
             Details
           </button>
           <button className={mode === 'progress' ? 'selected' : ''} aria-pressed={mode === 'progress'} type="button" onClick={() => setMode('progress')}>
-            <Plus aria-hidden="true" />
             Update
           </button>
           <button className={mode === 'workflow' ? 'selected' : ''} aria-pressed={mode === 'workflow'} type="button" onClick={() => setMode('workflow')}>
-            <Workflow aria-hidden="true" />
             Research workflow
           </button>
         </div>
 
+        <div className="vs-record-scroll">
         {mode !== 'workflow' && (
         <div className="vs-record-body">
         <div className="vs-record-main">
@@ -3248,6 +3246,7 @@ function ProjectDetailModal({
             rail={(checkpoints, linked) => <ProjectRecordRail project={project} checkpoints={checkpoints} linked={linked} />}
           />
         )}
+        </div>
 
       </div>
       <ConfirmDialog
@@ -6374,7 +6373,7 @@ function AuditLogSettingsPanel() {
       {selectedLog && (
         <div className="audit-modal-backdrop" role="presentation" onClick={() => setSelectedLog(null)}>
           <section
-            className="audit-json-modal"
+            className="audit-json-modal vs-dialog-wide"
             role="dialog"
             aria-modal="true"
             aria-labelledby="audit-json-title"
@@ -7252,7 +7251,7 @@ function UsersView({
       {createOpen && (
         <div className="users-modal-backdrop" role="presentation" onClick={() => setCreateOpen(false)}>
           <form
-            className="users-modal"
+            className="users-modal vs-dialog-form"
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-user-title"
@@ -7358,7 +7357,7 @@ function UsersView({
       {editingUser && editingDraft && (
         <div className="users-modal-backdrop" role="presentation" onClick={() => setEditingUserId(null)}>
           <form
-            className="users-modal user-edit-modal"
+            className="users-modal user-edit-modal vs-dialog-form"
             role="dialog"
             aria-modal="true"
             aria-labelledby="edit-user-title"
