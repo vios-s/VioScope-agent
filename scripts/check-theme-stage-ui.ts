@@ -60,9 +60,9 @@ try {
   });
   await page.goto(base + '/?view=meeting'); await page.locator('.console-topbar').waitFor(); await dismissWelcomeIfVisible(page);
   const form = page.locator('.theme-update-form'); await form.waitFor();
-  const slots = form.getByRole('group', { name: 'Update type' }).getByRole('radio');
-  assert.deepEqual(await slots.evaluateAll((inputs) => inputs.map((input) => input.closest('label')?.textContent)), ['Update5 min', 'Deep Dive20-30 min', 'Nothing to Report0 min']);
-  assert.equal(await form.getByRole('radio', { checked: true }).inputValue(), 'short_update');
+  const slotSelect = form.getByRole('combobox', { name: 'Update type', exact: true });
+  assert.deepEqual(await slotSelect.locator('option').evaluateAll((options) => options.map((option) => option.textContent)), ['Update · 5 min', 'Deep Dive · 20–30 min', 'Nothing to Report · 0 min']);
+  assert.equal(await slotSelect.inputValue(), 'short_update');
   assert.equal(await form.getByRole('checkbox', { name: /^Link this project/ }).count(), 0);
   assert.equal(await form.getByRole('textbox', { name: 'Project stage', exact: true }).count(), 0);
   assert.equal(await form.getByText('Suggestions reserve no agenda time.', { exact: false }).count(), 0);
@@ -73,12 +73,12 @@ try {
   assert.ok(copiedPrompt.includes('Stage 3/5') && copiedPrompt.includes('PROJECT_DATA_JSON') && copiedPrompt.includes('Synthetic linked project') && copiedPrompt.includes('The Wall'));
   assert.equal(suggestionCalls, 0);
   await form.getByRole('button', { name: 'Suggest again with AI', exact: true }).click();
-  await form.getByRole('button', { name: 'Use suggested update', exact: true }).waitFor();
+  await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).waitFor();
   assert.equal(await form.getByRole('textbox', { name: /^Progress/ }).inputValue(), '', 'Generating advice does not overwrite the draft.');
   assert.equal(submitted, undefined, 'AI advice does not submit a meeting update.');
-  await form.getByRole('button', { name: 'Use suggested update', exact: true }).click();
+  await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).click();
   assert.equal(await form.getByRole('textbox', { name: /^Progress/ }).inputValue(), aiDraft);
-  assert.equal(await form.getByRole('radio', { checked: true }).inputValue(), 'deep_dive');
+  assert.equal(await slotSelect.inputValue(), 'deep_dive');
   await form.getByRole('textbox', { name: /^Progress/ }).fill('Completed the synthetic baseline.');
   await form.getByRole('button', { name: 'Submit update', exact: true }).click();
   await page.getByText('Update submitted.', { exact: true }).waitFor();
@@ -95,7 +95,7 @@ try {
   const progress = form.getByRole('textbox', { name: /^Progress/ });
   await progress.fill('');
   await form.getByRole('combobox', { name: 'Project source', exact: true }).selectOption(ideaProject.id);
-  assert.equal(await form.getByRole('button', { name: 'Use suggested update', exact: true }).count(), 0, 'Changing projects clears old AI advice.');
+  assert.equal(await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).count(), 0, 'Changing projects clears old AI advice.');
   assert.match((await progress.getAttribute('placeholder'))!, /The Pain Point: \(1 Sentence\)/);
   assert.match((await progress.getAttribute('placeholder'))!, /The Wild Factor: High \/ Med \/ Low/);
   assert.match((await progress.getAttribute('placeholder'))!, /Proof of Concept \(PoC\) Goal/);

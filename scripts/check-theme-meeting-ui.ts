@@ -181,12 +181,11 @@ async function checkMember(browser: any) {
   await page.locator('.theme-update-form').waitFor({ state: 'visible', timeout: 10_000 });
   await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
-  const slotGroup = page.locator('.theme-update-form').getByRole('group', { name: 'Update type' });
-  assert.deepEqual(await slotGroup.getByRole('radio').evaluateAll((inputs: Element[]) => inputs.map((input) => (input as HTMLInputElement).value)), ['short_update', 'deep_dive', 'nothing_to_report']);
-  assert.equal(await slotGroup.getByRole('radio', { name: 'Deep Dive 20-30 min', exact: true }).count(), 1);
-  assert.equal(await slotGroup.getByRole('radio', { name: 'Update 5 min', exact: true }).count(), 1);
+  const slotSelect = page.locator('.theme-update-form').getByRole('combobox', { name: 'Update type', exact: true });
+  assert.deepEqual(await slotSelect.locator('option').evaluateAll((options: Element[]) => options.map((option) => [(option as HTMLOptionElement).value, option.textContent])),
+    [['short_update', 'Update · 5 min'], ['deep_dive', 'Deep Dive · 20–30 min'], ['nothing_to_report', 'Nothing to Report · 0 min']]);
   assert.equal(await page.getByRole('textbox', { name: 'Project stage', exact: true }).count(), 0);
-  await slotGroup.getByRole('radio', { name: 'Nothing to Report 0 min', exact: true }).check();
+  await slotSelect.selectOption('nothing_to_report');
   await page.locator('.theme-update-form textarea').nth(0).fill('Finished a mock UI smoke test update for the next meeting.');
   await page.locator('.theme-update-form textarea').nth(1).fill('Can the UI save this member update?');
   await page.getByRole('button', { name: 'Submit update' }).click();
@@ -228,7 +227,7 @@ async function checkPlanningOnly(browser: any, username: string) {
   await expectVisible(page, 'Past meetings');
   assert.equal(await page.locator('.theme-meeting-card').count(), 2, 'PI should see both active theme meeting cards.');
   assert.equal(await page.locator('.theme-update-form').count(), 0);
-  assert.ok(await page.getByText('Send reminder').count() > 0, 'PI/admin planning view should expose theme management actions.');
+  assert.ok(await page.getByRole('button', { name: /^Send reminder/ }).count() > 0, 'PI/admin planning view should expose theme management actions.');
   await page.getByRole('button', { name: 'Skip this meeting' }).first().click();
   const skipDialog = page.getByRole('dialog', { name: 'Skip this meeting?' });
   await skipDialog.waitFor({ state: 'visible', timeout: 10_000 });

@@ -476,8 +476,7 @@
 }
 
 .mt-form label > span:first-child,
-.mt-form .prompt-field-head label,
-.mt-types legend {
+.mt-form .prompt-field-head label {
   font-size: 13px;
   font-weight: 500;
   color: var(--vs-ink);
@@ -503,72 +502,6 @@
   padding: 10px 12px;
   line-height: 1.5;
   resize: vertical;
-}
-
-.mt-form .theme-prefill-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.mt-form .theme-prefill-row label {
-  flex: 1 1 220px;
-}
-
-.mt-types {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.mt-types legend {
-  padding: 0 0 6px;
-}
-
-.mt-form .mt-type {
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  min-height: 40px;
-  padding: 0 12px;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius-control);
-  background: var(--vs-surface);
-  cursor: pointer;
-}
-
-.mt-form .mt-type:hover {
-  border-color: var(--vs-border-control);
-}
-
-.mt-form .mt-type.is-selected {
-  border-color: var(--vs-accent-line);
-  background: var(--vs-accent-wash);
-}
-
-.mt-form .mt-type:focus-within {
-  outline: var(--vs-focus-ring);
-  outline-offset: var(--vs-focus-offset);
-}
-
-.mt-type input {
-  margin: 0;
-}
-
-.mt-form .mt-type > span:first-of-type {
-  flex: 1;
-  font-size: 14px;
-  font-weight: 400;
-}
-
-.mt-type .mt-num {
-  font-size: 12px;
-  color: var(--vs-ink-3);
 }
 
 .mt-form .prompt-field {
@@ -1104,12 +1037,9 @@
 .mt-board-state.is-draft strong::before { background: var(--vs-warn-dot); }
 .mt-board-state.is-confirmed strong { color: var(--vs-ok-fg); }
 .mt-board-state.is-confirmed strong::before { background: var(--vs-ok-dot); }
-.mt-board-state.is-arranging strong { color: var(--vs-accent-strong); }
-.mt-board-state.is-arranging strong::before { background: var(--vs-accent); }
 
 .mt-board-actions,
-.mt-arrange-buttons,
-.mt-inline-confirm > div {
+.mt-arrange-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -1117,8 +1047,8 @@
 
 .mt-board-actions .ops-secondary,
 .mt-board-actions .ops-primary,
-.mt-inline-confirm .ops-secondary,
-.mt-inline-confirm .ops-primary {
+.mt-arrange-buttons .ops-secondary,
+.mt-arrange-buttons .ops-primary {
   min-height: 34px;
   padding: 0 12px;
   font-size: 13px;
@@ -1137,29 +1067,6 @@
   border-radius: var(--vs-radius-control);
   background: var(--vs-warn-bg);
   color: var(--vs-warn-fg);
-}
-
-.mt-inline-confirm {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px 16px;
-  padding: 12px 14px;
-  border: 1px solid var(--vs-accent-line);
-  border-radius: var(--vs-radius-control);
-  background: var(--vs-accent-wash);
-}
-
-.mt-inline-confirm p {
-  flex: 1 1 280px;
-  margin: 0;
-  font-size: 13px;
-  color: var(--vs-ink);
-}
-
-.mt-board.is-arranging .mt-agenda-list li {
-  align-items: center;
 }
 
 .mt-agenda-list li.is-skipped .mt-item-main,
@@ -1205,38 +1112,10 @@
   color: var(--vs-ink-3);
 }
 
-.mt-icon-btn {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid var(--vs-border-control);
-  border-radius: var(--vs-radius-row-btn);
-  background: var(--vs-surface);
-  color: var(--vs-ink-2);
-  cursor: pointer;
-}
-
-.mt-icon-btn:hover:not(:disabled) {
-  background: var(--vs-row-hover);
-  color: var(--vs-ink);
-}
-
-.mt-icon-btn:disabled {
-  color: var(--vs-ink-disabled);
-  cursor: default;
-}
-
-.mt-icon-btn:focus-visible,
+.mt-drag-handle:focus-visible,
 .mt-skip-toggle:focus-within {
   outline: var(--vs-focus-ring);
   outline-offset: var(--vs-focus-offset);
-}
-
-.mt-icon-btn svg {
-  width: 15px;
-  height: 15px;
 }
 
 .mt-skip-toggle {
@@ -1350,10 +1229,6 @@
   border-radius: var(--vs-radius-pill);
 }
 
-.mt-form-status > span {
-  flex-basis: 100%;
-}
-
 .mt-form-status.is-submitted strong { color: var(--vs-ok-fg); }
 .mt-form-status.is-submitted strong::before { background: var(--vs-ok-dot); }
 .mt-form-status.is-pending strong { color: var(--vs-warn-fg); }
@@ -1361,38 +1236,6 @@
 .mt-form-status.is-closed strong { color: var(--vs-muted-fg); }
 .mt-form-status.is-closed strong::before { background: var(--vs-muted-dot); }
 
-.mt-step {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-.mt-form .mt-step-title,
-.mt-form .prompt-field-head label.mt-step-title,
-.mt-types legend.mt-step-title {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--vs-ink);
-}
-
-.mt-step-title > span[aria-hidden="true"] {
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  border-radius: var(--vs-radius-pill);
-  background: var(--vs-accent-wash);
-  color: var(--vs-accent-strong);
-  font-size: 11px;
-  font-weight: 600;
-}
 
 .mt-form .mt-word-count {
   display: flex;
@@ -1494,4 +1337,284 @@
   align-items: center;
   gap: 4px 8px;
   color: var(--vs-ink-3);
+}
+
+/* ---------- Agenda reordering (drag handle, pointer + keyboard) ---------- */
+
+.mt-board.is-editable .mt-agenda-list li {
+  grid-template-columns: 32px 48px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.mt-drag-handle {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--vs-radius-row-btn);
+  background: transparent;
+  color: var(--vs-ink-3);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.mt-drag-handle:hover:not(:disabled) {
+  border-color: var(--vs-border-control);
+  background: var(--vs-row-hover);
+  color: var(--vs-ink);
+}
+
+.mt-drag-handle:disabled {
+  color: var(--vs-ink-disabled);
+  cursor: default;
+}
+
+.mt-drag-handle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.mt-agenda-list.is-sorting li {
+  transition: transform 160ms ease;
+}
+
+.mt-agenda-list li.is-dragging {
+  position: relative;
+  z-index: 2;
+  transition: none;
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-surface);
+  box-shadow: var(--vs-shadow-popover);
+  outline: 1px solid var(--vs-accent-line);
+}
+
+.mt-agenda-list.is-sorting,
+.mt-agenda-list.is-sorting * {
+  cursor: grabbing;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mt-agenda-list.is-sorting li {
+    transition: none;
+  }
+}
+
+.mt-unsaved {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.mt-unsaved strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--vs-accent-strong);
+}
+
+.mt-unsaved strong::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-accent);
+}
+
+.mt-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--vs-radius-row-btn);
+  background: transparent;
+  color: var(--vs-accent-strong);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.mt-link-btn:hover:not(:disabled) {
+  background: var(--vs-accent-wash);
+}
+
+.mt-link-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.mt-board-note.is-subtle {
+  border-color: var(--vs-line);
+  background: var(--vs-surface-2);
+  color: var(--vs-ink-2);
+}
+
+.mt-email-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--vs-ink-3);
+  text-align: right;
+}
+
+/* ---------- Your update: compact status, select, one-line actions ---------- */
+
+.mt-form .mt-form-status > span::before {
+  content: "· ";
+}
+
+.mt-form-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.mt-form .prompt-copy-button {
+  width: 28px;
+  justify-content: center;
+  padding: 0;
+}
+
+.mt-form .prompt-copy-button span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.mt-form .prompt-copy-button:not([data-state="idle"]) {
+  width: auto;
+  padding: 0 8px;
+}
+
+.mt-form .prompt-copy-button:not([data-state="idle"]) span {
+  position: static;
+  width: auto;
+  height: auto;
+  clip: auto;
+}
+
+.theme-advice-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  width: 100%;
+}
+
+.theme-advice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.theme-advice-details {
+  width: 100%;
+}
+
+.theme-advice-details > summary {
+  width: fit-content;
+  color: var(--vs-accent-strong);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.theme-advice-details[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.theme-advice-details ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.theme-advice-note {
+  color: var(--vs-ink-3);
+}
+
+/* ---------- Decisions & actions ---------- */
+
+.theme-workflow-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 10px 12px;
+}
+
+.theme-workflow-fields select,
+.theme-workflow-fields input {
+  width: 100%;
+}
+
+.theme-workflow-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.theme-workflow-facts > div {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.theme-workflow-facts dt {
+  flex: none;
+  color: var(--vs-ink-3);
+}
+
+.theme-workflow-facts dd {
+  margin: 0;
+  color: var(--vs-ink);
+}
+
+.theme-workflow-where {
+  color: var(--vs-ink-3);
+}
+
+.theme-workflow-status::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-accent);
+}
+
+.theme-workflow-status.is-done::before { background: var(--vs-ok-dot); }
+.theme-workflow-status.is-overdue::before { background: var(--vs-danger-dot); }
+
+@media (max-width: 640px) {
+  .mt-board.is-editable .mt-agenda-list li {
+    grid-template-columns: 32px 40px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .mt-board.is-editable .mt-agenda-list .mt-arrange-controls {
+    grid-column: 3;
+  }
+
+  .mt-email-hint {
+    text-align: left;
+  }
 }

@@ -1605,7 +1605,7 @@ function PromptCopyButton({ prompt, label }: { prompt: string; label: string }) 
   const text = !ready ? 'Prompt loading' : state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy prompt';
 
   return (
-    <button className="prompt-copy-button" type="button" disabled={!ready} onClick={copyPrompt} aria-label={label} title={text}>
+    <button className="prompt-copy-button" type="button" disabled={!ready} onClick={copyPrompt} aria-label={label} title={text} data-state={state}>
       <Copy aria-hidden="true" />
       <span>{text}</span>
     </button>
@@ -3304,20 +3304,28 @@ function ProjectMeetingSuggestion({ project, onUseSlot, onUseDraft }: {
   }
   return (
     <article className="theme-project-advice" aria-label={`Meeting suggestion for ${project.title}`} aria-busy={busy}>
-      <p className="theme-advice-head"><span className="vs-caps theme-advice-badge">Advisory</span> Optional suggestion from your project record. You decide what to submit.</p>
-      <MeetingProjectSummary context={meetingProjectContext(project)} />
-      <p><strong>{suggestion ? 'AI suggested slot' : 'Suggested slot'}: {suggestedSlot ? updateTypeOptionLabels[suggestedSlot] : 'Update progress first'}</strong></p>
-      {suggestion ? <>
-        <p>{suggestion.rationale}</p>
-        <p style={{ whiteSpace: 'pre-wrap' }}>{suggestion.progress}</p>
-        {suggestion.questions && <p style={{ whiteSpace: 'pre-wrap' }}>{suggestion.questions}</p>}
-        <details><summary>Project evidence</summary><ul>{suggestion.evidence.map((item, index) => <li key={index}>{item.source.startsWith('progress:') ? 'Progress update' : item.source}: “{item.quote}”</li>)}</ul></details>
-      </> : <><p>{advice.evidence}</p><p>{advice.preparation}</p></>}
+      <div className="theme-advice-top">
+        <p className="theme-advice-head"><span className="vs-caps theme-advice-badge">Advisory</span> <strong>{suggestion ? 'AI suggested slot' : 'Suggested slot'}: {suggestedSlot ? updateTypeOptionLabels[suggestedSlot] : 'Update progress first'}</strong></p>
+        <div className="theme-advice-actions">
+          <button className="ops-secondary" type="button" disabled={busy} aria-label="Suggest again with AI" onClick={() => void regenerate()}>{busy ? 'Generating…' : 'Suggest again'}</button>
+          {suggestion && onUseDraft ? <button className="ops-secondary" type="button" aria-label="Use suggestion as your draft update" onClick={() => onUseDraft(suggestion)}>Use suggestion</button> : onUseSlot && suggestedSlot && (
+            <button className="ops-secondary" type="button" aria-label="Use suggestion: select the suggested slot" onClick={() => onUseSlot(suggestedSlot)}>Use suggestion</button>
+          )}
+        </div>
+      </div>
       {error && <p role="alert">{error}</p>}
-      <button className="ops-secondary" type="button" disabled={busy} onClick={() => void regenerate()}>{busy ? 'Generating suggestion…' : 'Suggest again with AI'}</button>
-      {suggestion && onUseDraft ? <button className="ops-secondary" type="button" onClick={() => onUseDraft(suggestion)}>Use suggested update</button> : onUseSlot && suggestedSlot && (
-        <button className="ops-secondary" type="button" onClick={() => onUseSlot(suggestedSlot)}>Use suggested slot</button>
-      )}
+      <details className="theme-advice-details">
+        <summary>{suggestion ? 'Suggested draft and evidence' : 'Why this suggestion'}</summary>
+        <p className="theme-advice-note">Optional suggestion from your project record. You decide what to submit.</p>
+        <MeetingProjectSummary context={meetingProjectContext(project)} />
+        {suggestion ? <>
+          <p>{suggestion.rationale}</p>
+          <p style={{ whiteSpace: 'pre-wrap' }}>{suggestion.progress}</p>
+          {suggestion.questions && <p style={{ whiteSpace: 'pre-wrap' }}>{suggestion.questions}</p>}
+          <p className="theme-advice-note">Project evidence</p>
+          <ul>{suggestion.evidence.map((item, index) => <li key={index}>{item.source.startsWith('progress:') ? 'Progress update' : item.source}: “{item.quote}”</li>)}</ul>
+        </> : <><p>{advice.evidence}</p><p>{advice.preparation}</p></>}
+      </details>
     </article>
   );
 }
@@ -3645,9 +3653,9 @@ function ThemeMeetingPanel({
         {!viewer.notificationPreferences.theme_meeting_reminders.email && (
           <p className="theme-meeting-message ops-muted-line">Email delivery is off. Enable Theme meeting reminders email in Settings to receive agendas.</p>
         )}
-        <button className="ops-secondary" type="button" onClick={enableBrowserNotifications}>
+        <button className="ops-secondary" type="button" aria-label="Enable browser notifications" title="Enable browser notifications" onClick={enableBrowserNotifications}>
           <Bell aria-hidden="true" />
-          Browser notifications
+          Notifications
         </button>
       </div>
 
@@ -3728,23 +3736,25 @@ function ThemeMeetingPanel({
                   {canManageActive && activeMeeting && (
                     <div className="mt-agenda-actions">
                       {activeMeeting.cancelled ? (
-                        <button className="ops-secondary" type="button" disabled={cancellationBusy} onClick={() => void changeMeetingCancellation(activeMeeting, true)}>
+                        <button className="ops-secondary" type="button" disabled={cancellationBusy} aria-label="Restore meeting" title="Restore this meeting" onClick={() => void changeMeetingCancellation(activeMeeting, true)}>
                           <RotateCcw aria-hidden="true" />
-                          Restore meeting
+                          Restore
                         </button>
                       ) : <>
                         <button
                           className="ops-secondary"
                           type="button"
                           disabled={!activeMeeting.missing_members.length}
+                          aria-label="Send reminder to members without an update"
+                          title={activeMeeting.missing_members.length ? 'Send a reminder to members without an update' : 'All updates received'}
                           onClick={() => sendMissingReminders(activeMeeting.theme_id)}
                         >
                           <Bell aria-hidden="true" />
-                          Send reminder
+                          Remind
                         </button>
-                        <button className="ops-secondary theme-meeting-cancel-action" type="button" onClick={() => setMeetingToCancel(activeMeeting)}>
+                        <button className="ops-secondary theme-meeting-cancel-action" type="button" aria-label="Skip this meeting" title="Skip this meeting" onClick={() => setMeetingToCancel(activeMeeting)}>
                           <X aria-hidden="true" />
-                          Skip this meeting
+                          Skip
                         </button>
                       </>}
                     </div>
@@ -3760,6 +3770,7 @@ function ThemeMeetingPanel({
                     cancelled={activeMeeting.cancelled}
                     canAccess={canAccessActive}
                     fallbackItems={activeMeeting.agenda_items}
+                    memberNames={Object.fromEntries(activeMeeting.member_usernames.map((username, index) => [username, activeMeeting.members[index] || username]))}
                     onChanged={onChanged}
                   >
                     {!activeMeeting.cancelled && (
@@ -3838,18 +3849,31 @@ function ThemeMeetingPanel({
                   </div>
                   <p className={`mt-form-status ${submittedUpdate ? 'is-submitted' : submissionsClosed ? 'is-closed' : 'is-pending'}`} id="mt-form-status">
                     <strong>{submittedUpdate ? 'Submitted' : 'Not submitted'}</strong>
-                    {submittedUpdate ? ` · ${submittedAtLabel} (UK time)` : ''}
+                    {submittedUpdate ? <span>{submittedAtLabel}</span> : null}
                     {deadline && (
                       <span>
                         {submissionsClosed
-                          ? `Submissions closed ${deadlineLabel} (UK time).`
-                          : `${submittedUpdate ? 'You can still edit until' : 'Due by'} ${deadlineLabel} (UK time).`}
+                          ? `Closed ${deadlineLabel} (UK time)`
+                          : `${submittedUpdate ? 'Editable until' : 'Due'} ${deadlineLabel} (UK time)`}
                       </span>
                     )}
                   </p>
                 </div>
-                <section className="mt-step" aria-labelledby="mt-step-project">
-                  <h3 id="mt-step-project" className="mt-step-title"><span aria-hidden="true">1</span>Meeting and project</h3>
+                {sourceProject && (
+                  <ProjectMeetingSuggestion
+                    project={sourceProject}
+                    onUseDraft={(suggestion) => {
+                      setProgressText(suggestion.progress);
+                      setQuestions(suggestion.questions);
+                      if (suggestion.slot) setUpdateType(suggestion.slot);
+                      setStatus('AI suggestion copied to your draft. Review before submitting.');
+                    }}
+                    onUseSlot={(slot) => {
+                      setUpdateType(slot);
+                      setStatus('Suggested slot selected. Review your update before submitting.');
+                    }}
+                  />
+                )}
                 <div className="mt-form-row">
                   <label>
                     <span>Theme</span>
@@ -3871,9 +3895,7 @@ function ThemeMeetingPanel({
                       ))}
                     </select>
                   </label>
-                </div>
-                {(sourceProjects.length > 0 || (sourceProjectId && sourceProjectId !== 'none')) && (
-                  <div className="theme-prefill-row">
+                  {(sourceProjects.length > 0 || (sourceProjectId && sourceProjectId !== 'none')) && (
                     <label>
                       <span>Project source</span>
                       <select value={sourceProject?.id || sourceProjectId || 'none'} onChange={(event) => setSourceProjectId(event.target.value)}>
@@ -3886,48 +3908,22 @@ function ThemeMeetingPanel({
                         ))}
                       </select>
                     </label>
-                    <button className="ops-secondary" type="button" disabled={!sourceProject} onClick={prefillFromProject}>
-                      <RefreshCw aria-hidden="true" />
-                      Use project update
-                    </button>
-                  </div>
                 )}
+                  <label>
+                    <span>Update type</span>
+                    <select name="theme-update-type" value={updateType} onChange={(event) => setUpdateType(event.target.value as ThemeUpdateType)}>
+                      {themeMeetingSlotTypes.map((nextType) => (
+                        <option key={nextType} value={nextType}>
+                          {updateTypeLabels[nextType]} · {slotMinutes(nextType).replace('-', '–')}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
                 {submittedUpdate?.project_context && <details className="mt-snapshot"><summary>Previously shared project snapshot</summary><MeetingProjectSummary context={submittedUpdate.project_context} /></details>}
-                </section>
-                {sourceProject && (
-                  <ProjectMeetingSuggestion
-                    project={sourceProject}
-                    onUseDraft={(suggestion) => {
-                      setProgressText(suggestion.progress);
-                      setQuestions(suggestion.questions);
-                      if (suggestion.slot) setUpdateType(suggestion.slot);
-                      setStatus('AI suggestion copied to your draft. Review before submitting.');
-                    }}
-                    onUseSlot={(slot) => {
-                      setUpdateType(slot);
-                      setStatus('Suggested slot selected. Review your update before submitting.');
-                    }}
-                  />
-                )}
-                <fieldset className="mt-types mt-step">
-                  <legend className="mt-step-title"><span aria-hidden="true">2</span>Update type</legend>
-                  {themeMeetingSlotTypes.map((nextType) => (
-                    <label key={nextType} className={`mt-type${updateType === nextType ? ' is-selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="theme-update-type"
-                        value={nextType}
-                        checked={updateType === nextType}
-                        onChange={() => setUpdateType(nextType)}
-                      />
-                      <span>{updateTypeLabels[nextType]}</span>
-                      <span className="mt-num">{slotMinutes(nextType)}</span>
-                    </label>
-                  ))}
-                </fieldset>
-                <div className="prompt-field mt-step">
+                <div className="prompt-field">
                   <div className="prompt-field-head">
-                    <label htmlFor={progressFieldId} className="mt-step-title"><span aria-hidden="true">3</span>Progress since the last meeting{!progressRequired && <span className="mt-field-note"> · optional</span>}</label>
+                    <label htmlFor={progressFieldId}>Progress since the last meeting{!progressRequired && <span className="mt-field-note"> · optional</span>}</label>
                     <PromptCopyButton prompt={themeProgressPrompt(uiCopyPrompts, sourceProject)} label="Copy theme progress prompt" />
                   </div>
                   <textarea
@@ -3952,9 +3948,9 @@ function ThemeMeetingPanel({
                     </span>
                   </p>
                 </div>
-                <div className="prompt-field mt-step">
+                <div className="prompt-field">
                   <div className="prompt-field-head">
-                    <label htmlFor={questionsFieldId} className="mt-step-title"><span aria-hidden="true">4</span>Questions for the group <span className="mt-field-note">· optional</span></label>
+                    <label htmlFor={questionsFieldId}>Questions for the group <span className="mt-field-note">· optional</span></label>
                     <PromptCopyButton prompt={themeQuestionsPrompt(uiCopyPrompts, sourceProject)} label="Copy theme questions prompt" />
                   </div>
                   <textarea
@@ -3966,11 +3962,19 @@ function ThemeMeetingPanel({
                   />
                 </div>
                 <div className="mt-form-footer">
-                  <p>Submitting adds your item to the draft agenda. The coordinator arranges and confirms the final agenda.</p>
-                  <button className="ops-primary" type="submit" disabled={submissionsClosed} aria-describedby="mt-form-status">
-                    {submittedUpdate ? <Save aria-hidden="true" /> : <Check aria-hidden="true" />}
-                    {submittedUpdate ? 'Save changes' : 'Submit update'}
-                  </button>
+                  <p>Submitting adds your item to the draft agenda. The coordinator orders and confirms the final agenda.</p>
+                  <div className="mt-form-buttons">
+                    {sourceProject && (
+                      <button className="ops-secondary" type="button" onClick={prefillFromProject} aria-label="Use project update" title={`Fill the draft from the latest update of ${sourceProject.title}`}>
+                        <RefreshCw aria-hidden="true" />
+                        Use project update
+                      </button>
+                    )}
+                    <button className="ops-primary" type="submit" disabled={submissionsClosed} aria-label={submittedUpdate ? 'Save changes' : 'Submit update'} aria-describedby="mt-form-status">
+                      {submittedUpdate ? <Save aria-hidden="true" /> : <Check aria-hidden="true" />}
+                      {submittedUpdate ? 'Save' : 'Submit'}
+                    </button>
+                  </div>
                 </div>
               </form>
             )}
@@ -5381,7 +5385,7 @@ function TopbarNotificationCenter({
         className="topbar-notification-button"
         type="button"
         onClick={onToggle}
-        aria-label={`Open Notifications center${activeCount > 0 ? `, ${activeCount} active` : ''}`}
+        aria-label={`Open Notifications centre${activeCount > 0 ? `, ${activeCount} active` : ''}`}
         aria-expanded={open}
         aria-haspopup="dialog"
       >
@@ -7008,7 +7012,7 @@ function UsersView({
                   {busyNotifications ? 'Saving' : 'Save notification settings'}
                 </button>
               </div>
-              <p className="settings-footnote">In-app notifications appear in the top bar notification center. Chat mentions are web-only; email is reserved for reminders and operational summaries.</p>
+              <p className="settings-footnote">In-app notifications appear in the top bar notification centre. Chat mentions are web-only; email is reserved for reminders and operational summaries.</p>
             </section>
           ) : settingsTab === 'integrations' ? (
             <section className="settings-section">
