@@ -206,16 +206,8 @@ async function checkPi(browser: any) {
     await page.getByRole('button', { name: title, exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
     await page.getByText('85%').first().waitFor({ state: 'visible' });
-    await page.getByRole('button', { name: 'Run project scan' }).click();
-    await page.getByText(/[1-9]\d* attention/).waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByText(/[1-9]\d* updated/).waitFor({ state: 'visible' });
-    await page.getByRole('heading', { name: 'Project planning brief' }).waitFor({ state: 'visible' });
-    await page.getByText('Finished baseline memory wiring and reached milestone for tutor evaluation.').first().waitFor({ state: 'visible' });
-    await page.getByText(`${title} / ${users.member} / Update / stage 3 (85%)`).first().click();
-    await page.getByRole('button', { name: 'Update', exact: true }).waitFor({ state: 'visible' });
-    await page.getByLabel('Close project details').click();
-    await page.getByRole('button', { name: 'Add to agenda' }).first().click();
-    await page.getByRole('button', { name: 'Added' }).first().waitFor({ state: 'visible' });
+    assert.equal(await page.getByRole('heading', { name: 'Project planning brief' }).count(), 0, 'Planning brief is removed from Projects.');
+    assert.equal(await page.getByRole('heading', { name: 'Members', exact: true }).count(), 0, 'Members list is removed from Projects.');
     await page.getByLabel(`Project details for ${title}`).click();
     await page.getByRole('button', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
   } finally {
@@ -229,9 +221,6 @@ async function checkAdmin(browser: any) {
     await page.getByRole('tab', { name: /^Active/ }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: title, exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
-    await page.getByRole('button', { name: 'Run project scan' }).click();
-    await page.getByRole('heading', { name: 'Project planning brief' }).waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByText(createdTitle).first().waitFor({ state: 'visible' });
     await page.getByLabel(`Project details for ${createdTitle}`).click();
     await page.getByRole('button', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
     assert.equal(await page.locator('.project-manage-form').getByLabel('Owner').isDisabled(), false);

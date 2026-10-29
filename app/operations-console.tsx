@@ -265,39 +265,6 @@ type ProjectsPayload = {
   error?: string;
 };
 
-type ProjectPlanningItem = {
-  id: string;
-  title: string;
-  project: string;
-  ownerUsername: string;
-  stage: number;
-  stageProgress: number;
-  status: ProjectStatus;
-  target: string | null;
-  blocker: string | null;
-  lastUpdate: string | null;
-  recommendation: ProjectSlotRecommendation;
-  attentionReason: string | null;
-  progressText: string | null;
-  updatedAt: string | null;
-};
-
-type ProjectPlanningReport = {
-  generatedAt: string;
-  cycleStart: string;
-  cycleDays: number;
-  projectCount: number;
-  activeProjectCount: number;
-  attentionItems: ProjectPlanningItem[];
-  updatedProjects: ProjectPlanningItem[];
-  markdown: string;
-};
-
-type ProjectPlanningPayload = {
-  report?: ProjectPlanningReport;
-  error?: string;
-};
-
 type ProjectDraft = {
   id?: string;
   project: string;
@@ -359,6 +326,7 @@ type ThemeMeetingPayload = {
   plan: ThemeMeetingPlan;
   overviewPlan?: ThemeMeetingOverviewPlan;
   submissionPlan?: ThemeMeetingPlan | null;
+  submissionDeadline?: string | null;
   pastPlans?: ThemeMeetingOverviewPlan[];
   agendaSubscriptions?: { theme_id: string; title: string; subscribed: boolean; required: boolean }[];
   notifications: ThemeMeetingNotification[];
@@ -930,20 +898,6 @@ function projectNeedsAttention(project: ManagedProject) {
   return project.needsUpdate || project.recommendation !== 'none' || project.status !== 'on_track' || Boolean(project.blocker);
 }
 
-function projectEvidence(project: ManagedProject) {
-  const signals = [
-    project.attentionReason,
-    project.status !== 'on_track' ? statusLabels[project.status].toLowerCase() : null,
-    project.blocker ? 'blocker present' : null,
-    daysSinceDate(project.lastUpdate) !== null && (daysSinceDate(project.lastUpdate) || 0) > 14 ? 'stale update' : null,
-  ].filter(Boolean);
-  return signals.join(', ') || 'no risk signals';
-}
-
-function projectPlanningLine(item: ProjectPlanningItem) {
-  return `${item.title} / ${item.ownerUsername} / ${projectSlotLabels[item.recommendation]} / stage ${item.stage} (${item.stageProgress}%)`;
-}
-
 function normalizedName(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -1468,6 +1422,7 @@ function ConfirmDialog({
   onCancel,
   onConfirm,
   confirmPhrase,
+  children,
 }: {
   id: string;
   open: boolean;
@@ -1479,6 +1434,8 @@ function ConfirmDialog({
   onConfirm: () => void;
   /** Optional type-to-confirm guard (D7): the confirm button stays disabled until the exact value is typed. */
   confirmPhrase?: { value: string; label: string };
+  /** Optional extra fields, such as a reason, shown above the buttons. */
+  children?: ReactNode;
 }) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
@@ -1538,6 +1495,7 @@ function ConfirmDialog({
             <input value={typedPhrase} autoComplete="off" spellCheck={false} onChange={(event) => setTypedPhrase(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
           </label>
         )}
+        {children}
         <footer>
           <button ref={cancelRef} className="ops-secondary" type="button" onClick={onCancel} disabled={busy}>
             Cancel
@@ -3429,7 +3387,7 @@ function ProjectMeetingSuggestion({ project, onUseSlot, onUseDraft }: {
   }
   return (
     <article className="theme-project-advice" aria-label={`Meeting suggestion for ${project.title}`} aria-busy={busy}>
-      <span className="vs-caps theme-advice-badge">Advisory</span>
+      <p className="theme-advice-head"><span className="vs-caps theme-advice-badge">Advisory</span> Optional suggestion from your project record. You decide what to submit.</p>
       <MeetingProjectSummary context={meetingProjectContext(project)} />
       <p><strong>{suggestion ? 'AI suggested slot' : 'Suggested slot'}: {suggestedSlot ? updateTypeOptionLabels[suggestedSlot] : 'Update progress first'}</strong></p>
       {suggestion ? <>
@@ -3472,6 +3430,7 @@ function ThemeMeetingPanel({
   const [sourceProjectId, setSourceProjectId] = useState('');
   const [memberCandidateByTheme, setMemberCandidateByTheme] = useState<Record<string, string>>({});
   const [meetingToCancel, setMeetingToCancel] = useState<ThemeMeetingPlan['meetings'][number] | null>(null);
+  const [skipReason, setSkipReason] = useState('');
   const [cancellationBusy, setCancellationBusy] = useState(false);
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const [viewThemeId, setViewThemeId] = useState('');
@@ -3689,10 +3648,11 @@ function ThemeMeetingPanel({
       await requestJson('/api/theme-meetings/cancellations', 'Could not update the meeting status.', {
         method: cancelled ? 'DELETE' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ themeId: meeting.theme_id, meetingDate: plan?.meeting_date }),
+        body: JSON.stringify({ themeId: meeting.theme_id, meetingDate: plan?.meeting_date, ...(cancelled ? {} : { reason: skipReason.trim() }) }),
       });
       setMeetingToCancel(null);
-      setStatus(cancelled ? `Theme ${meeting.theme_id} meeting restored.` : `Theme ${meeting.theme_id} meeting cancelled. No reminders or agenda will be sent.`);
+      setSkipReason('');
+      setStatus(cancelled ? `Theme ${meeting.theme_id} meeting restored.` : `Theme ${meeting.theme_id} meeting skipped. No reminders, agenda or agenda emails will be sent.`);
       await onChanged();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Could not update the meeting status.');
@@ -3747,25 +3707,20 @@ function ThemeMeetingPanel({
     || weekMeetings[0];
   const activeMeeting = activeCard ? plan?.meetings.find((candidate) => candidate.theme_id === activeCard.theme_id) : undefined;
   const canManageActive = Boolean(activeMeeting && managedThemeIds.has(activeMeeting.theme_id));
-  // Planned start times are a display aid derived from the meeting start and slot lengths; the coordinator confirms the real order.
-  let agendaClock = activeCard && /^\d{1,2}:\d{2}$/.test(activeCard.time)
-    ? Number(activeCard.time.split(':')[0]) * 60 + Number(activeCard.time.split(':')[1])
-    : null;
-  const agendaRows = (activeMeeting?.agenda_items || []).map((item) => {
-    const start = agendaClock === null ? '' : `${String(Math.floor(agendaClock / 60)).padStart(2, '0')}:${String(agendaClock % 60).padStart(2, '0')}`;
-    if (agendaClock !== null) agendaClock += item.duration_minutes;
-    return { item, start };
-  });
+  const canAccessActive = canManageActive || Boolean(activeMeeting?.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username)));
   const nameList = (names: string[]) => new Intl.ListFormat('en-GB', { style: 'long', type: 'conjunction' }).format(names);
   const slotMinutes = (type: ThemeUpdateType) => updateTypeOptionLabels[type].match(/\(([^)]+)\)/)?.[1] || '';
-
-  function openAgendaConfirmation(nextThemeId: string) {
-    const details = document.getElementById(`theme-workflow-${nextThemeId}`) as HTMLDetailsElement | null;
-    if (!details) return;
-    details.open = true;
-    details.scrollIntoView({ block: 'start' });
-    details.querySelector('summary')?.focus();
-  }
+  // The submission deadline is a Europe/London wall-clock time ("YYYY-MM-DDTHH:MM") supplied by the server.
+  const deadline = payload?.submissionDeadline || null;
+  const deadlineLabel = deadline
+    ? `${new Date(`${deadline.slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' })}, ${deadline.slice(11)}`
+    : '';
+  const londonNow = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()).replace(' ', 'T');
+  const submissionsClosed = Boolean(deadline && londonNow >= deadline);
+  const submittedAtLabel = submittedUpdate
+    ? new Date(submittedUpdate.submitted_at).toLocaleString('en-GB', { timeZone: 'Europe/London', weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : '';
+  const progressRequired = updateType !== 'nothing_to_report';
 
   return (
     <section className="theme-meeting-panel mt-panel">
@@ -3815,7 +3770,7 @@ function ThemeMeetingPanel({
                       Theme {summary.theme_id} · Coordinator {summary.coordinator} · {summary.submitted_count} of {summary.member_count} updates submitted
                     </span>
                     {summary.cancelled ? (
-                      <span className="theme-cancelled mt-cancelled">This meeting is cancelled. No reminders or agenda will be sent.</span>
+                      <span className="theme-cancelled mt-cancelled">This meeting is skipped. No reminders or agenda will be sent.</span>
                     ) : (
                       <span className="mt-card-meter">
                         <span
@@ -3845,11 +3800,11 @@ function ThemeMeetingPanel({
                     <h2 id="mt-agenda-title">Agenda · {activeCard.title}</h2>
                     <p>
                       {activeCard.cancelled ? (
-                        'Cancelled for this cycle.'
-                      ) : (
                         <>
-                          <span className="mt-draft">Draft</span> · From submitted updates. The coordinator confirms the agenda separately.
+                          <span className="mt-skipped-state">Skipped</span> — {activeMeeting?.cancellation?.reason || 'No reason recorded.'}
                         </>
+                      ) : (
+                        `${activeCard.time} · ${activeCard.duration_minutes} min · Coordinator ${activeCard.coordinator}`
                       )}
                     </p>
                   </div>
@@ -3870,58 +3825,39 @@ function ThemeMeetingPanel({
                           <Bell aria-hidden="true" />
                           Send reminder
                         </button>
-                        <button className="ops-secondary mt-confirm-action" type="button" onClick={() => openAgendaConfirmation(activeMeeting.theme_id)}>
-                          <Check aria-hidden="true" />
-                          Confirm agenda
+                        <button className="ops-secondary theme-meeting-cancel-action" type="button" onClick={() => setMeetingToCancel(activeMeeting)}>
+                          <X aria-hidden="true" />
+                          Skip this meeting
                         </button>
                       </>}
                     </div>
                   )}
                 </div>
 
-                {!activeCard.cancelled && (
-                  agendaRows.length ? (
-                    <ol className="mt-agenda-list">
-                      {agendaRows.map(({ item, start }) => (
-                        <li key={`${item.member}-${item.submitted_at}`}>
-                          <time className="vs-mono" aria-label={start ? `Planned start ${start}` : undefined}>{start}</time>
-                          <span className="mt-item-main">
-                            <strong>{item.project_context?.title || item.member}</strong>
-                            <span>
-                              {item.project_context ? `${item.member} · ` : ''}
-                              {item.project_context ? `Project stage ${item.project_context.stage ?? 'not recorded'}` : 'No linked project'}
-                            </span>
-                            {item.project_context && (
-                              <details className="mt-snapshot">
-                                <summary>Project snapshot</summary>
-                                <MeetingProjectSummary context={item.project_context} />
-                              </details>
-                            )}
-                          </span>
-                          <span className={`mt-slot mt-slot-${item.update_type}`}>
-                            {updateTypeLabels[item.update_type]} · {item.duration_minutes} min
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="mt-agenda-empty">{activeCard.agenda_count ? `${activeCard.agenda_count} planned updates` : 'No planned updates yet'}</p>
-                  )
-                )}
-
-                {activeMeeting && !activeMeeting.cancelled && (
-                  <p className={`mt-awaiting${activeMeeting.missing_members.length ? '' : ' is-complete'}`}>
-                    <Users aria-hidden="true" />
-                    {activeMeeting.missing_members.length ? (
-                      <span>Awaiting updates from <strong>{nameList(activeMeeting.missing_members)}</strong></span>
-                    ) : (
-                      <span>All updates received</span>
+                {activeMeeting && plan ? (
+                  <ThemeMeetingWorkflow
+                    key={activeMeeting.theme_id}
+                    themeId={activeMeeting.theme_id}
+                    meetingDate={plan.meeting_date}
+                    meetingTime={activeMeeting.time}
+                    cancelled={activeMeeting.cancelled}
+                    canAccess={canAccessActive}
+                    fallbackItems={activeMeeting.agenda_items}
+                    onChanged={onChanged}
+                  >
+                    {!activeMeeting.cancelled && (
+                      <p className={`mt-awaiting${activeMeeting.missing_members.length ? '' : ' is-complete'}`}>
+                        <Users aria-hidden="true" />
+                        {activeMeeting.missing_members.length ? (
+                          <span>Awaiting updates from <strong>{nameList(activeMeeting.missing_members)}</strong></span>
+                        ) : (
+                          <span>All updates received</span>
+                        )}
+                      </p>
                     )}
-                  </p>
-                )}
-
-                {activeMeeting && plan && (
-                  <ThemeMeetingWorkflow key={activeMeeting.theme_id} themeId={activeMeeting.theme_id} meetingDate={plan.meeting_date} onChanged={onChanged} />
+                  </ThemeMeetingWorkflow>
+                ) : !activeCard.cancelled && (
+                  <p className="mt-agenda-empty">{activeCard.agenda_count ? `${activeCard.agenda_count} planned updates` : 'No planned updates yet'}</p>
                 )}
 
                 {activeMeeting && canManageActive && (
@@ -3971,12 +3907,6 @@ function ThemeMeetingPanel({
                         Add
                       </button>
                     </div>
-                    {!activeMeeting.cancelled && (
-                      <button className="ops-secondary theme-meeting-cancel-action" type="button" onClick={() => setMeetingToCancel(activeMeeting)}>
-                        <X aria-hidden="true" />
-                        Cancel this meeting
-                      </button>
-                    )}
                   </div>
                 )}
               </section>
@@ -3985,15 +3915,24 @@ function ThemeMeetingPanel({
             {showPersonalUpdateForm && (
               <form className="theme-update-form mt-form" onSubmit={submitUpdate} aria-labelledby="mt-form-title">
                 <div className="mt-form-head">
-                  <h2 id="mt-form-title">{submittedUpdate ? 'Your submitted update' : 'Your update'}</h2>
-                  <p>Submitting adds your item to the draft agenda. The coordinator confirms the agenda separately.</p>
-                  {updatePlan && (
-                    <p className="mt-form-date">
-                      For {formatDate(updatePlan.meeting_date)}
-                      {submittedUpdate ? ' · Review or edit the fields below.' : ''}
-                    </p>
-                  )}
+                  <div className="mt-form-title-row">
+                    <h2 id="mt-form-title">{submittedUpdate ? 'Your submitted update' : 'Your update'}</h2>
+                    {updatePlan && <p className="mt-form-date">For {formatDate(updatePlan.meeting_date)}</p>}
+                  </div>
+                  <p className={`mt-form-status ${submittedUpdate ? 'is-submitted' : submissionsClosed ? 'is-closed' : 'is-pending'}`} id="mt-form-status">
+                    <strong>{submittedUpdate ? 'Submitted' : 'Not submitted'}</strong>
+                    {submittedUpdate ? ` · ${submittedAtLabel} (UK time)` : ''}
+                    {deadline && (
+                      <span>
+                        {submissionsClosed
+                          ? `Submissions closed ${deadlineLabel} (UK time).`
+                          : `${submittedUpdate ? 'You can still edit until' : 'Due by'} ${deadlineLabel} (UK time).`}
+                      </span>
+                    )}
+                  </p>
                 </div>
+                <section className="mt-step" aria-labelledby="mt-step-project">
+                  <h3 id="mt-step-project" className="mt-step-title"><span aria-hidden="true">1</span>Meeting and project</h3>
                 <div className="mt-form-row">
                   <label>
                     <span>Theme</span>
@@ -4036,6 +3975,8 @@ function ThemeMeetingPanel({
                     </button>
                   </div>
                 )}
+                {submittedUpdate?.project_context && <details className="mt-snapshot"><summary>Previously shared project snapshot</summary><MeetingProjectSummary context={submittedUpdate.project_context} /></details>}
+                </section>
                 {sourceProject && (
                   <ProjectMeetingSuggestion
                     project={sourceProject}
@@ -4051,8 +3992,8 @@ function ThemeMeetingPanel({
                     }}
                   />
                 )}
-                <fieldset className="mt-types">
-                  <legend>Update type</legend>
+                <fieldset className="mt-types mt-step">
+                  <legend className="mt-step-title"><span aria-hidden="true">2</span>Update type</legend>
                   {themeMeetingSlotTypes.map((nextType) => (
                     <label key={nextType} className={`mt-type${updateType === nextType ? ' is-selected' : ''}`}>
                       <input
@@ -4067,10 +4008,9 @@ function ThemeMeetingPanel({
                     </label>
                   ))}
                 </fieldset>
-                {submittedUpdate?.project_context && <details className="mt-snapshot"><summary>Previously shared project snapshot</summary><MeetingProjectSummary context={submittedUpdate.project_context} /></details>}
-                <div className="prompt-field">
+                <div className="prompt-field mt-step">
                   <div className="prompt-field-head">
-                    <label htmlFor={progressFieldId}>Progress since the last meeting <span className="mt-field-note vs-mono">{progressWordCount}/75 words</span></label>
+                    <label htmlFor={progressFieldId} className="mt-step-title"><span aria-hidden="true">3</span>Progress since the last meeting{!progressRequired && <span className="mt-field-note"> · optional</span>}</label>
                     <PromptCopyButton prompt={themeProgressPrompt(uiCopyPrompts, sourceProject)} label="Copy theme progress prompt" />
                   </div>
                   <textarea
@@ -4083,17 +4023,21 @@ function ThemeMeetingPanel({
                     aria-invalid={progressWordCount > 75 || Boolean(formError && !progressText.trim() && updateType !== 'nothing_to_report')}
                     rows={4}
                   />
-                  <p id="theme-meeting-progress-hint" role="status" className={progressWordCount > 75 ? 'ops-error' : 'muted'}>
-                    {progressWordCount > 75
-                      ? 'Over the 75-word maximum. Shorten your progress before submitting.'
-                      : progressWordCount > 50
-                        ? 'Over the recommended 50 words. Consider shortening; you can still submit up to 75 words.'
-                        : 'Aim for 50 words; maximum 75 words.'}
+                  <p id="theme-meeting-progress-hint" role="status" className={`mt-word-count ${progressWordCount > 75 ? 'ops-error' : progressWordCount > 50 ? 'is-warn' : 'muted'}`}>
+                    <span className="mt-word-meter" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.round((progressWordCount / 75) * 100))}%` }} /></span>
+                    <span className="mt-num vs-mono">{progressWordCount}/75 words</span>
+                    <span>
+                      {progressWordCount > 75
+                        ? 'Over the 75-word maximum. Shorten your progress before submitting.'
+                        : progressWordCount > 50
+                          ? 'Over the recommended 50 words. Consider shortening; you can still submit up to 75 words.'
+                          : 'Aim for 50 words; maximum 75 words.'}
+                    </span>
                   </p>
                 </div>
-                <div className="prompt-field">
+                <div className="prompt-field mt-step">
                   <div className="prompt-field-head">
-                    <label htmlFor={questionsFieldId}>Questions for the group <span className="mt-field-note">· optional</span></label>
+                    <label htmlFor={questionsFieldId} className="mt-step-title"><span aria-hidden="true">4</span>Questions for the group <span className="mt-field-note">· optional</span></label>
                     <PromptCopyButton prompt={themeQuestionsPrompt(uiCopyPrompts, sourceProject)} label="Copy theme questions prompt" />
                   </div>
                   <textarea
@@ -4105,7 +4049,8 @@ function ThemeMeetingPanel({
                   />
                 </div>
                 <div className="mt-form-footer">
-                  <button className="ops-primary" type="submit">
+                  <p>Submitting adds your item to the draft agenda. The coordinator arranges and confirms the final agenda.</p>
+                  <button className="ops-primary" type="submit" disabled={submissionsClosed} aria-describedby="mt-form-status">
                     {submittedUpdate ? <Save aria-hidden="true" /> : <Check aria-hidden="true" />}
                     {submittedUpdate ? 'Save changes' : 'Submit update'}
                   </button>
@@ -4143,15 +4088,20 @@ function ThemeMeetingPanel({
       <ConfirmDialog
         id="cancel-theme-meeting-confirm"
         open={Boolean(meetingToCancel)}
-        title="Cancel this meeting?"
-        message={meetingToCancel ? `Cancel Theme ${meetingToCancel.theme_id} on ${formatDate(plan?.meeting_date || '')}? Reminders, agenda generation, and agenda emails for this meeting will stop.` : ''}
-        confirmLabel="Cancel meeting"
+        title="Skip this meeting?"
+        message={meetingToCancel ? `Skip Theme ${meetingToCancel.theme_id} on ${formatDate(plan?.meeting_date || '')}? Reminders, agenda generation, agenda confirmation and agenda emails for this meeting will stop. You can restore it later.` : ''}
+        confirmLabel="Skip meeting"
         busy={cancellationBusy}
-        onCancel={() => setMeetingToCancel(null)}
+        onCancel={() => { setMeetingToCancel(null); setSkipReason(''); }}
         onConfirm={() => {
           if (meetingToCancel) void changeMeetingCancellation(meetingToCancel, false);
         }}
-      />
+      >
+        <label className="confirm-dialog-phrase">
+          <span>Reason (shown to members)</span>
+          <input value={skipReason} maxLength={1000} placeholder="For example, conference week" onChange={(event) => setSkipReason(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
+        </label>
+      </ConfirmDialog>
     </section>
   );
 }
@@ -4476,14 +4426,11 @@ function ProjectsView({
 }) {
   const canSeeAll = canSeeAllRole(viewer.role);
   const mode: ProjectsMode = canSeeAll ? 'pi' : 'member';
-  const [agendaState, setAgendaState] = useState<Record<string, 'added' | 'dismissed'>>({});
   const [projectQuery, setProjectQuery] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailProject, setDetailProject] = useState<ManagedProject | null>(null);
   const [detailMode, setDetailMode] = useState<ProjectDetailMode>('details');
   const [actionError, setActionError] = useState<string | null>(null);
-  const [planningReport, setPlanningReport] = useState<ProjectPlanningReport | null>(null);
-  const [planningBusy, setPlanningBusy] = useState(false);
   const [projectToArchive, setProjectToArchive] = useState<ManagedProject | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [projectFilter, setProjectFilter] = useState<'active' | 'attention' | 'archived'>('active');
@@ -4498,15 +4445,9 @@ function ProjectsView({
   const matchingProjects = (projectFilter === 'archived' ? archivedProjects : projectFilter === 'attention' ? attentionProjects : activeProjects)
     .filter((project) => !trackFilter || project.track === trackFilter)
     .filter((project) => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(projectQuery.trim().toLowerCase()));
-  const agendaCandidates = attentionProjects.filter((project) => agendaState[project.id] !== 'dismissed');
   const memberArtifacts = activeProjects.flatMap((project) =>
     currentProjectArtifacts(project).map((artifact) => ({ project, artifact })),
   );
-  const projectOwners = [...new Set(activeProjects.map((project) => normalizedName(project.ownerUsername)))].map((owner) => ({
-    username: activeProjects.find((project) => normalizedName(project.ownerUsername) === owner)?.ownerUsername || owner,
-    user: collaboratorUsers.find((user) => normalizedName(user.username) === owner),
-    count: activeProjects.filter((project) => normalizedName(project.ownerUsername) === owner).length,
-  }));
 
   function openCreateProject() {
     setEditorOpen(true);
@@ -4563,22 +4504,6 @@ function ProjectsView({
       await onProjectsChanged();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : 'Could not unarchive project.');
-    }
-  }
-
-  async function runProjectPlanningScan() {
-    setPlanningBusy(true);
-    setActionError(null);
-    try {
-      const body = await requestJson<ProjectPlanningPayload>('/api/projects/planning', 'Could not run project planning scan.', {
-        method: 'POST',
-      });
-      if (!body.report) throw new Error('Could not run project planning scan.');
-      setPlanningReport(body.report);
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : 'Could not run project planning scan.');
-    } finally {
-      setPlanningBusy(false);
     }
   }
 
@@ -4746,8 +4671,8 @@ function ProjectsView({
             <p className="vs-table-note">Stage shows the recorded project stage. Workflow phase and checkpoint approvals are kept separately in each project’s research workflow.</p>
           </section>
 
+          {mode === 'member' && (
           <div className="vs-project-lower">
-          {mode === 'member' ? (
             <section className="vs-lower-main" aria-labelledby="project-meeting-prep-title">
               <div className="vs-section-head">
                 <div>
@@ -4786,146 +4711,8 @@ function ProjectsView({
                 )}
               </div>
             </section>
-          ) : (
-            <section className="vs-lower-main" aria-labelledby="project-planning-title">
-              <div className="vs-section-head">
-                <div>
-                  <h2 id="project-planning-title">Project planning brief</h2>
-                  <p>Suggested meeting slots from project state. The coordinator confirms the agenda in Meetings.</p>
-                </div>
-                <span className="vs-advisory">Advisory</span>
-              </div>
-              <ul className="vs-slot-list">
-                {agendaCandidates.length ? (
-                  agendaCandidates.map((project) => (
-                    <li key={project.id}>
-                      <span className="vs-slot-label">{projectSlotLabels[project.recommendation]}</span>
-                      <div className="vs-slot-body">
-                        <strong>{project.title}</strong>
-                        <span>{projectEvidence(project)}</span>
-                        <span className="vs-slot-meta">
-                          <StatusChip status={project.status} />
-                          @{project.ownerUsername} · stage {project.stage} ({project.stageProgress}%) · last update {formatAge(daysSinceDate(project.lastUpdate))}
-                        </span>
-                      </div>
-                      <div className="vs-slot-actions">
-                        <button
-                          className="ops-secondary"
-                          type="button"
-                          onClick={() => setAgendaState((current) => ({ ...current, [project.id]: 'added' }))}
-                        >
-                          {agendaState[project.id] === 'added' ? 'Added' : 'Add to agenda'}
-                        </button>
-                        <button
-                          className="vs-quiet-button"
-                          type="button"
-                          onClick={() => setAgendaState((current) => ({ ...current, [project.id]: 'dismissed' }))}
-                        >
-                          Dismiss
-                        </button>
-                      </div>
-                    </li>
-                  ))
-                ) : (
-                  <li className="ops-muted-line">No projects currently need attention</li>
-                )}
-              </ul>
-
-              <div className="vs-scan-head">
-                <p>Project scan: attention items first, then projects updated in the current two-week cycle.</p>
-                <button className="ops-secondary" type="button" disabled={planningBusy} onClick={() => void runProjectPlanningScan()}>
-                  <RefreshCw aria-hidden="true" className={planningBusy ? 'spin' : undefined} />
-                  {planningBusy ? 'Scanning' : 'Run project scan'}
-                </button>
-              </div>
-            {planningReport && (
-              <div className="planning-brief-grid">
-                <div className="summary-strip compact">
-                  <strong>{planningReport.attentionItems.length} attention</strong>
-                  <strong>{planningReport.updatedProjects.length} updated</strong>
-                  <strong>Since {formatDate(planningReport.cycleStart)}</strong>
-                </div>
-                <div className="planning-brief-columns">
-                  <div>
-                    <h3>Attention</h3>
-                    {planningReport.attentionItems.length ? (
-                      planningReport.attentionItems.slice(0, 5).map((item) => {
-                        const project = projects.find((candidate) => candidate.id === item.id);
-                        return (
-                          <button
-                            className="planning-brief-item"
-                            disabled={!project}
-                            key={item.id}
-                            type="button"
-                            onClick={() => project && openProject(project, 'progress')}
-                          >
-                            <strong>{projectPlanningLine(item)}</strong>
-                            <span>{item.attentionReason || item.blocker || 'Needs review'}</span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <div className="ops-muted-line">No attention items</div>
-                    )}
-                  </div>
-                  <div>
-                    <h3>Updated</h3>
-                    {planningReport.updatedProjects.length ? (
-                      planningReport.updatedProjects.slice(0, 5).map((item) => {
-                        const project = projects.find((candidate) => candidate.id === item.id);
-                        return (
-                          <button
-                            className="planning-brief-item"
-                            disabled={!project}
-                            key={item.id}
-                            type="button"
-                            onClick={() => project && openProject(project, 'progress')}
-                          >
-                            <strong>{projectPlanningLine(item)}</strong>
-                            <span>{item.progressText || 'Progress recorded'}</span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <div className="ops-muted-line">No project progress updates in this cycle</div>
-                    )}
-                  </div>
-                </div>
-                <pre className="project-brief-preview">{planningReport.markdown}</pre>
-              </div>
-            )}
-              <button className="vs-link-button" type="button" onClick={onOpenMeeting}>Open meeting planning</button>
-            </section>
-          )}
-
-            <section className="vs-lower-side" aria-labelledby="project-members-title">
-              <div className="vs-section-head">
-                <div>
-                  <h2 id="project-members-title">Members</h2>
-                  <p>People with visible projects.</p>
-                </div>
-              </div>
-              {projectOwners.length ? (
-                <ul className="vs-member-list">
-                  {projectOwners.map((owner) => (
-                    <li key={owner.username}>
-                      <span className="vs-member-avatar" aria-hidden="true">{initials(owner.user?.displayName || owner.username)}</span>
-                      <span>
-                        <span>{owner.user?.displayName || `@${owner.username}`}</span>
-                        <small>
-                          {[owner.user ? `@${owner.username}` : null, owner.user ? roleLabel(owner.user.role) : null, `${owner.count} ${owner.count === 1 ? 'project' : 'projects'}`]
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </small>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="ops-muted-line">No visible projects yet.</p>
-              )}
-            </section>
           </div>
+          )}
         </div>
       )}
       {editorOpen && (

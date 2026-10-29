@@ -1,5 +1,8 @@
 import { formatMeetingProject } from './project-context';
-import { themeUpdateTypeLabels as slotLabels, type ThemeMeetingPlan } from './schema';
+import { themeUpdateTypeLabels as slotLabels, type ThemeMeetingAgendaItem, type ThemeMeetingPlan } from './schema';
+
+/** The human-confirmed version being circulated; `skipped` lists items the manager left out of this meeting. */
+export type ConfirmedAgendaEmail = { version: number; confirmedBy: string; confirmedAt: string; skipped: ThemeMeetingAgendaItem[] };
 
 const advisory = 'This agenda is advisory until confirmed by a coordinator, PI, or administrator.';
 
@@ -69,8 +72,10 @@ function updateHtml(value: string): string {
   return html + (inList ? '</ul>' : '');
 }
 
-function discussionItems(meeting: ThemeMeetingPlan['meetings'][number]) {
-  return meeting.agenda_items.filter((item) => item.duration_minutes > 0).sort((a, b) =>
+function discussionItems(meeting: ThemeMeetingPlan['meetings'][number], confirmed = false) {
+  const items = meeting.agenda_items.filter((item) => item.duration_minutes > 0);
+  // A confirmed agenda keeps the order the coordinator chose.
+  return confirmed ? items : items.sort((a, b) =>
     Number(b.update_type === 'deep_dive') - Number(a.update_type === 'deep_dive')
     || b.duration_minutes - a.duration_minutes);
 }
@@ -81,33 +86,56 @@ function skipSuggestion(meeting: ThemeMeetingPlan['meetings'][number]): string {
 
 export function renderThemeMeetingAgendaEmail(
   plan: ThemeMeetingPlan,
-  options: { phase?: 'preview' | 'final'; cutoff?: { weekday: string; time: string } } = {},
+  options: { phase?: 'preview' | 'final'; cutoff?: { weekday: string; time: string }; confirmation?: ConfirmedAgendaEmail } = {},
 ): { text: string; html: string } {
   const preview = options.phase === 'preview';
-  const title = preview ? 'Draft theme meeting agenda' : 'Theme meeting agenda';
+  const confirmed = options.confirmation;
+  const title = preview ? 'Draft theme meeting agenda' : confirmed ? 'Confirmed theme meeting agenda' : 'Theme meeting agenda';
   const missingLabel = preview ? 'Not submitted yet' : 'Missing updates';
+  const confirmedAt = confirmed && new Date(confirmed.confirmedAt).toLocaleString('en-GB', { timeZone: 'Europe/London', dateStyle: 'medium', timeStyle: 'short' });
   const notice = preview
     ? `This is a draft based on updates submitted so far (${plan.generated_at}). Review who is doing a deep dive and adjust your own slot, update or presentation plans before ${options.cutoff?.weekday || 'Wednesday'} ${options.cutoff?.time || '08:00'} (${plan.timezone}). More submissions and changes may follow. The cutoff agenda will be circulated after the deadline.`
-    : advisory;
+    : confirmed
+      ? `Final agenda, version ${confirmed.version}, confirmed by @${confirmed.confirmedBy} on ${confirmedAt} (UK time). Items are listed in the confirmed order; later submissions do not change this version.`
+      : advisory;
   const emptyDiscussion = preview ? 'No discussion slots requested yet.' : 'No discussion slots requested.';
   const noSlotsNotice = (meeting: ThemeMeetingPlan['meetings'][number]) => preview
     ? 'Submissions are still open. This draft does not decide whether the meeting should be skipped.'
-    : skipSuggestion(meeting);
+    : confirmed ? 'The confirmed agenda has no discussion slots.' : skipSuggestion(meeting);
+  // Planned start times follow the confirmed order and slot lengths.
+  const starts = (meeting: ThemeMeetingPlan['meetings'][number]) => {
+    const [hours, minutes] = meeting.time.split(':').map(Number);
+    let clock = (hours || 0) * 60 + (minutes || 0);
+    return new Map(meeting.agenda_items.map((item) => {
+      const start = `${String(Math.floor(clock / 60) % 24).padStart(2, '0')}:${String(clock % 60).padStart(2, '0')}`;
+      clock += item.duration_minutes;
+      return [item, start] as const;
+    }));
+  };
+  const skippedText = confirmed?.skipped.length
+    ? ['Skipped at this meeting', confirmed.skipped.map((item) => `${item.member} | ${slotLabels[item.update_type]} | not scheduled`).join('\n')]
+    : [];
+  const skippedHtml = confirmed?.skipped.length ? `
+    <tr><td style="padding:16px 24px;">
+      <h3 style="margin:0 0 8px;font-size:18px;color:#183b4e;">Skipped at this meeting</h3>
+      <ul style="margin:0;padding-left:22px;color:#52616b;">${confirmed.skipped.map((item) => `<li style="margin:0 0 6px;">${escapeHtml(item.member)} &middot; ${slotLabels[item.update_type]} &middot; not scheduled</li>`).join('')}</ul>
+    </td></tr>` : '';
   const meetings = plan.meetings.filter((meeting) => !meeting.cancelled);
   const text = [
     title,
     `Date: ${plan.meeting_date} | Cycle group: ${plan.cycle_group} | Timezone: ${plan.timezone}`,
     notice,
     ...meetings.map((meeting) => {
-      const discussion = discussionItems(meeting);
+      const discussion = discussionItems(meeting, Boolean(confirmed));
       const written = meeting.agenda_items.filter((item) => item.duration_minutes === 0);
+      const start = starts(meeting);
       return [
       `Theme ${meeting.theme_id} — ${meeting.title}`,
       `${meeting.time} | ${meeting.duration_minutes} min | Coordinator: ${meeting.coordinator}`,
       `Submitted: ${meeting.submitted_members.length}/${meeting.members.length} | Planned: ${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}`,
       `${missingLabel}: ${meeting.missing_members.join(', ') || 'None'}`,
       'Discussion agenda',
-      discussion.map((item) => `${item.member} | ${slotLabels[item.update_type]} | ${item.duration_minutes} min`).join('\n') || emptyDiscussion,
+      discussion.map((item) => `${confirmed ? `${start.get(item)} | ` : ''}${item.member} | ${slotLabels[item.update_type]} | ${item.duration_minutes} min`).join('\n') || emptyDiscussion,
       ...(discussion.length ? [] : [noSlotsNotice(meeting)]),
       ...[...discussion, ...written].map((item, index) => [
         ...(index === 0 ? [discussion.length ? 'Discussion details' : 'Updates'] : index === discussion.length ? ['Updates'] : []),
@@ -117,6 +145,7 @@ export function renderThemeMeetingAgendaEmail(
         ...(item.questions ? [`Questions: ${updateText(item.questions)}`] : []),
       ].join('\n')),
       ...(meeting.agenda_items.length ? [] : ['No planned updates yet.']),
+      ...skippedText,
     ].join('\n\n');
     }),
     ...(meetings.length ? [] : ['No active theme meetings are scheduled.']),
@@ -124,8 +153,9 @@ export function renderThemeMeetingAgendaEmail(
 
   // Outlook-compatible layout: table structure and inline styles, without a CSS dependency.
   const sections = meetings.map((meeting) => {
-    const discussion = discussionItems(meeting);
+    const discussion = discussionItems(meeting, Boolean(confirmed));
     const written = meeting.agenda_items.filter((item) => item.duration_minutes === 0);
+    const start = starts(meeting);
     const details = (items: typeof meeting.agenda_items, title: string) => items.length ? `
     <tr><td style="padding:20px 24px 8px;"><h3 style="margin:0;font-size:18px;color:#183b4e;">${title}</h3></td></tr>
     ${items.map((item) => `
@@ -147,10 +177,12 @@ export function renderThemeMeetingAgendaEmail(
       <h3 style="margin:0 0 10px;font-size:18px;color:#183b4e;">Discussion agenda</h3>
       ${discussion.length ? `<table aria-label="Theme ${escapeHtml(meeting.theme_id)} discussion agenda" width="100%" cellpadding="0" cellspacing="0" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:14px;line-height:1.5;">
         <thead><tr style="background-color:#edf3f6;">
-          <th scope="col" width="44%" align="left" style="padding:10px 8px;border-bottom:1px solid #dce3e9;">Member</th>
-          <th scope="col" width="36%" align="left" style="padding:10px 8px;border-bottom:1px solid #dce3e9;">Discussion</th>
-          <th scope="col" width="20%" align="right" style="padding:10px 8px;border-bottom:1px solid #dce3e9;">Minutes</th>
+          ${confirmed ? '<th scope="col" width="14%" align="left" style="padding:10px 8px;border-bottom:1px solid #dce3e9;">Start</th>' : ''}
+          <th scope="col" width="${confirmed ? 36 : 44}%" align="left" style="padding:10px 8px;border-bottom:1px solid #dce3e9;">Member</th>
+          <th scope="col" width="${confirmed ? 32 : 36}%" align="left" style="padding:10px 8px;border-bottom:1px solid #dce3e9;">Discussion</th>
+          <th scope="col" width="${confirmed ? 18 : 20}%" align="right" style="padding:10px 8px;border-bottom:1px solid #dce3e9;">Minutes</th>
         </tr></thead><tbody>${discussion.map((item) => `<tr>
+          ${confirmed ? `<td style="padding:12px 8px;border-bottom:1px solid #dce3e9;">${start.get(item)}</td>` : ''}
           <td style="padding:12px 8px;border-bottom:1px solid #dce3e9;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(item.member)}</td>
           <td style="padding:12px 8px;border-bottom:1px solid #dce3e9;overflow-wrap:anywhere;word-break:break-word;">${slotLabels[item.update_type]}</td>
           <td align="right" style="padding:12px 8px;border-bottom:1px solid #dce3e9;">${item.duration_minutes}</td>
@@ -159,6 +191,7 @@ export function renderThemeMeetingAgendaEmail(
     ${details(discussion, 'Discussion details')}
     ${details(written, 'Updates')}
     ${meeting.agenda_items.length ? '' : '<tr><td style="padding:16px 24px;">No planned updates yet.</td></tr>'}
+    ${skippedHtml}
   `;
   }).join('');
 
@@ -168,13 +201,13 @@ export function renderThemeMeetingAgendaEmail(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f3f5f7;"><tr><td align="center" style="padding:24px 8px;">
 <table role="presentation" width="680" cellpadding="0" cellspacing="0" style="width:100%;max-width:680px;background-color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.6;color:#24333d;">
   <tr><td style="padding:24px;background-color:#183b4e;color:#ffffff;">
-    <p style="margin:0 0 8px;font-size:13px;letter-spacing:1px;">VIOSCOPE &middot; ${preview ? 'DRAFT AGENDA PREVIEW' : 'ADVISORY AGENDA'}</p>
+    <p style="margin:0 0 8px;font-size:13px;letter-spacing:1px;">VIOSCOPE &middot; ${preview ? 'DRAFT AGENDA PREVIEW' : confirmed ? `CONFIRMED AGENDA &middot; VERSION ${confirmed.version}` : 'ADVISORY AGENDA'}</p>
     <h1 style="margin:0 0 12px;font-size:28px;line-height:1.3;">${title}</h1>
     <p style="margin:0;">${escapeHtml(plan.meeting_date)} &middot; Cycle ${escapeHtml(plan.cycle_group)}<br>${escapeHtml(plan.timezone)}</p>
   </td></tr>
-  ${preview ? `<tr><td style="padding:16px 24px;background-color:#fff3cd;">${escapeHtml(notice)}</td></tr>` : ''}
+  ${preview ? `<tr><td style="padding:16px 24px;background-color:#fff3cd;">${escapeHtml(notice)}</td></tr>` : confirmed ? `<tr><td style="padding:16px 24px;background-color:#e6f2ec;">${escapeHtml(notice)}</td></tr>` : ''}
   ${sections || '<tr><td style="padding:24px;">No active theme meetings are scheduled.</td></tr>'}
-  <tr><td style="padding:20px 24px;background-color:#edf3f6;color:#52616b;font-size:13px;">${advisory}</td></tr>
+  <tr><td style="padding:20px 24px;background-color:#edf3f6;color:#52616b;font-size:13px;">${confirmed ? 'Confirmed by a theme coordinator, PI or administrator in VioScope. Project details are the snapshots members shared when they submitted.' : advisory}</td></tr>
 </table>
 </td></tr></table>
 </body></html>`;

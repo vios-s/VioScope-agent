@@ -18,7 +18,7 @@ export function ProjectMeetingActions({ projectId }: { projectId: string }) {
   }, [projectId, revision]);
   return <section className="project-meeting-panel">
     <h2>Meeting decisions and actions</h2>
-    <p>Shared records from theme meetings. Update progress in Meeting → Confirmed agenda and follow-up. Project stages are changed separately.</p>
+    <p>Shared records from theme meetings. Update progress in Meetings → Decisions and follow-up. Project stages are changed separately.</p>
     <button type="button" className="ops-secondary" onClick={() => setRevision((value) => value + 1)}>Refresh meeting actions</button>
     {error ? <p role="alert">{error}</p> : actions === null ? <p role="status">Loading meeting actions…</p> : !actions.length ? <p>No meeting actions linked to this project.</p> :
       <ul>{actions.slice().sort((a, b) => a.status.localeCompare(b.status) * -1 || a.dueDate.localeCompare(b.dueDate)).map((action) => <li key={action.id}>

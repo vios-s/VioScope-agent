@@ -145,10 +145,14 @@ Deployment validation used an isolated database and the production build: projec
 creation, member completion, project-side shared history, unchanged stage, and desktop/mobile layout
 passed. Live HTTPS login, updated bundle and unauthenticated API guards also passed.
 
-Implementation: each theme card exposes `Confirmed agenda and follow-up`, including a date selector
-for previous meetings. Existing member-only visibility is preserved; managers see their theme's
-records, while members see their own slots/actions. Deferral does not automatically book a later
-meeting. Action notes and status changes retain their actor and timestamp. No action emails or
+Implementation: the agenda section offers managers an `Arrange agenda` mode (reorder, Deep Dive
+minutes, per-item Skip, live total against the meeting length) and `Confirm final agenda`; the
+confirmed version then shows in the main list with `Email final agenda`, which sends that version to
+the cutoff-agenda audience, deduplicated per version and recipient. `Skip this meeting` (with a
+reason) and `Restore meeting` sit in the agenda header. `Decisions and follow-up` keeps a date
+selector for previous meetings. Existing member-only visibility is preserved; managers see their
+theme's records, while members see their own slots/actions. Skipping an item does not automatically
+book a later meeting. Action notes and status changes retain their actor and timestamp. No action emails or
 automatic project/wiki write-back are introduced.
 
 Snapshots and action history are stored beside the external meeting updates file as

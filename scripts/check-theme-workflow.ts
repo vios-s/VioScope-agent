@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import nodemailer from 'nodemailer';
 import { stringify } from 'yaml';
 import { closePostgresPools, createPostgresClient } from '../src/mastra/db/postgres';
 
@@ -13,6 +14,8 @@ const source = createPostgresClient('theme-workflow-isolation');
 const database = `vioscope_workflow_${randomUUID().replaceAll('-', '')}`;
 const directory = await mkdtemp(join(tmpdir(), 'vioscope-workflow-'));
 let created = false;
+const originalTransport = nodemailer.createTransport;
+const sent: { to: string; subject: string; text: string; html: string }[] = [];
 try {
   await source.pool.query(`CREATE DATABASE "${database}"`);
   created = true;
@@ -24,7 +27,14 @@ try {
     THEME_MEETING_UPDATES_PATH: join(directory, 'updates.yaml'),
     THEME_MEETING_NOTIFICATIONS_PATH: join(directory, 'notifications.yaml'),
     THEME_MEETING_CANCELLATIONS_PATH: join(directory, 'cancellations.yaml'),
+    THEME_MEETING_EMAIL_DELIVERIES_PATH: join(directory, 'deliveries.yaml'),
+    EMAIL_NOTIFICATIONS_ENABLED: 'true', EMAIL_SEND_PROVIDER: 'smtp',
   });
+  // Simulated transport: no mail leaves the process.
+  nodemailer.createTransport = (() => ({ sendMail: async (mail: typeof sent[number]) => {
+    sent.push(mail);
+    return { messageId: `<workflow-${sent.length}@example.test>`, accepted: [mail.to], rejected: [] };
+  } })) as unknown as typeof nodemailer.createTransport;
   const users = await import('../src/mastra/db/users');
   const schema = await import('../src/mastra/theme-meetings/schema');
   const planner = await import('../src/mastra/theme-meetings/planner');
@@ -39,7 +49,7 @@ try {
   }
   const accounts = new Map(await Promise.all(['alice', 'bob', 'carol', 'chair', 'outsider', 'principal'].map(async (name) => [name, (await users.getUserByUsername(name))!] as const)));
   const config = schema.themeMeetingConfigSchema.parse({
-    timezone: 'Europe/London', cycle: { rotation: ['AB'], anchor_date: '2026-10-28' },
+    timezone: 'Europe/London', cycle: { rotation: ['AB'], anchor_date: '2026-10-28' }, pi_users: ['principal'],
     themes: [
       { theme_id: 'A', title: 'Example A', cycle_group: 'AB', time: '10:00', coordinator: 'chair', coordinator_user: 'chair', members: ['alice', 'bob', 'carol'], member_users: ['alice', 'bob', 'carol'] },
       { theme_id: 'B', title: 'Example B', cycle_group: 'AB', time: '11:00', coordinator: 'outsider', coordinator_user: 'outsider', members: ['outsider'], member_users: ['outsider'] },
@@ -84,6 +94,44 @@ try {
   const concurrent = await Promise.all([post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next }), post('principal', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next })]);
   assert.deepEqual(concurrent.map((response) => response.status).sort(), [200, 409]);
   assert.equal((await workflow.readMeetingWorkflow()).confirmations.length, 2, 'Preserve previous versions.');
+  // Email final agenda: manager-only, latest confirmed version, cutoff audience, deduplicated per version.
+  await db.pool.query(`UPDATE users SET metadata = '{"notification_preferences":{"theme_meeting_reminders":{"email":false}}}'::jsonb WHERE username='bob'`);
+  const email = (name: string, version: number, themeId = 'A') => post(name, { operation: 'email_confirmed', version, themeId });
+  assert.equal((await email('alice', 2)).status, 403, 'Members cannot circulate the agenda.');
+  assert.equal((await email('outsider', 2)).status, 403, 'Another theme coordinator cannot circulate A.');
+  assert.equal((await email('outsider', 1, 'B')).status, 400, 'No confirmation, no email.');
+  assert.equal((await email('chair', 1)).status, 409, 'Only the latest confirmed version can be emailed.');
+  assert.equal((await ok(await get('chair'))).emailedAt, null);
+  let delivery = await ok(await email('chair', 2));
+  assert.deepEqual(delivery.emails, { sent: 4, skipped: 1, failed: 0 }, 'PI, coordinator and members except the muted account.');
+  assert.deepEqual(sent.map((mail) => mail.to).sort(), ['alice', 'carol', 'chair', 'principal'].map((name) => `${name}@example.test`));
+  const v2 = (await workflow.readMeetingWorkflow()).confirmations.at(-1)!;
+  const v2Order = v2.entries.filter((entry) => !entry.deferred).map((entry) => entry.member);
+  assert.match(sent[0].subject, /confirmed theme meeting agenda 2026-10-28 Theme A \(version 2\)/);
+  assert.match(sent[0].html, /CONFIRMED AGENDA &middot; VERSION 2/);
+  assert.ok(sent[0].text.indexOf(v2Order[0]) < sent[0].text.indexOf(v2Order[1]), 'Confirmed order is preserved.');
+  assert.match(sent[0].text, /Skipped at this meeting\n\s*carol \| Deep Dive \| not scheduled/);
+  assert.match(sent[0].text, /10:00 \| /, 'Start times follow the confirmed order.');
+  assert.ok((await ok(await get('chair'))).emailedAt, 'The confirmed version records its email time.');
+  delivery = await ok(await email('principal', 2));
+  assert.deepEqual(delivery.emails, { sent: 0, skipped: 5, failed: 0 }, 'Resending a version does not duplicate mail.');
+  assert.equal(sent.length, 4);
+  draft = await ok(await get('chair'));
+  await ok(await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next.slice().reverse() }));
+  assert.equal((await ok(await get('chair'))).emailedAt, null, 'A new version has not been emailed yet.');
+  delivery = await ok(await email('chair', 3));
+  assert.equal(delivery.emails.sent, 4, 'A new confirmed version can be circulated.');
+  assert.match(sent.at(-1)!.subject, /\(version 3\)/);
+  await planner.cancelThemeMeeting({ meetingDate: date, themeId: 'A', cancelledByUsername: 'chair', reason: 'Workshop week' });
+  draft = await ok(await get('chair'));
+  assert.equal(draft.cancelled, true);
+  assert.equal((await email('chair', 3)).status, 400, 'A skipped meeting cannot be emailed.');
+  assert.equal((await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next })).status, 400, 'A skipped meeting cannot be confirmed.');
+  assert.deepEqual(await planner.sendThemeMeetingAgendaEmails((await planner.buildThemeMeetingPlan({ meetingDate: date })).plan, config, { themeId: 'A' }), { sent: 0, skipped: 0, failed: 0 }, 'Cutoff agenda excludes a skipped meeting.');
+  assert.equal((await planner.buildThemeMeetingReminderRun('first_reminder', { meetingDate: date, previewOnly: true })).notifications.some((item) => item.theme_id === 'A'), false, 'Reminders exclude a skipped meeting.');
+  const { removeThemeMeetingCancellation } = await import('../src/mastra/theme-meetings/store');
+  await removeThemeMeetingCancellation(date, 'A');
+  assert.equal(sent.length, 8);
   const action = { decision: 'Proceed with the baseline check.', task: 'Run the baseline and attach results.', owner: 'alice', dueDate: '2026-10-30' };
   assert.equal((await post('alice', { operation: 'add_action', action })).status, 403);
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, owner: 'outsider' } })).status, 400);
@@ -132,8 +180,9 @@ try {
   assert.equal((await get('alice')).status, 401);
   assert.equal((await post('chair', { operation: 'add_action', action })).status, 400);
   assert.equal(await readFile(workflow.workflowPath(), 'utf8'), before, 'Rejected writes leave the file unchanged.');
-  console.log('Theme workflow passed: saved versions, order/defer/budget, late edits, concurrent confirmation, exact account access, assigned actions, evidence, stale-write rejection and next-meeting follow-up. Synthetic data only.');
+  console.log('Theme workflow passed: saved versions, order/defer/budget, late edits, concurrent confirmation, confirmed-agenda email permission/dedupe/versioning/skip, exact account access, assigned actions, evidence, stale-write rejection and next-meeting follow-up. Synthetic data only.');
 } finally {
+  nodemailer.createTransport = originalTransport;
   await closePostgresPools(process.env.DATABASE_URL);
   if (created) await source.pool.query(`DROP DATABASE "${database}" WITH (FORCE)`);
   await closePostgresPools(originalURL);

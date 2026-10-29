@@ -255,7 +255,7 @@
   min-width: 0;
 }
 
-.mt-members .theme-meeting-cancel-action {
+.mt-agenda-actions .theme-meeting-cancel-action {
   align-self: flex-start;
   min-height: var(--vs-control-sm);
   border-color: transparent;
@@ -264,7 +264,7 @@
   font-size: 13px;
 }
 
-.mt-members .theme-meeting-cancel-action:hover:not(:disabled) {
+.mt-agenda-actions .theme-meeting-cancel-action:hover:not(:disabled) {
   border-color: var(--vs-danger-border);
   background: var(--vs-danger-bg);
   color: var(--vs-destructive);
@@ -1042,6 +1042,416 @@
   flex-basis: 100%;
 }
 
+/* ---------- Agenda board: view, arrange, confirm, email (ThemeMeetingWorkflow) ---------- */
+
+.mt-skipped-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--vs-muted-fg);
+  font-weight: 500;
+}
+
+.mt-skipped-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-muted-dot);
+}
+
+.mt-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mt-board > .form-message {
+  margin: 0;
+}
+
+.mt-board-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.mt-board-state {
+  flex: 1 1 260px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.mt-board-state strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.mt-board-state strong::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--vs-radius-pill);
+}
+
+.mt-board-state.is-draft strong { color: var(--vs-warn-fg); }
+.mt-board-state.is-draft strong::before { background: var(--vs-warn-dot); }
+.mt-board-state.is-confirmed strong { color: var(--vs-ok-fg); }
+.mt-board-state.is-confirmed strong::before { background: var(--vs-ok-dot); }
+.mt-board-state.is-arranging strong { color: var(--vs-accent-strong); }
+.mt-board-state.is-arranging strong::before { background: var(--vs-accent); }
+
+.mt-board-actions,
+.mt-arrange-buttons,
+.mt-inline-confirm > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mt-board-actions .ops-secondary,
+.mt-board-actions .ops-primary,
+.mt-inline-confirm .ops-secondary,
+.mt-inline-confirm .ops-primary {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.mt-board-note,
+.mt-board-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.mt-board-note {
+  padding: 10px 12px;
+  border: 1px solid var(--vs-warn-border);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-warn-bg);
+  color: var(--vs-warn-fg);
+}
+
+.mt-inline-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--vs-accent-line);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-accent-wash);
+}
+
+.mt-inline-confirm p {
+  flex: 1 1 280px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--vs-ink);
+}
+
+.mt-board.is-arranging .mt-agenda-list li {
+  align-items: center;
+}
+
+.mt-agenda-list li.is-skipped .mt-item-main,
+.mt-agenda-list li.is-skipped time {
+  opacity: 0.6;
+}
+
+.mt-arrange-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.mt-minutes {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.mt-minutes input {
+  height: 32px;
+  width: 56px;
+  min-height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--vs-border-control);
+  border-radius: var(--vs-radius-row-btn);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.mt-minutes input[readonly],
+.mt-minutes input:disabled {
+  border-color: var(--vs-line);
+  background: var(--vs-surface-2);
+  color: var(--vs-ink-3);
+}
+
+.mt-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--vs-border-control);
+  border-radius: var(--vs-radius-row-btn);
+  background: var(--vs-surface);
+  color: var(--vs-ink-2);
+  cursor: pointer;
+}
+
+.mt-icon-btn:hover:not(:disabled) {
+  background: var(--vs-row-hover);
+  color: var(--vs-ink);
+}
+
+.mt-icon-btn:disabled {
+  color: var(--vs-ink-disabled);
+  cursor: default;
+}
+
+.mt-icon-btn:focus-visible,
+.mt-skip-toggle:focus-within {
+  outline: var(--vs-focus-ring);
+  outline-offset: var(--vs-focus-offset);
+}
+
+.mt-icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.mt-skip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--vs-border-control);
+  border-radius: var(--vs-radius-row-btn);
+  font-size: 13px;
+  color: var(--vs-ink-2);
+  cursor: pointer;
+}
+
+.mt-skip-toggle input {
+  margin: 0;
+}
+
+.mt-skip-toggle:has(input:checked) {
+  border-color: var(--vs-line);
+  background: var(--vs-muted-bg);
+  color: var(--vs-muted-fg);
+}
+
+.mt-skipped {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mt-skipped h3 {
+  margin: 4px 0 0;
+  font: var(--vs-text-label-caps);
+  color: var(--vs-ink-3);
+}
+
+.mt-skipped .mt-agenda-list {
+  border-top-color: var(--vs-line-soft);
+}
+
+.mt-arrange-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--vs-line);
+  background: var(--vs-surface);
+}
+
+.mt-arrange-total {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--vs-ink-2);
+}
+
+.mt-arrange-total .mt-meter {
+  flex: 0 1 160px;
+}
+
+.mt-arrange-total.is-over {
+  color: var(--vs-danger-fg);
+}
+
+/* ---------- Your update: steps, status, word count ---------- */
+
+.mt-form-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.mt-form .mt-form-title-row .mt-form-date {
+  margin: 0;
+}
+
+.mt-form .mt-form-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-surface-2);
+  color: var(--vs-ink-3);
+}
+
+.mt-form-status strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.mt-form-status strong::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--vs-radius-pill);
+}
+
+.mt-form-status > span {
+  flex-basis: 100%;
+}
+
+.mt-form-status.is-submitted strong { color: var(--vs-ok-fg); }
+.mt-form-status.is-submitted strong::before { background: var(--vs-ok-dot); }
+.mt-form-status.is-pending strong { color: var(--vs-warn-fg); }
+.mt-form-status.is-pending strong::before { background: var(--vs-warn-dot); }
+.mt-form-status.is-closed strong { color: var(--vs-muted-fg); }
+.mt-form-status.is-closed strong::before { background: var(--vs-muted-dot); }
+
+.mt-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mt-form .mt-step-title,
+.mt-form .prompt-field-head label.mt-step-title,
+.mt-types legend.mt-step-title {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vs-ink);
+}
+
+.mt-step-title > span[aria-hidden="true"] {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-accent-wash);
+  color: var(--vs-accent-strong);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mt-form .mt-word-count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.mt-form .prompt-field > p.mt-word-count.is-warn {
+  color: var(--vs-warn-fg);
+}
+
+.mt-word-meter {
+  flex: 0 0 72px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-meter-track);
+}
+
+.mt-word-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--vs-accent);
+}
+
+.mt-word-count.is-warn .mt-word-meter > span { background: var(--vs-warn-dot); }
+.mt-word-count.ops-error .mt-word-meter > span { background: var(--vs-danger-dot); }
+
+.mt-form-footer p {
+  flex: 1 1 200px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.mt-form .mt-form-footer {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Compact advisory block: optional help, visually secondary to the steps. */
+.mt-form .theme-project-advice {
+  gap: 6px;
+  padding: 12px 14px;
+  border-style: dashed;
+  font-size: 12px;
+}
+
+.mt-form .theme-project-advice .meeting-project-summary {
+  font-size: 12px;
+}
+
+.mt-form .theme-project-advice .ops-secondary {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 /* ---------- Narrow screens ---------- */
 
 @media (max-width: 640px) {
@@ -1052,6 +1462,11 @@
   .mt-agenda-list .mt-slot {
     grid-column: 2;
     justify-self: start;
+  }
+
+  .mt-agenda-list .mt-arrange-controls {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 
   .mt-layout {
@@ -1071,4 +1486,12 @@
 .mt-panel .ops-muted-line {
   padding: 0;
   font-weight: 400;
+}
+
+.mt-form .theme-project-advice .theme-advice-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  color: var(--vs-ink-3);
 }

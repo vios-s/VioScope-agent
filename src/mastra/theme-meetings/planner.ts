@@ -15,7 +15,7 @@ import {
 } from './store';
 import { getUserById, getUserByUsername, listUsersForAdmin, type AuthUser } from '../db/users';
 import { registeredNotificationEmail, sendNotificationEmail } from '../email';
-import { renderThemeMeetingAgendaEmail } from './agenda-email';
+import { renderThemeMeetingAgendaEmail, type ConfirmedAgendaEmail } from './agenda-email';
 import { listThemeAgendaSubscriptions } from '../db/theme-agenda-subscriptions';
 import { themeAgendaPreviewRecipients, themeAgendaRecipients } from './agenda-recipients';
 import {
@@ -89,7 +89,13 @@ export type ThemeMeetingReminderEmailResult = {
 export type ThemeMeetingAgendaEmailOptions = {
   themeId?: string;
   phase?: 'preview' | 'final';
+  /** Circulates a human-confirmed version; deliveries are deduplicated per version and recipient. */
+  confirmation?: ConfirmedAgendaEmail;
 } & ThemeMeetingStoreOptions;
+
+export function confirmedAgendaDeliveryPrefix(meetingDate: string, themeId: string, version: number): string {
+  return `theme-agenda-confirmed:${meetingDate}:${themeId}:v${version}:`;
+}
 
 export type UpdateThemeMeetingMemberInput = ThemeMeetingStoreOptions & {
   themeId: string;
@@ -384,7 +390,7 @@ function configuredReminderSchedule(config: ThemeMeetingConfig) {
   };
 }
 
-function submissionDeadline(config: ThemeMeetingConfig, meetingDate: string): string {
+export function submissionDeadline(config: ThemeMeetingConfig, meetingDate: string): string {
   const cutoff = configuredReminderSchedule(config).agendaCutoff;
   const meetingWeekday = parseDateOnly(meetingDate).getUTCDay();
   const cutoffWeekday = (weekdays.indexOf(cutoff.weekday as (typeof weekdays)[number]) + 1) % 7;
@@ -675,12 +681,14 @@ export async function sendThemeMeetingAgendaEmails(
 ): Promise<ThemeMeetingReminderEmailResult> {
   const result: ThemeMeetingReminderEmailResult = { sent: 0, skipped: 0, failed: 0 };
   const preview = options.phase === 'preview';
+  const confirmation = options.confirmation;
+  if (confirmation && !options.themeId) throw new Error('A confirmed agenda is sent for one theme.');
   const recipients = preview
     ? themeAgendaPreviewRecipients(plan, options.themeId)
     : themeAgendaRecipients(plan, config, await listThemeAgendaSubscriptions(), options.themeId);
-  const subject = `${preview ? '[DRAFT] VioScope theme meeting agenda preview' : 'VioScope advisory theme meeting agenda'} ${plan.meeting_date}${
+  const subject = `${preview ? '[DRAFT] VioScope theme meeting agenda preview' : confirmation ? 'VioScope confirmed theme meeting agenda' : 'VioScope advisory theme meeting agenda'} ${plan.meeting_date}${
     options.themeId ? ` Theme ${options.themeId}` : ''
-  }`;
+  }${confirmation ? ` (version ${confirmation.version})` : ''}`;
 
   for (const [username, recipientPlan] of recipients) {
     const user = await getUserByUsername(username);
@@ -689,7 +697,9 @@ export async function sendThemeMeetingAgendaEmails(
       result.skipped += 1;
       continue;
     }
-    const deliveryId = `${preview ? 'theme-agenda-preview' : 'theme-agenda'}:${plan.meeting_date}:${options.themeId || 'all'}:${username}`;
+    const deliveryId = confirmation
+      ? `${confirmedAgendaDeliveryPrefix(plan.meeting_date, options.themeId!, confirmation.version)}${username}`
+      : `${preview ? 'theme-agenda-preview' : 'theme-agenda'}:${plan.meeting_date}:${options.themeId || 'all'}:${username}`;
 
     try {
       const sent = await sendClaimedThemeMeetingEmail(
@@ -697,7 +707,7 @@ export async function sendThemeMeetingAgendaEmails(
         {
           to: email,
           subject,
-          ...renderThemeMeetingAgendaEmail(recipientPlan, { phase: options.phase, cutoff: configuredReminderSchedule(config).agendaCutoff }),
+          ...renderThemeMeetingAgendaEmail(recipientPlan, { phase: options.phase, cutoff: configuredReminderSchedule(config).agendaCutoff, confirmation }),
         },
         options,
       );

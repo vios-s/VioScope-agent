@@ -7,10 +7,10 @@ import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { getProjectForUser, listProjectsForUser } from '../../../../src/mastra/db/projects';
 import { getUserByUsername } from '../../../../src/mastra/db/users';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan } from '../../../../src/mastra/theme-meetings/planner';
-import { resolveThemeMeetingUpdatesPath } from '../../../../src/mastra/theme-meetings/store';
+import { buildThemeMeetingPlan, confirmedAgendaDeliveryPrefix, sendThemeMeetingAgendaEmails } from '../../../../src/mastra/theme-meetings/planner';
+import { readThemeMeetingEmailDeliveries, resolveThemeMeetingUpdatesPath } from '../../../../src/mastra/theme-meetings/store';
 import { contentHash, withFileLock } from '../../../../src/mastra/atomic-file';
-import { addMeetingAction, agendaSelectionSchema, agendaSourceVersion, changeMeetingWorkflow, confirmAgenda,
+import { addMeetingAction, agendaSelectionSchema, agendaSourceVersion, applyConfirmedAgendas, changeMeetingWorkflow, confirmAgenda,
   latestConfirmation, meetingDateSchema, newActionSchema, readMeetingWorkflow, updateMeetingAction,
 } from '../../../../src/mastra/theme-meetings/workflow';
 
@@ -22,6 +22,7 @@ const commandSchema = z.discriminatedUnion('operation', [
   keySchema.extend({ operation: z.literal('add_action'), action: newActionSchema }),
   keySchema.extend({ operation: z.literal('update_action'), id: z.string().uuid(), version: z.string(),
     status: z.enum(['open', 'done']), note: z.string().trim().min(1).max(2000) }),
+  keySchema.extend({ operation: z.literal('email_confirmed'), version: z.number().int().positive() }),
 ]);
 
 async function context(request: Request, key: z.infer<typeof keySchema>) {
@@ -33,7 +34,24 @@ async function context(request: Request, key: z.infer<typeof keySchema>) {
   if (!manager && !meeting.member_usernames.includes(user.username)) {
     throw new AuthError('Only theme members and managers can access meeting records.', 403, 'forbidden');
   }
-  return { user, meeting, manager };
+  return { user, meeting, manager, payload };
+}
+// Sends the latest confirmed version to the cutoff-agenda audience; deliveries dedupe per version and recipient.
+async function emailConfirmedAgenda(request: Request, command: z.infer<typeof keySchema> & { version: number }) {
+  const { user, meeting, manager, payload } = await context(request, command);
+  if (!manager) throw new AuthError('Only the theme coordinator, PI or administrator can do this.', 403, 'forbidden');
+  if (meeting.cancelled) throw new Error('This meeting is skipped. Restore it before emailing the agenda.');
+  const confirmation = latestConfirmation(await readMeetingWorkflow(), command.meetingDate, command.themeId);
+  if (!confirmation) throw new Error('Confirm the final agenda before emailing it.');
+  if (confirmation.version !== command.version) throw new AuthError('A newer agenda version was confirmed. Reload before emailing.', 409, 'conflict');
+  const plan = applyConfirmedAgendas({ ...payload.plan, meetings: [meeting] }, { confirmations: [confirmation], actions: [] });
+  const emails = await sendThemeMeetingAgendaEmails(plan, payload.config, { themeId: command.themeId, confirmation: {
+    version: confirmation.version, confirmedBy: confirmation.confirmedBy, confirmedAt: confirmation.confirmedAt,
+    skipped: confirmation.entries.filter((entry) => entry.deferred).map(({ deferred: _, ...entry }) => entry),
+  } });
+  await recordAuditLog({ actor: user, action: 'theme_meeting.email_confirmed', targetType: 'theme_meeting', targetId: command.themeId,
+    summary: 'Confirmed theme meeting agenda emailed.', metadata: { meetingDate: command.meetingDate, version: confirmation.version, ...emails } });
+  return NextResponse.json({ ok: true, version: confirmation.version, emails });
 }
 export async function GET(request: Request) {
   try {
@@ -45,9 +63,12 @@ export async function GET(request: Request) {
     const projects = await listProjectsForUser(user, { includeArchived: true });
     const projectTitles = new Map(projects.map((project) => [project.id, project.title]));
     const visible = (username?: string) => manager || username === user.username;
+    const prefix = confirmation && confirmedAgendaDeliveryPrefix(key.meetingDate, key.themeId, confirmation.version);
+    const emailedAt = manager && prefix ? (await readThemeMeetingEmailDeliveries()).deliveries
+      .filter((delivery) => delivery.id.startsWith(prefix)).map((delivery) => delivery.sent_at).sort().at(-1) || null : null;
     return NextResponse.json({
       manager, cancelled: meeting.cancelled, duration: meeting.duration_minutes,
-      sourceVersion: agendaSourceVersion(meeting, confirmation),
+      sourceVersion: agendaSourceVersion(meeting, confirmation), emailedAt,
       candidates: meeting.agenda_items.filter((item) => visible(item.member_username)),
       confirmation: confirmation ? { ...confirmation, entries: confirmation.entries.filter((item) => visible(item.member_username)) } : null,
       projects: manager ? projects.filter((project) => project.lifecycle !== 'archived').map(({ id, title }) => ({ id, title })) : [],
@@ -62,11 +83,12 @@ export async function POST(request: Request) {
   try {
     await requireSessionUser(request);
     const command = commandSchema.parse(await request.json());
+    if (command.operation === 'email_confirmed') return await emailConfirmedAgenda(request, command);
     // Match the submission writer's lock, then serialize agenda/action revisions.
     const result = await withFileLock(resolveThemeMeetingUpdatesPath(), async () => changeMeetingWorkflow({}, async (state) => {
       const { user, meeting, manager } = await context(request, command);
       if (command.operation !== 'update_action' && !manager) throw new AuthError('Only the theme coordinator, PI or administrator can do this.', 403, 'forbidden');
-      if (meeting.cancelled && command.operation !== 'update_action') throw new Error('This meeting is cancelled.');
+      if (meeting.cancelled && command.operation !== 'update_action') throw new Error('This meeting is skipped. Restore it first.');
       if (command.operation === 'confirm') {
         if (agendaSourceVersion(meeting, latestConfirmation(state, command.meetingDate, command.themeId)) !== command.sourceVersion) {
           throw new AuthError('The submissions or confirmed agenda changed. Reload and review before confirming.', 409, 'conflict');

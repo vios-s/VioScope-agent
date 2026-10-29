@@ -12,7 +12,7 @@ import {
   visibleNotificationsForUser,
   visiblePlanForUser,
 } from '../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan } from '../../../src/mastra/theme-meetings/planner';
+import { buildThemeMeetingPlan, submissionDeadline } from '../../../src/mastra/theme-meetings/planner';
 import type { ThemeMeetingNotification, ThemeMeetingPlan } from '../../../src/mastra/theme-meetings/schema';
 
 export const dynamic = 'force-dynamic';
@@ -153,6 +153,8 @@ export async function GET(request: Request) {
       plan: visiblePlan,
       overviewPlan: summarizePlan(payload.plan),
       submissionPlan,
+      // Europe/London wall-clock cutoff for the member's own submission meeting.
+      submissionDeadline: submissionPlan ? submissionDeadline(payload.config, submissionPlan.meeting_date) : null,
       pastPlans,
       agendaSubscriptions: payload.config.themes.map((theme) => {
         const required = isThemeAgendaSubscriptionRequired(payload.config, theme.theme_id, user.username);
