@@ -47,9 +47,12 @@ The v0.1 package should be treated as the first stable internal operations build
 - B2 submission-review harness and B3 GitBook/wiki retrieval remain available, but are not the main
   development priority unless explicitly resumed.
 
-## Project workflow candidate (2026-10-29)
+## Project workflow release (2026-10-29)
 
-The agreed four-part project model is implemented on main; it has not been deployed.
+The agreed four-part project model is deployed from main commit `4a23807` (build
+`kF7HaXkL1feiGIkBr3YzR`). The public HTTPS home, authentication guards, all 16 current project
+workflow reads and the theme-meeting API passed post-deployment checks. Database restore and
+external meeting-state backups were verified before switching releases.
 Validation passed: TypeScript, isolated production build, project/Pitch/meeting/Skeleton regressions,
 synthetic workflow permissions and history, owner/PI browser flows, desktop/mobile layout, and the
 English-only source check. Real-cycle usage and live AI quality evaluation were not part of this slice.
@@ -88,7 +91,7 @@ isolated candidate; do not build inside the live release directory.
 ### Agreed Function Order (2026-10-28)
 
 Implement these functions incrementally, reusing the existing project, meeting and review features.
-Steps 1–3 and project-bound Skeleton Lock are deployed. Development uses main. The four-part project workflow implementation below is the current candidate; deployment and a real-cycle pilot are separate release steps.
+Steps 1–3 and project-bound Skeleton Lock are deployed. Development uses main. The four-part project workflow below is deployed; a real-cycle pilot remains pending.
 This order takes precedence over the older phase numbering below. Keep B3 maintenance-only.
 
 | Order | Function | User outcome | Status |
@@ -96,8 +99,8 @@ This order takes precedence over the older phase numbering below. Keep B3 mainte
 | 1 | Confirm theme meeting agendas | The coordinator adjusts order and time, defers items when needed, and confirms a saved agenda version. | Deployed 2026-10-28; real-cycle pilot pending |
 | 2 | Follow up meeting actions | Record the decision, responsible person, due date and completion evidence; review unfinished actions at the next meeting. | Deployed 2026-10-28; real-cycle pilot pending |
 | 3 | Review private idea pitches | Upload or fill a pitch; get configurable AI advice; humans decide; explicitly create a project inheriting only the final approved version. | Deployed 2026-10-28; synthetic tests passed |
-| 4 | Build submission timelines | Count backwards from the submission date to the six-, five- and four-week checks and final two weeks. | Implemented in candidate: versioned attempts and checkpoint dates |
-| 5 | Confirm stage readiness | Require evidence and a named reviewer at each checkpoint, beyond a progress percentage. | Implemented in candidate: evidence-backed decisions tied to research version and attempt |
+| 4 | Build submission timelines | Count backwards from the submission date to the six-, five- and four-week checks and final two weeks. | Deployed: versioned attempts and checkpoint dates |
+| 5 | Confirm stage readiness | Require evidence and a named reviewer at each checkpoint, beyond a progress percentage. | Deployed: evidence-backed decisions tied to research version and attempt |
 | 6 | Complete internal review | Assign a PDRA, track feedback and required revisions, then obtain final PI clearance. Reuse the B2 harness. | Planned |
 | 7 | Learn after submission | Record outcomes, reviews, lessons and the revision or resubmission plan. | Planned |
 | 8 | Review the group portfolio | Extend the existing overview with submission risks, blockers, support needs and resource gaps. | Planned |
