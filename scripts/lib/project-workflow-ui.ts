@@ -36,6 +36,17 @@ export async function checkProjectWorkflowUi(cookieName:string,token:string,proj
   const stored=await (await page.request.get(base+`/api/projects/${projectId}/workflow`)).json();
   assert.equal(stored.tasks.find((task:any)=>task.data.task==='Synthetic browser follow-up').data.status,'done');
   await panel.getByRole('button',{name:'Submissions',exact:true}).click();assert.equal(await panel.locator('article').count(),2);
+  const currentPlan=panel.locator('article').first();
+  await currentPlan.getByText('Submission result and reflection',{exact:true}).click();
+  await currentPlan.getByRole('combobox',{name:/^Outcome/}).selectOption('submitted');
+  await currentPlan.getByLabel('Actual submission time (UTC)').fill('2027-06-29T12:00');
+  await currentPlan.getByLabel('Reason for this update').fill('Synthetic submission UI verification.');
+  await currentPlan.getByLabel('I confirm this change and its recorded evidence.').check();
+  await currentPlan.getByRole('button',{name:'Save submission outcome'}).click();
+  await currentPlan.getByText('Outcome: Submitted',{exact:true}).waitFor();
+  await currentPlan.getByText('Submission result and reflection',{exact:true}).click();
+  assert.equal(await currentPlan.getByRole('combobox',{name:/^Outcome/}).inputValue(),'submitted','Saved outcome must also refresh the editor.');
+
   await panel.getByRole('button',{name:'Decisions',exact:true}).click();assert.equal(await panel.getByText('Record a checkpoint decision',{exact:true}).count(),0);
   await panel.getByText('Historical decision — research has changed.',{exact:false}).first().waitFor();
   await mkdir('/tmp/vioscope-project-workflow',{recursive:true});

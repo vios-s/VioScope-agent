@@ -30,7 +30,7 @@ export function ProjectWorkflow({projectId,initialTab='research',onChanged}:{pro
   {tab==='submissions'&&<>
    <h3>Submission plans</h3><p>Each new target or deadline creates a new plan. Previous attempts and decisions remain unchanged.</p>
    {!current&&<p>No submission plan yet. Existing project venue: {data.project.venue||'Not set'}; date: {data.project.submissionDeadline||'Not set'}. Confirm an exact time and timezone below.</p>}
-   {data.submissions.map(item=><article className="workflow-record" key={item.id}>
+   {data.submissions.map(item=><article className="workflow-record" key={`${item.id}-${item.revision}`}>
     <h4>{item.plan.venue} · {item.plan.cycle}{item.isCurrent?' · Current plan':''}</h4><p>Deadline: {new Date(item.plan.deadline).toLocaleString('en-GB',{timeZone:item.plan.timezone})} ({item.plan.timezone})</p>
     <p>Outcome: {label(item.result.outcome||'planned')}</p>
     <details open={item.isCurrent}><summary>Checkpoint dates</summary><ul>{item.timeline.map((point:any)=><li key={point.checkpoint}>{label(point.checkpoint)}: {new Date(point.at).toLocaleString('en-GB',{timeZone:item.plan.timezone})}</li>)}</ul><p>Dates are reminders to review readiness, not approval. Final submission clearance is separate from Skeleton checkpoint confirmation.</p></details>
