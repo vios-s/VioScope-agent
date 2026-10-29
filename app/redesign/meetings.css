@@ -1677,3 +1677,13 @@
 @keyframes mt-skeleton-pulse {
   50% { opacity: 0.55; }
 }
+
+/* Save/submit feedback sits on its own line directly above the submit buttons. */
+.mt-form-footer .mt-submit-notice {
+  flex: 1 1 100%;
+  order: 1;
+  color: var(--vs-ok-fg);
+  font-size: 13px;
+}
+.mt-form-footer .mt-submit-notice.error { color: var(--vs-danger-fg); }
+.mt-form-footer .mt-form-buttons { order: 2; }

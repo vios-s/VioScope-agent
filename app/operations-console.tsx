@@ -52,7 +52,7 @@ import { ArrowUp as ChatSendIcon, Compass as ChatAdvisorIcon } from 'lucide-reac
 import { SkeletonLock } from './skeleton-lock';
 import { IdeaPitches } from './idea-pitches';
 import { ProjectIdeaOrigin } from './project-idea-origin';
-import { ProjectWorkflow } from './project-workflow';
+import { ProjectWorkflow, type WorkflowTab } from './project-workflow';
 import { MeetingProjectSummary } from './meeting-project-summary';
 import { meetingProjectContext } from '../src/mastra/theme-meetings/project-context';
 import { ThemeMeetingWorkflow, resetThemeMeetingWorkflowCache } from './theme-meeting-workflow';
@@ -668,6 +668,7 @@ function activeViewFromSearch(search: string): ActiveView {
   const view = new URLSearchParams(search).get(viewQueryParam);
   if (view === 'ideas') return 'checklists';
   if (view === 'dashboard') return 'projects';
+  if (view === 'settings') return 'users';
   return activeViews.includes(view as ActiveView) ? (view as ActiveView) : 'briefing';
 }
 
@@ -897,6 +898,13 @@ function withSelectedCollaborator(value: string, username: string) {
 
 function projectNeedsAttention(project: ManagedProject) {
   return project.needsUpdate || project.recommendation !== 'none' || project.status !== 'on_track' || Boolean(project.blocker);
+}
+
+type ProjectListFilter = 'active' | 'attention' | 'finished' | 'archived';
+
+/** In-progress work: active, or paused but not finished. Briefing, sidebar and Projects all count this set. */
+function projectInProgress(project: ManagedProject) {
+  return project.lifecycle === 'active' || project.lifecycle === 'paused';
 }
 
 function normalizedName(value: string) {
@@ -1417,6 +1425,44 @@ function useCustomDialogFocus<T extends HTMLElement>(open: boolean, initialFocus
       previousFocusRef.current?.focus();
     };
   }, [open, initialFocusRef]);
+}
+
+// Shared keyboard model for role="menu" popups: focus enters on open; arrows/Home/End move; Escape or Shift+Tab return to the trigger; Tab-out closes.
+function useMenuFocus(open: boolean, menuRef: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    if (open) menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
+  }, [open, menuRef]);
+}
+
+function menuKeyDown(event: KeyboardEvent<HTMLElement>, close: () => void, trigger: HTMLElement | null) {
+  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)'));
+  const index = items.indexOf(document.activeElement as HTMLElement);
+  const target = ({ ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: items.length - 1 } as Record<string, number>)[event.key];
+  if (target !== undefined && items.length) {
+    event.preventDefault();
+    items[(target + items.length) % items.length].focus();
+  } else if (event.key === 'Escape' || (event.key === 'Tab' && event.shiftKey)) {
+    event.preventDefault();
+    close();
+    trigger?.focus();
+  }
+}
+
+function menuBlur(event: { currentTarget: HTMLElement; relatedTarget: EventTarget | null }, close: () => void, trigger: HTMLElement | null) {
+  const next = event.relatedTarget as Node | null;
+  if (next && next !== trigger && !event.currentTarget.contains(next)) close();
+}
+
+// Roving tabindex for role="tablist": the selected tab has tabIndex 0, the others -1; attach this to the tablist.
+function tablistKeyDown(event: KeyboardEvent<HTMLElement>) {
+  const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]:not(:disabled)'));
+  const index = tabs.indexOf(document.activeElement as HTMLElement);
+  const target = ({ ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: tabs.length - 1 } as Record<string, number>)[event.key];
+  if (index < 0 || target === undefined) return;
+  event.preventDefault();
+  const tab = tabs[(target + tabs.length) % tabs.length];
+  tab.focus();
+  tab.click();
 }
 
 function WelcomeDialog({
@@ -2488,6 +2534,7 @@ function ProjectDetailModal({
   existingProjects,
   uiCopyPrompts,
   initialMode,
+  initialWorkflowTab,
   onClose,
   onSaved,
   onChanged,
@@ -2500,6 +2547,7 @@ function ProjectDetailModal({
   existingProjects: ManagedProject[];
   uiCopyPrompts: UiCopyPrompts | null;
   initialMode: ProjectDetailMode;
+  initialWorkflowTab?: WorkflowTab;
   onClose: () => void;
   onSaved: (project: ManagedProject) => Promise<void>;
   onChanged: (project: ManagedProject) => Promise<void>;
@@ -2515,6 +2563,7 @@ function ProjectDetailModal({
   const [busy, setBusy] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ kind: 'edit' | 'update'; text: string } | null>(null);
   const [artifactToRemove, setArtifactToRemove] = useState<ManagedProjectArtifact | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const titleId = 'project-detail-title';
@@ -2539,6 +2588,7 @@ function ProjectDetailModal({
 
   useEffect(() => {
     setArtifactToRemove(null);
+    setNotice(null);
   }, [project.id]);
 
   function postUpdateWithProgress(formData: FormData, method: 'POST' | 'PATCH', url: string): Promise<ProjectsPayload> {
@@ -2567,6 +2617,7 @@ function ProjectDetailModal({
     event.preventDefault();
     setBusy('edit');
     setError(null);
+    setNotice(null);
     try {
       const duplicate = existingProjects.find(
         (existing) =>
@@ -2592,6 +2643,7 @@ function ProjectDetailModal({
       });
       if (!body.project) throw new Error('Could not save project.');
       await onSaved(body.project);
+      setNotice({ kind: 'edit', text: 'Project details saved.' });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save project.');
     } finally {
@@ -2604,6 +2656,8 @@ function ProjectDetailModal({
     setBusy('update');
     setUploadProgress(draft.artifactFile ? 0 : null);
     setError(null);
+    setNotice(null);
+    const wasEditing = Boolean(editingUpdateId);
     try {
       if (draft.type === 'progress' && countWords(draft.text) > 50) {
         throw new Error('Progress update must be 50 words or fewer.');
@@ -2646,6 +2700,7 @@ function ProjectDetailModal({
       setEditingUpdateId(null);
       setUploadProgress(null);
       await onChanged(body.project);
+      setNotice({ kind: 'update', text: wasEditing ? 'Update saved. The project history has been retained.' : 'Update added. The project history has been retained.' });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not save project update.');
     } finally {
@@ -2880,7 +2935,8 @@ function ProjectDetailModal({
               <span>Notes</span>
               <textarea rows={3} value={editDraft.notes} onChange={(event) => setEditDraft((current) => ({ ...current, notes: event.target.value }))} />
             </label>
-            {error && <div className="form-message error full">{error}</div>}
+            {error && <div className="form-message error full" role="alert">{error}</div>}
+            {notice?.kind === 'edit' && <p className="form-message full" role="status">{notice.text}</p>}
             <div className="button-row full">
               <button className="ops-primary" type="submit" disabled={busy === 'edit'}>
                 <Save aria-hidden="true" />
@@ -3135,7 +3191,8 @@ function ProjectDetailModal({
                 <strong>{uploadProgress < 100 ? `Uploading ${uploadProgress}%` : 'Upload complete. Digesting...'}</strong>
               </div>
             )}
-            {error && <div className="form-message error full">{error}</div>}
+            {error && <div className="form-message error full" role="alert">{error}</div>}
+            {notice?.kind === 'update' && <p className="form-message full" role="status">{notice.text}</p>}
             <div className="vs-form-footer full">
               <p>Saving adds an entry to the project history. It does not record a checkpoint decision.</p>
               {editingUpdateId && (
@@ -3221,10 +3278,10 @@ function ProjectDetailModal({
                     )}
                     {project.access.canEdit && (
                       <div className="timeline-actions">
-                        <button className="ops-secondary" type="button" onClick={() => startEditingUpdate(update)}>
+                        <button className="ops-secondary" type="button" aria-label={`Edit update from ${formatDate(update.date)}`} onClick={() => startEditingUpdate(update)}>
                           <Pencil aria-hidden="true" /> Edit
                         </button>
-                        <button className="ops-secondary danger-action" type="button" disabled={busy === `delete:${update.id}`} onClick={() => setUpdateToDelete(update)}>
+                        <button className="ops-secondary danger-action" type="button" aria-label={`Delete update from ${formatDate(update.date)}`} disabled={busy === `delete:${update.id}`} onClick={() => setUpdateToDelete(update)}>
                           <Trash2 aria-hidden="true" /> {busy === `delete:${update.id}` ? 'Deleting' : 'Delete'}
                         </button>
                       </div>
@@ -3248,6 +3305,7 @@ function ProjectDetailModal({
           <ProjectWorkflow
             key={project.id}
             projectId={project.id}
+            initialTab={initialWorkflowTab}
             onChanged={onChanged}
             rail={(checkpoints, linked) => <ProjectRecordRail project={project} checkpoints={checkpoints} linked={linked} />}
           />
@@ -3271,7 +3329,7 @@ function ProjectDetailModal({
         id="project-update-delete-confirm"
         open={Boolean(updateToDelete)}
         title="Delete this update?"
-        message="The update and its attached files will be deleted. This cannot be undone."
+        message="The update will be removed from the project history and cannot be restored. Its attached files will no longer appear on the project; their records are kept for audit."
         confirmLabel="Delete update"
         busy={Boolean(updateToDelete && busy === `delete:${updateToDelete.id}`)}
         onCancel={() => setUpdateToDelete(null)}
@@ -3350,7 +3408,7 @@ function ThemeMeetingPanel({
   viewer: CurrentUser;
   projects: ManagedProject[];
   uiCopyPrompts: UiCopyPrompts | null;
-  onOpenProject?: (projectId: string) => void;
+  onOpenProject?: (projectId: string, workflowTab?: WorkflowTab) => void;
 }) {
   const [themeId, setThemeId] = useState('');
   const [member, setMember] = useState('');
@@ -3359,6 +3417,8 @@ function ThemeMeetingPanel({
   const [questions, setQuestions] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  // Save/submit feedback renders beside the submit row, where the user is looking.
+  const [submitNotice, setSubmitNotice] = useState<{ error: boolean; text: string } | null>(null);
   const [sourceProjectId, setSourceProjectId] = useState('');
   const [memberCandidateByTheme, setMemberCandidateByTheme] = useState<Record<string, string>>({});
   const [meetingToCancel, setMeetingToCancel] = useState<ThemeMeetingPlan['meetings'][number] | null>(null);
@@ -3470,9 +3530,10 @@ function ThemeMeetingPanel({
     event.preventDefault();
     setFormError(null);
     setStatus(null);
+    setSubmitNotice(null);
 
     if (!selectedMeeting) {
-      setFormError('No active theme meeting is available.');
+      setSubmitNotice({ error: true, text: 'No active theme meeting is available.' });
       return;
     }
 
@@ -3498,13 +3559,13 @@ function ThemeMeetingPanel({
           ...(sourceProject ? { projectId: sourceProject.id } : {}),
         }),
       });
-      setStatus(submittedUpdate ? 'Changes saved.' : 'Update submitted.');
+      setSubmitNotice({ error: false, text: submittedUpdate ? 'Changes saved.' : 'Update submitted.' });
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('Theme update saved', { body: `${member} / Theme ${selectedThemeId}` });
       }
       await onChanged();
     } catch (caught) {
-      setFormError(caught instanceof Error ? caught.message : 'Could not save update.');
+      setSubmitNotice({ error: true, text: caught instanceof Error ? caught.message : 'Could not save update.' });
     }
   }
 
@@ -3679,7 +3740,7 @@ function ThemeMeetingPanel({
               Loading theme meetings
             </>
           ) : (
-            'Could not load theme meetings. Check the error above, then refresh.'
+            'Could not load theme meetings. Select Retry in the notice above.'
           )}
         </div>
       ) : !weekMeetings.length ? (
@@ -3788,7 +3849,14 @@ function ThemeMeetingPanel({
                     prefetchThemeIds={plan.meetings.filter((meeting) => managedThemeIds.has(meeting.theme_id)
                       || meeting.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username))).map((meeting) => meeting.theme_id)}
                   >
-                    {!activeMeeting.cancelled && (
+                    {!activeMeeting.cancelled && !canManageActive && (
+                      // Members receive a plan filtered to their own row, so counts come from the overview.
+                      <p className={`mt-awaiting${activeCard.submitted_count >= activeCard.member_count ? ' is-complete' : ''}`}>
+                        <Users aria-hidden="true" />
+                        <span>{activeCard.submitted_count} of {activeCard.member_count} updates submitted</span>
+                      </p>
+                    )}
+                    {!activeMeeting.cancelled && canManageActive && (
                       <p className={`mt-awaiting${activeMeeting.missing_members.length ? '' : ' is-complete'}`}>
                         <Users aria-hidden="true" />
                         {activeMeeting.missing_members.length ? (
@@ -3946,9 +4014,9 @@ function ThemeMeetingPanel({
                     value={progressText}
                     onChange={(event) => setProgressText(event.target.value)}
                     placeholder={(sourceProject && themeProgressPlaceholders[sourceProject.stage]) || 'Aim for 50 words; maximum 75 words'}
-                    aria-describedby={`theme-meeting-progress-hint${formError ? ' theme-update-error' : ''}`}
+                    aria-describedby={`theme-meeting-progress-hint${submitNotice?.error ? ' mt-submit-notice' : ''}`}
                     aria-required={updateType !== 'nothing_to_report'}
-                    aria-invalid={progressWordCount > 75 || Boolean(formError && !progressText.trim() && updateType !== 'nothing_to_report')}
+                    aria-invalid={progressWordCount > 75 || Boolean(submitNotice?.error && !progressText.trim() && updateType !== 'nothing_to_report')}
                     rows={4}
                   />
                   <p id="theme-meeting-progress-hint" role="status" className={`mt-word-count ${progressWordCount > 75 ? 'ops-error' : progressWordCount > 50 ? 'is-warn' : 'muted'}`}>
@@ -3978,6 +4046,11 @@ function ThemeMeetingPanel({
                 </div>
                 <div className="mt-form-footer">
                   <p>Submitting adds your item to the draft agenda. The coordinator orders and confirms the final agenda.</p>
+                  {submitNotice && (
+                    <p id="mt-submit-notice" className={`mt-submit-notice form-message${submitNotice.error ? ' error' : ''}`} role={submitNotice.error ? 'alert' : 'status'}>
+                      {submitNotice.text}
+                    </p>
+                  )}
                   <div className="mt-form-buttons">
                     {sourceProject && (
                       <button className="ops-secondary" type="button" onClick={prefillFromProject} aria-label="Use project update" title={`Fill the draft from the latest update of ${sourceProject.title}`}>
@@ -4052,6 +4125,7 @@ function BriefingView({
   chatNotifications,
   viewer,
   onOpenProjects,
+  onOpenProject,
   onOpenMeeting,
   onOpenNotifications,
 }: {
@@ -4061,12 +4135,13 @@ function BriefingView({
   themeMeetingsLoading: boolean;
   chatNotifications: ChatNotification[];
   viewer: CurrentUser;
-  onOpenProjects: () => void;
+  onOpenProjects: (filter?: ProjectListFilter) => void;
+  onOpenProject: (projectId: string) => void;
   onOpenMeeting: () => void;
   onOpenNotifications: () => void;
 }) {
   const projects = projectsPayload?.projects || [];
-  const activeProjects = projects.filter((project) => project.lifecycle !== 'archived');
+  const activeProjects = projects.filter(projectInProgress);
   const attentionProjects = activeProjects.filter(projectNeedsAttention);
   const recentProjects = activeProjects.filter((project) => {
     const age = daysSinceDate(project.lastUpdate);
@@ -4134,7 +4209,7 @@ function BriefingView({
             <CalendarDays aria-hidden="true" />
             Open agenda
           </button>
-          <button className="ops-primary" type="button" onClick={onOpenProjects}>
+          <button className="ops-primary" type="button" onClick={() => onOpenProjects('attention')}>
             Review projects
             <ArrowRight aria-hidden="true" />
           </button>
@@ -4169,7 +4244,7 @@ function BriefingView({
                   <h2 id="bf-ledger-title">Needs a decision or follow-up</h2>
                   <p>Items most likely to need a coordinator or PI before the next meeting.</p>
                 </div>
-                <button className="bf-link" type="button" onClick={onOpenProjects}>
+                <button className="bf-link" type="button" onClick={() => onOpenProjects()}>
                   All projects
                 </button>
               </div>
@@ -4202,7 +4277,9 @@ function BriefingView({
                         return (
                           <tr key={project.id}>
                             <td>
-                              <strong>{project.title}</strong>
+                              <button className="bf-project-link" type="button" onClick={() => onOpenProject(project.id)}>
+                                <strong>{project.title}</strong>
+                              </button>
                               <span>{note}</span>
                             </td>
                             <td className="bf-owner">@{project.ownerUsername}</td>
@@ -4219,6 +4296,17 @@ function BriefingView({
                       })}
                     </tbody>
                   </table>
+                  {(() => {
+                    const ledgerSource = attentionProjects.length ? attentionProjects : activeProjects;
+                    return ledgerSource.length > ledgerProjects.length ? (
+                      <p className="bf-ledger-more">
+                        Showing {ledgerProjects.length} of {ledgerSource.length} ·{' '}
+                        <button className="bf-link" type="button" onClick={() => onOpenProjects(attentionProjects.length ? 'attention' : 'active')}>
+                          See all
+                        </button>
+                      </p>
+                    ) : null;
+                  })()}
                 </div>
               ) : (
                 <p className="ops-muted-line">No visible projects yet.</p>
@@ -4334,8 +4422,8 @@ function BriefingView({
                 <strong className="mt-num">{currentArtifacts}</strong> current {currentArtifacts === 1 ? 'material' : 'materials'} across {plural(activeProjects.length, 'project')}.{' '}
                 {plural(recentProjects.length, 'project')} updated in this two-week cycle.
               </p>
-              <button className="bf-link" type="button" onClick={onOpenProjects}>
-                Open project materials
+              <button className="bf-link" type="button" onClick={() => onOpenProjects()}>
+                Open projects
               </button>
             </section>
           </aside>
@@ -4355,6 +4443,7 @@ function ProjectsView({
   onOpenMeeting,
   openRequest = null,
   onOpenRequestHandled,
+  initialFilter = 'active',
 }: {
   projectsPayload: ProjectsPayload | null;
   projectsLoading: boolean;
@@ -4364,8 +4453,10 @@ function ProjectsView({
   onProjectsChanged: () => Promise<void>;
   onOpenMeeting: () => void;
   /** Opens one project record when arriving from another view; consumed once via onOpenRequestHandled. */
-  openRequest?: { id: string; mode: ProjectDetailMode } | null;
+  openRequest?: { id: string; mode: ProjectDetailMode; workflowTab?: WorkflowTab } | null;
   onOpenRequestHandled?: () => void;
+  /** Initial list filter when arriving from another view (for example Briefing → Needs attention). */
+  initialFilter?: ProjectListFilter;
 }) {
   const canSeeAll = canSeeAllRole(viewer.role);
   const mode: ProjectsMode = canSeeAll ? 'pi' : 'member';
@@ -4373,22 +4464,25 @@ function ProjectsView({
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailProject, setDetailProject] = useState<ManagedProject | null>(null);
   const [detailMode, setDetailMode] = useState<ProjectDetailMode>('details');
+  const [detailWorkflowTab, setDetailWorkflowTab] = useState<WorkflowTab | undefined>(undefined);
   const [actionError, setActionError] = useState<string | null>(null);
   const [projectToArchive, setProjectToArchive] = useState<ManagedProject | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
-  const [projectFilter, setProjectFilter] = useState<'active' | 'attention' | 'archived'>('active');
+  const [projectFilter, setProjectFilter] = useState<ProjectListFilter>(initialFilter);
   const [trackFilter, setTrackFilter] = useState('');
 
   const projects = projectsPayload?.projects || [];
-  const activeProjects = projects.filter((project) => project.lifecycle !== 'archived');
+  // Active = work in progress (active or paused); finished and archived projects have their own tabs.
+  const activeProjects = projects.filter(projectInProgress);
+  const finishedProjects = projects.filter((project) => project.lifecycle === 'finished');
   const archivedProjects = projects.filter((project) => project.lifecycle === 'archived');
   const attentionProjects = activeProjects.filter(projectNeedsAttention);
-  const filterCounts = { active: activeProjects.length, attention: attentionProjects.length, archived: archivedProjects.length };
-  const filterLabels = { active: 'Active', attention: 'Needs attention', archived: 'Archived' };
-  const matchingProjects = (projectFilter === 'archived' ? archivedProjects : projectFilter === 'attention' ? attentionProjects : activeProjects)
+  const filterLists: Record<ProjectListFilter, ManagedProject[]> = { active: activeProjects, attention: attentionProjects, finished: finishedProjects, archived: archivedProjects };
+  const filterLabels: Record<ProjectListFilter, string> = { active: 'Active', attention: 'Needs attention', finished: 'Finished', archived: 'Archived' };
+  const matchingProjects = filterLists[projectFilter]
     .filter((project) => !trackFilter || project.track === trackFilter)
     .filter((project) => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(projectQuery.trim().toLowerCase()));
-  const memberArtifacts = activeProjects.flatMap((project) =>
+  const memberArtifacts = [...activeProjects, ...finishedProjects].flatMap((project) =>
     currentProjectArtifacts(project).map((artifact) => ({ project, artifact })),
   );
 
@@ -4398,6 +4492,7 @@ function ProjectsView({
 
   function openProject(project: ManagedProject, mode: ProjectDetailMode) {
     setDetailMode(mode);
+    setDetailWorkflowTab(undefined);
     setDetailProject(project);
   }
 
@@ -4406,6 +4501,7 @@ function ProjectsView({
     const requested = projectsPayload.projects?.find((project) => project.id === openRequest.id);
     if (requested) {
       setDetailMode(openRequest.mode);
+      setDetailWorkflowTab(openRequest.workflowTab);
       setDetailProject(requested);
     } else setActionError('That project is not available to your account.');
     onOpenRequestHandled?.();
@@ -4487,24 +4583,26 @@ function ProjectsView({
               Loading projects
             </>
           ) : (
-            'Could not load projects. Check the error above, then refresh.'
+            'Could not load projects. Select Retry in the notice above.'
           )}
         </div>
       ) : (
         <div className="vs-projects-stack">
           <section className="vs-project-list" aria-label="Project list">
             <div className="vs-project-toolbar">
-              <div className="ops-segmented" role="tablist" aria-label="Project filter">
-                {(['active', 'attention', 'archived'] as const).map((key) => (
+              <div className="ops-segmented" role="tablist" aria-label="Project filter" onKeyDown={tablistKeyDown}>
+                {(['active', 'attention', 'finished', 'archived'] as const).map((key) => (
                   <button
                     key={key}
                     type="button"
                     role="tab"
                     aria-selected={projectFilter === key}
+                    aria-label={`${filterLabels[key]}, ${filterLists[key].length}`}
+                    tabIndex={projectFilter === key ? 0 : -1}
                     aria-controls="project-list-panel"
                     onClick={() => setProjectFilter(key)}
                   >
-                    {filterLabels[key]} <span className="vs-tab-count">{filterCounts[key]}</span>
+                    {filterLabels[key]} <span className="vs-tab-count">{filterLists[key].length}</span>
                   </button>
                 ))}
               </div>
@@ -4611,6 +4709,8 @@ function ProjectsView({
                     <strong>
                       {projectFilter === 'archived'
                         ? 'No archived projects'
+                        : projectFilter === 'finished'
+                          ? 'No finished projects'
                         : projectFilter === 'attention'
                           ? 'No projects currently need attention'
                           : trackFilter
@@ -4688,6 +4788,7 @@ function ProjectsView({
           existingProjects={projects}
           uiCopyPrompts={uiCopyPrompts}
           initialMode={detailMode}
+          initialWorkflowTab={detailWorkflowTab}
           onClose={() => setDetailProject(null)}
           onSaved={handleProjectChanged}
           onChanged={handleProjectChanged}
@@ -4728,7 +4829,7 @@ function MeetingView({
   viewer: CurrentUser;
   projects: ManagedProject[];
   uiCopyPrompts: UiCopyPrompts | null;
-  onOpenProject?: (projectId: string) => void;
+  onOpenProject?: (projectId: string, workflowTab?: WorkflowTab) => void;
 }) {
   const plan = payload?.overviewPlan || payload?.plan || null;
   const eyebrow = plan
@@ -4781,10 +4882,19 @@ function ChatView({
   const [sendStatus, setSendStatus] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState<ChatSession | null>(null);
+  const [sessionToRename, setSessionToRename] = useState<ChatSession | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [sessionsAttempt, setSessionsAttempt] = useState(0);
 
   const loadServerSessions = useCallback(async () => {
     const body = await requestJson<ChatSessionsPayload>('/api/chat/sessions', 'Could not load chat sessions.');
     setSessions(body.sessions || []);
+    setSessionsError(null);
   }, []);
 
   useEffect(() => {
@@ -4792,6 +4902,7 @@ function ChatView({
 
     async function syncSessions() {
       setSessionsLoaded(false);
+      setSessionsError(null);
       try {
         const imported = await importLocalChatSessionsOnce(viewer.id);
         if (cancelled) return;
@@ -4801,7 +4912,7 @@ function ChatView({
         }
       } catch (caught) {
         if (!cancelled) {
-          setSendStatus(caught instanceof Error ? caught.message : 'Could not load chat sessions.');
+          setSessionsError(caught instanceof Error ? caught.message : 'Could not load chat sessions.');
         }
       } finally {
         if (!cancelled) {
@@ -4814,7 +4925,12 @@ function ChatView({
     return () => {
       cancelled = true;
     };
-  }, [loadServerSessions, viewer.id]);
+  }, [loadServerSessions, viewer.id, sessionsAttempt]);
+
+  useEffect(() => {
+    // Runs after ConfirmDialog focuses Cancel, so the title field receives focus instead.
+    if (sessionToRename) window.requestAnimationFrame(() => renameInputRef.current?.select());
+  }, [sessionToRename]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4865,6 +4981,10 @@ function ChatView({
       })
       .slice(0, 6);
   }, [mentionQuery, mentionUsers]);
+  // Escape hides the menu until the draft is edited again.
+  const [mentionDismissed, setMentionDismissed] = useState(false);
+  const mentionMenuOpen = mentionQuery !== null && mentionOptions.length > 0 && !mentionDismissed;
+  const activeMentionIndex = Math.min(mentionIndex, Math.max(0, mentionOptions.length - 1));
 
   const ownedSessions = sessions.filter((session) => session.membershipKind !== 'shared');
   const sharedSessions = sessions.filter((session) => session.membershipKind === 'shared');
@@ -4915,10 +5035,19 @@ function ChatView({
     }
   }
 
-  async function renameSession(session: ChatSession) {
-    const title = window.prompt('Rename chat session', session.title);
-    if (title === null) return;
+  function startRename(session: ChatSession) {
+    setRenameTitle(session.title);
+    setRenameError(null);
+    setSessionToRename(session);
+  }
 
+  async function renameSession(session: ChatSession, title: string) {
+    if (renameBusy) return;
+    if (!title.trim()) {
+      setRenameError('Enter a title.');
+      return;
+    }
+    setRenameBusy(true);
     try {
       const body = await requestJson<{ session?: ChatSession }>('/api/chat/sessions', 'Could not rename chat session.', {
         method: 'PATCH',
@@ -4928,14 +5057,19 @@ function ChatView({
       if (!body.session) throw new Error('Could not rename chat session.');
 
       setSessions((current) => current.map((candidate) => (candidate.threadId === session.threadId ? body.session! : candidate)));
+      setSessionToRename(null);
+      setRenameError(null);
       setSendStatus('Renamed chat session.');
     } catch (caught) {
-      setSendStatus(caught instanceof Error ? caught.message : 'Could not rename chat session.');
+      setRenameError(caught instanceof Error ? caught.message : 'Could not rename chat session.');
+    } finally {
+      setRenameBusy(false);
     }
   }
 
   function chooseMention(username: string) {
     setDraft((current) => insertMention(current, username));
+    setMentionIndex(0);
     window.requestAnimationFrame(() => inputRef.current?.focus());
   }
 
@@ -4961,10 +5095,24 @@ function ChatView({
   }
 
   function handleDraftKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.key === 'Tab' && mentionQuery !== null && mentionOptions.length > 0) {
-      event.preventDefault();
-      chooseMention(mentionOptions[0].username);
-      return;
+    if (mentionMenuOpen && !event.nativeEvent.isComposing) {
+      // While the menu is open, Enter never sends: it chooses the highlighted user.
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        chooseMention(mentionOptions[activeMentionIndex].username);
+        return;
+      }
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        setMentionIndex((activeMentionIndex + step + mentionOptions.length) % mentionOptions.length);
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setMentionDismissed(true);
+        return;
+      }
     }
 
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
@@ -5063,12 +5211,13 @@ function ChatView({
             <Plus aria-hidden="true" />
             New conversation
           </button>
-          <div className="ops-segmented chat-history-tabs" role="tablist" aria-label="Chat session lists">
+          <div className="ops-segmented chat-history-tabs" role="tablist" aria-label="Chat session lists" onKeyDown={tablistKeyDown}>
             <button
               className={historyMode === 'owned' ? 'active' : ''}
               type="button"
               role="tab"
               aria-selected={historyMode === 'owned'}
+              tabIndex={historyMode === 'owned' ? 0 : -1}
               onClick={() => setHistoryMode('owned')}
             >
               History
@@ -5078,6 +5227,8 @@ function ChatView({
               type="button"
               role="tab"
               aria-selected={historyMode === 'shared'}
+              aria-label={sharedSessions.length > 0 ? `Shared, ${sharedSessions.length}` : undefined}
+              tabIndex={historyMode === 'shared' ? 0 : -1}
               onClick={() => setHistoryMode('shared')}
             >
               Shared
@@ -5089,6 +5240,13 @@ function ChatView({
               <DotMatrixIcon variant="loading" size={18} />
               Loading sessions
             </p>
+          ) : sessionsError ? (
+            <div className="chat-history-empty form-message error" role="alert">
+              <p>{sessionsError}</p>
+              <button className="ops-secondary" type="button" onClick={() => setSessionsAttempt((attempt) => attempt + 1)}>
+                Retry
+              </button>
+            </div>
           ) : visibleSessions.length ? (
             <div className="chat-history-list">
               {chatSessionGroups(visibleSessions).map((group) => (
@@ -5140,7 +5298,7 @@ function ChatView({
               )}
             </div>
             {activeSession && !activeSessionShared && (
-              <button className="ops-secondary chat-head-button" type="button" onClick={() => renameSession(activeSession)}>
+              <button className="ops-secondary chat-head-button" type="button" onClick={() => startRename(activeSession)}>
                 Rename
               </button>
             )}
@@ -5258,13 +5416,18 @@ function ChatView({
           </div>
 
           <div className="chat-input-wrap">
-            {mentionQuery !== null && mentionOptions.length > 0 && (
-              <div className="mention-menu">
-                {mentionOptions.map((user) => (
+            {mentionMenuOpen && (
+              <div className="mention-menu" id="chat-mention-listbox" role="listbox" aria-label="Mention a user">
+                {mentionOptions.map((user, index) => (
                   <button
-                    className={mentionOptions[0]?.id === user.id ? 'active' : ''}
+                    className={index === activeMentionIndex ? 'active' : ''}
+                    id={`chat-mention-option-${index}`}
+                    role="option"
+                    aria-selected={index === activeMentionIndex}
+                    tabIndex={-1}
                     key={user.id}
                     type="button"
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => chooseMention(user.username)}
                   >
                     <span className="user-avatar mention-avatar" aria-hidden="true">
@@ -5286,10 +5449,17 @@ function ChatView({
               <input
                 ref={inputRef}
                 aria-label="Message VioScope"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={mentionMenuOpen}
+                aria-controls={mentionMenuOpen ? 'chat-mention-listbox' : undefined}
+                aria-activedescendant={mentionMenuOpen ? `chat-mention-option-${activeMentionIndex}` : undefined}
                 value={draft}
                 onChange={(event) => {
                   setDraft(event.target.value);
                   setDraftHistoryCursor(null);
+                  setMentionIndex(0);
+                  setMentionDismissed(false);
                 }}
                 onKeyDown={handleDraftKeyDown}
                 placeholder={vioscopeChatUiConfig.inputPlaceholder}
@@ -5321,6 +5491,36 @@ function ChatView({
           if (sessionToDelete) void deleteSession(sessionToDelete);
         }}
       />
+      <ConfirmDialog
+        id="rename-chat-session"
+        open={Boolean(sessionToRename)}
+        tone="default"
+        title="Rename chat session"
+        message="Choose a title for this conversation. Only the title changes."
+        confirmLabel="Save"
+        busy={renameBusy}
+        onCancel={() => setSessionToRename(null)}
+        onConfirm={() => {
+          if (sessionToRename) void renameSession(sessionToRename, renameTitle);
+        }}
+      >
+        <label className="confirm-dialog-phrase">
+          <span>Title</span>
+          <input
+            ref={renameInputRef}
+            value={renameTitle}
+            maxLength={120}
+            autoComplete="off"
+            onChange={(event) => setRenameTitle(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              if (sessionToRename) void renameSession(sessionToRename, renameTitle);
+            }}
+          />
+        </label>
+        {renameError && <p className="form-message error" role="alert">{renameError}</p>}
+      </ConfirmDialog>
     </section>
   );
 }
@@ -5329,7 +5529,7 @@ function ChecklistsView({ userId, onProjectCreated }: { userId: string; onProjec
   const activeChecklist = checklistTemplates.find((template) => template.id === activeChecklistId) || checklistTemplates[0];
 
   const checklistTabs = (
-    <div className="console-page-tabs checklist-tabs" role="tablist" aria-label="Review checklist templates">
+    <div className="console-page-tabs checklist-tabs" role="tablist" aria-label="Review checklist templates" onKeyDown={tablistKeyDown}>
       {checklistTemplates.map((template) => (
         <button
           key={template.id}
@@ -5337,6 +5537,7 @@ function ChecklistsView({ userId, onProjectCreated }: { userId: string; onProjec
           type="button"
           role="tab"
           aria-selected={activeChecklist.id === template.id}
+          tabIndex={activeChecklist.id === template.id ? 0 : -1}
           onClick={() => setActiveChecklistId(template.id)}
         >
           {template.label}
@@ -5387,6 +5588,7 @@ function TopbarNotificationCenter({
   onMarkAllEventsRead: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const bellRef = useRef<HTMLButtonElement | null>(null);
   const [tab, setTab] = useState<TopbarNotificationTab>('messages');
   const unreadMessages = chatNotifications.filter((notification) => !notification.readAt);
   const visibleMessages = unreadMessages.length ? unreadMessages : chatNotifications;
@@ -5406,6 +5608,7 @@ function TopbarNotificationCenter({
     function closeOnEscape(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
         onToggle();
+        bellRef.current?.focus();
       }
     }
 
@@ -5417,9 +5620,20 @@ function TopbarNotificationCenter({
     };
   }, [onToggle, open]);
 
+  const tabProps = (id: TopbarNotificationTab, label: string, unread = 0) => ({
+    className: tab === id ? 'active' : '',
+    type: 'button' as const,
+    role: 'tab',
+    'aria-selected': tab === id,
+    'aria-label': unread > 0 ? `${label}, ${unread} unread` : undefined,
+    tabIndex: tab === id ? 0 : -1,
+    onClick: () => setTab(id),
+  });
+
   return (
     <div className="topbar-notification" ref={containerRef}>
       <button
+        ref={bellRef}
         className="topbar-notification-button"
         type="button"
         onClick={onToggle}
@@ -5442,32 +5656,14 @@ function TopbarNotificationCenter({
               )}
             </div>
           </header>
-          <div className="notification-tabs" role="tablist" aria-label="Notification categories">
-            <button
-              className={tab === 'messages' ? 'active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={tab === 'messages'}
-              onClick={() => setTab('messages')}
-            >
+          <div className="notification-tabs" role="tablist" aria-label="Notification categories" onKeyDown={tablistKeyDown}>
+            <button {...tabProps('messages', 'Messages', unreadMessages.length)}>
               Messages{unreadMessages.length > 0 && <span className="vs-tab-count">{unreadMessages.length}</span>}
             </button>
-            <button
-              className={tab === 'events' ? 'active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={tab === 'events'}
-              onClick={() => setTab('events')}
-            >
+            <button {...tabProps('events', 'Events', unreadEvents.length)}>
               Events{unreadEvents.length > 0 && <span className="vs-tab-count">{unreadEvents.length}</span>}
             </button>
-            <button
-              className={tab === 'logs' ? 'active' : ''}
-              type="button"
-              role="tab"
-              aria-selected={tab === 'logs'}
-              onClick={() => setTab('logs')}
-            >
+            <button {...tabProps('logs', 'Logs')}>
               Logs
             </button>
           </div>
@@ -5727,20 +5923,28 @@ function AdminConfigurationPanel() {
             <div className="ops-panel-head">
               <div>
                 <h2>Runtime settings</h2>
-                <p>{changedKeys.length ? `${changedKeys.length} pending change(s)` : 'No pending changes'}</p>
+                <p>{changedKeys.length ? `${changedKeys.length} pending ${changedKeys.length === 1 ? 'change' : 'changes'}` : 'No pending changes'}</p>
               </div>
-              <button className="ops-primary" type="button" onClick={() => void saveConfig()} disabled={busy || !changedKeys.length}>
-                <Save aria-hidden="true" />
-                {busy ? 'Saving' : 'Save changes'}
-              </button>
+              <div className="button-row">
+                <button className="ops-secondary" type="button" onClick={() => payload && applyPayload(payload)} disabled={busy || !changedKeys.length}>
+                  <RotateCcw aria-hidden="true" />
+                  Discard all changes
+                </button>
+                <button className="ops-primary" type="button" onClick={() => void saveConfig()} disabled={busy || !changedKeys.length}>
+                  <Save aria-hidden="true" />
+                  {busy ? 'Saving' : 'Save changes'}
+                </button>
+              </div>
             </div>
-            <div className="config-section-tabs" role="tablist" aria-label="Configuration sections">
+            <div className="config-section-tabs" role="tablist" aria-label="Configuration sections" onKeyDown={tablistKeyDown}>
               {configGroups.map((group) => (
                 <button
                   key={group.section}
                   type="button"
                   role="tab"
                   aria-selected={activeConfigGroup?.section === group.section}
+                  aria-label={`${group.label}, ${group.settings.length} ${group.settings.length === 1 ? 'setting' : 'settings'}`}
+                  tabIndex={activeConfigGroup?.section === group.section ? 0 : -1}
                   className={activeConfigGroup?.section === group.section ? 'active' : ''}
                   onClick={() => setActiveConfigSection(group.section)}
                 >
@@ -5769,6 +5973,7 @@ function AdminConfigurationPanel() {
                       <div className="config-control">
                         {setting.valueType === 'weekday' ? (
                           <select
+                            aria-label={setting.label}
                             value={drafts[setting.key] ?? ''}
                             onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
                           >
@@ -5780,6 +5985,7 @@ function AdminConfigurationPanel() {
                           </select>
                         ) : (
                           <input
+                            aria-label={setting.label}
                             type={setting.valueType === 'number' || setting.valueType === 'time' ? setting.valueType : 'text'}
                             value={drafts[setting.key] ?? ''}
                             onChange={(event) => setDrafts((current) => ({ ...current, [setting.key]: event.target.value }))}
@@ -5789,8 +5995,11 @@ function AdminConfigurationPanel() {
                         <button
                           className="tiny-button"
                           type="button"
-                          disabled={busy || setting.source !== 'database'}
-                          onClick={() => void resetConfig(setting.key)}
+                          aria-label={changedKeys.includes(setting.key) ? `Reset ${setting.label} to the saved value` : `Reset ${setting.label} to its default`}
+                          disabled={busy || (!changedKeys.includes(setting.key) && setting.source !== 'database')}
+                          onClick={() => changedKeys.includes(setting.key)
+                            ? setDrafts((current) => ({ ...current, [setting.key]: setting.value }))
+                            : void resetConfig(setting.key)}
                         >
                           Reset
                         </button>
@@ -6005,7 +6214,7 @@ function ThemeMeetingSettingsPanel() {
                     <p>Theme meetings use UK local time.</p>
                   </div>
                   <div className="theme-settings-control">
-                    <input value={draft.timezone} onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} />
+                    <input aria-label="Timezone" value={draft.timezone} onChange={(event) => setDraft({ ...draft, timezone: event.target.value })} />
                   </div>
                 </div>
                 <div className="theme-settings-row">
@@ -6016,6 +6225,7 @@ function ThemeMeetingSettingsPanel() {
                   <div className="theme-settings-control">
                     <input
                       type="date"
+                      aria-label="Anchor date"
                       value={draft.cycle.anchor_date}
                       onChange={(event) => setDraft({ ...draft, cycle: { ...draft.cycle, anchor_date: event.target.value } })}
                     />
@@ -6063,6 +6273,7 @@ function ThemeMeetingSettingsPanel() {
                     <input
                       type="number"
                       min={1}
+                      aria-label="Progress word target"
                       value={draft.submission.progress_word_target}
                       onChange={(event) => setDraft({
                         ...draft,
@@ -6081,6 +6292,7 @@ function ThemeMeetingSettingsPanel() {
                       <input
                         type="number"
                         min={0}
+                        aria-label={`${updateTypeLabels[type]} duration in minutes`}
                         value={draft.submission.update_types[type]?.duration_minutes ?? 0}
                         onChange={(event) => updateSubmission(type, event.target.value)}
                       />
@@ -6433,7 +6645,8 @@ function MarkdownEditorPanel({
   const [path, setPath] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const [savedMarkdown, setSavedMarkdown] = useState('');
+  const dirty = markdown !== savedMarkdown;
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -6444,8 +6657,8 @@ function MarkdownEditorPanel({
       const body = await requestJson<MarkdownFilePayload>(endpoint, 'Could not load markdown.');
       if (typeof body.markdown !== 'string') throw new Error('Could not load markdown.');
       setMarkdown(body.markdown);
+      setSavedMarkdown(body.markdown);
       setPath(body.path || '');
-      setDirty(false);
       setLoaded(true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not load markdown.');
@@ -6475,8 +6688,8 @@ function MarkdownEditorPanel({
       });
       if (typeof body.markdown !== 'string') throw new Error('Could not save markdown.');
       setMarkdown(body.markdown);
+      setSavedMarkdown(body.markdown);
       setPath(body.path || path);
-      setDirty(false);
       if (importAfterSave && typeof body.importedCount === 'number') {
         setMessage(`Saved and imported ${body.importedCount} profiles.`);
       } else if (importAfterSave) {
@@ -6516,7 +6729,6 @@ function MarkdownEditorPanel({
             value={markdown}
             onChange={(event) => {
               setMarkdown(event.target.value);
-              setDirty(true);
               setMessage(null);
               setError(null);
             }}
@@ -6591,6 +6803,8 @@ function UsersView({
   const [drafts, setDrafts] = useState<Record<string, UserDraft>>({});
   const [userQuery, setUserQuery] = useState('');
   const [usersLoaded, setUsersLoaded] = useState(false);
+  const [usersLoadFailed, setUsersLoadFailed] = useState(false);
+  const [usersAttempt, setUsersAttempt] = useState(0);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [notificationPrefs, setNotificationPrefs] = useState<NotificationPreferences>(() =>
     normalizedNotificationPreferences(user.notificationPreferences),
@@ -6625,6 +6839,13 @@ function UsersView({
   const canViewConfig = user.role === 'administrator';
   useCustomDialogFocus(createOpen, createCloseButtonRef);
   useCustomDialogFocus(Boolean(editingUser), editCloseButtonRef);
+  const userMenuRef = useRef<HTMLDivElement | null>(null);
+  const userMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [disableConfirmUser, setDisableConfirmUser] = useState<ManagedUser | null>(null);
+  useMenuFocus(Boolean(actionUser && actionMenuPosition), userMenuRef);
+  // Errors raised while a member dialog is open are shown inside that dialog, not behind it.
+  const dialogOpen = createOpen || Boolean(editingUser);
+  const dialogError = dialogOpen && error ? <div className="form-message error" role="alert" tabIndex={-1}>{error}</div> : null;
 
   useEffect(() => {
     setNotificationPrefs(normalizedNotificationPreferences(user.notificationPreferences));
@@ -6671,11 +6892,13 @@ function UsersView({
         if (!body.users) throw new Error('Could not load users.');
         if (!cancelled) {
           applyUsers(body.users);
+          setUsersLoadFailed(false);
           setUsersLoaded(true);
         }
       } catch (caught) {
         if (!cancelled) {
           setError(caught instanceof Error ? caught.message : 'Could not load users.');
+          setUsersLoadFailed(true);
           setUsersLoaded(true);
         }
       }
@@ -6685,7 +6908,7 @@ function UsersView({
     return () => {
       cancelled = true;
     };
-  }, [applyUsers, canManageUsers]);
+  }, [applyUsers, canManageUsers, usersAttempt]);
 
   useEffect(() => {
     if (
@@ -6728,11 +6951,21 @@ function UsersView({
     setActionMenuPosition(null);
   }
 
+  useEffect(() => {
+    setError(null);
+  }, [dialogOpen]);
+
+  // The submit button is disabled while saving, which drops focus; keep it inside the dialog on the error.
+  useEffect(() => {
+    if (dialogOpen && error) document.querySelector<HTMLElement>('.users-modal [role="alert"]')?.focus();
+  }, [dialogOpen, error]);
+
   function toggleUserActions(event: MouseEvent<HTMLButtonElement>, userId: string) {
     if (actionUserId === userId) {
       closeUserActions();
       return;
     }
+    userMenuTriggerRef.current = event.currentTarget;
 
     const rect = event.currentTarget.getBoundingClientRect();
     const left = Math.max(
@@ -7111,7 +7344,16 @@ function UsersView({
                   Add member
                 </button>
               </div>
-      {error && <div className="form-message error" role="alert">{error}</div>}
+      {error && !dialogOpen && (
+        <div className="form-message error vs-retry-notice" role="alert">
+          <span>{error}</span>
+          {usersLoadFailed && (
+            <button className="ops-secondary" type="button" onClick={() => { setUsersLoaded(false); setUsersAttempt((attempt) => attempt + 1); }}>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
       {message && <div className="form-message" role="status">{message}</div>}
               {userActions}
 
@@ -7209,10 +7451,19 @@ function UsersView({
           </div>
         )}
         {actionUser && actionMenuPosition && (
-          <div className="row-menu row-menu-floating" role="menu" style={{ top: actionMenuPosition.top, left: actionMenuPosition.left }}>
+          <div
+            ref={userMenuRef}
+            className="row-menu row-menu-floating"
+            role="menu"
+            aria-label={`Actions for ${actionUser.displayName}`}
+            style={{ top: actionMenuPosition.top, left: actionMenuPosition.left }}
+            onKeyDown={(event) => menuKeyDown(event, closeUserActions, userMenuTriggerRef.current)}
+            onBlur={(event) => menuBlur(event, closeUserActions, userMenuTriggerRef.current)}
+          >
             <button
               type="button"
               role="menuitem"
+              tabIndex={-1}
               onClick={() => {
                 setEditingUserId(actionUser.id);
                 closeUserActions();
@@ -7225,14 +7476,41 @@ function UsersView({
               className={actionUser.provisioningStatus === 'disabled' ? '' : 'danger'}
               type="button"
               role="menuitem"
+              tabIndex={-1}
               disabled={busyId === actionUser.id}
-              onClick={() => saveUser(actionUser, { provisioningStatus: actionUser.provisioningStatus === 'disabled' ? 'active' : 'disabled' })}
+              onClick={() => {
+                if (actionUser.provisioningStatus === 'disabled') {
+                  void saveUser(actionUser, { provisioningStatus: 'active' });
+                } else {
+                  setDisableConfirmUser(actionUser);
+                  closeUserActions();
+                }
+              }}
             >
               <Power aria-hidden="true" />
               {actionUser.provisioningStatus === 'disabled' ? 'Enable member' : 'Disable member'}
             </button>
           </div>
         )}
+        <ConfirmDialog
+          id="disable-member-confirm"
+          open={Boolean(disableConfirmUser)}
+          title={`Disable ${disableConfirmUser?.displayName || 'this member'}?`}
+          message="They will be signed out and will not be able to sign in. Their projects, updates and history are kept, and you can enable the account again later."
+          confirmLabel="Disable member"
+          busy={Boolean(disableConfirmUser && busyId === disableConfirmUser.id)}
+          onCancel={() => {
+            setDisableConfirmUser(null);
+            window.requestAnimationFrame(() => userMenuTriggerRef.current?.focus());
+          }}
+          onConfirm={() => {
+            if (!disableConfirmUser) return;
+            void saveUser(disableConfirmUser, { provisioningStatus: 'disabled' }).finally(() => {
+              setDisableConfirmUser(null);
+              window.requestAnimationFrame(() => userMenuTriggerRef.current?.focus());
+            });
+          }}
+        />
       </section>
       <section className="role-legend" aria-labelledby="role-legend-title">
         <h3 id="role-legend-title">What each role can do</h3>
@@ -7283,6 +7561,8 @@ function UsersView({
             <label>
               <span>Username</span>
               <input
+                required
+                autoComplete="off"
                 value={createDraft.username}
                 onChange={(event) => setCreateDraft((current) => ({ ...current, username: event.target.value }))}
                 placeholder="username"
@@ -7318,8 +7598,8 @@ function UsersView({
                 ))}
               </select>
             </label>
-            <label>
-              <span>Permission</span>
+            <div className="users-modal-field" role="group" aria-labelledby="create-user-permission">
+              <span id="create-user-permission">Permission</span>
               <div className="role-picker">
                 {userPermissionOptions.map((role) => (
                   <button
@@ -7333,7 +7613,7 @@ function UsersView({
                   </button>
                 ))}
               </div>
-            </label>
+            </div>
             <label>
               <span>Aliases</span>
               <input
@@ -7353,6 +7633,7 @@ function UsersView({
             </label>
             <p>New local accounts must change the temporary password on first login.</p>
             <p>If no temporary password is set, the username is used once for first login.</p>
+            {dialogError}
             <footer>
               <button className="ops-secondary" type="button" onClick={() => setCreateOpen(false)}>
                 Cancel
@@ -7442,8 +7723,8 @@ function UsersView({
             <section className="modal-fieldset">
               <h3>Access control</h3>
               <p>Permission and status are delegated here; members cannot change these from their account settings.</p>
-              <label>
-                <span>Permission</span>
+              <div className="users-modal-field" role="group" aria-labelledby="edit-user-permission">
+                <span id="edit-user-permission">Permission</span>
                 <div className="role-picker">
                   {userPermissionOptions.map((role) => (
                     <button
@@ -7457,7 +7738,7 @@ function UsersView({
                     </button>
                   ))}
                 </div>
-              </label>
+              </div>
               <label>
                 <span>Status</span>
                 <select
@@ -7481,6 +7762,7 @@ function UsersView({
                 placeholder={editingUser.hasPassword ? 'reset password' : 'required to activate'}
               />
             </label>
+            {dialogError}
             <footer>
               <button className="ops-secondary" type="button" onClick={() => setEditingUserId(null)}>
                 Cancel
@@ -7540,6 +7822,7 @@ function FeedbackView() {
       const body = await requestJson<FeedbackPayload>('/api/feedback', 'Could not load feedback requests.');
       applyQueries(body.queries || []);
       setCanManage(Boolean(body.canManage));
+      setError(null);
     } finally {
       setLoading(false);
       setLoaded(true);
@@ -7819,6 +8102,9 @@ export function OperationsConsole() {
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [welcomeDontShowAgain, setWelcomeDontShowAgain] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set when a shared data load fails, so the shell notice can offer Retry.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const accountBlockRef = useRef<HTMLDivElement | null>(null);
   const welcomedUserIdRef = useRef<string | null>(null);
 
@@ -7831,7 +8117,11 @@ export function OperationsConsole() {
   }, []);
 
   useEffect(() => {
-    setActiveView(activeViewFromSearch(window.location.search));
+    const initialView = activeViewFromSearch(window.location.search);
+    setActiveView(initialView);
+    // Aliases (?view=settings) and unknown views are replaced with the view actually shown.
+    const requestedView = new URLSearchParams(window.location.search).get(viewQueryParam);
+    if (requestedView !== null && requestedView !== initialView) writeViewToUrl(initialView, true);
     const syncViewFromUrl = () => setActiveView(activeViewFromSearch(window.location.search));
     window.addEventListener('popstate', syncViewFromUrl);
     return () => window.removeEventListener('popstate', syncViewFromUrl);
@@ -7839,12 +8129,20 @@ export function OperationsConsole() {
 
   useEffect(() => {
     if (!navOpen) return undefined;
+    // The drawer only opens from the mobile menu button: move focus to the first navigation item.
+    document.querySelector<HTMLElement>('#primary-navigation .vs-nav-group button')?.focus();
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setNavOpen(false);
+      if (event.key !== 'Escape') return;
+      setNavOpen(false);
+      document.querySelector<HTMLElement>('.vs-menu-button')?.focus();
     };
     document.addEventListener('keydown', closeOnEscape);
     return () => document.removeEventListener('keydown', closeOnEscape);
   }, [navOpen]);
+
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const accountTriggerRef = useRef<HTMLButtonElement | null>(null);
+  useMenuFocus(accountMenuOpen, accountMenuRef);
 
   useEffect(() => {
     if (!accountMenuOpen) return undefined;
@@ -7864,7 +8162,7 @@ export function OperationsConsole() {
 
     async function loadSession() {
       try {
-        const body = await requestJson<AuthPayload>('/api/auth/me', 'Could not read session.');
+        const body = await requestJson<AuthPayload>('/api/auth/me?optional=1', 'Could not read session.');
         if (!cancelled) {
           setUser(body.user || null);
         }
@@ -7950,35 +8248,21 @@ export function OperationsConsole() {
       };
     }
 
-    void loadProjects().catch((caught) => {
+    const failed = (fallback: string) => (caught: unknown) => {
       if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : 'Could not load projects.');
+        setError(caught instanceof Error ? caught.message : fallback);
+        setLoadFailed(true);
       }
-    });
-    void loadCollaboratorUsers().catch((caught) => {
-      if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : 'Could not load collaborator hints.');
-      }
-    });
-    void loadThemeMeetings().catch((caught) => {
-      if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : 'Could not load theme meetings.');
-      }
-    });
-    void loadChatNotifications().catch((caught) => {
-      if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : 'Could not load notifications.');
-      }
-    });
-    void loadUiCopyPrompts().catch((caught) => {
-      if (!cancelled) {
-        setError(caught instanceof Error ? caught.message : 'Could not load prompt templates.');
-      }
-    });
+    };
+    void loadProjects().catch(failed('Could not load projects.'));
+    void loadCollaboratorUsers().catch(failed('Could not load collaborator hints.'));
+    void loadThemeMeetings().catch(failed('Could not load theme meetings.'));
+    void loadChatNotifications().catch(failed('Could not load notifications.'));
+    void loadUiCopyPrompts().catch(failed('Could not load prompt templates.'));
     return () => {
       cancelled = true;
     };
-  }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, loadUiCopyPrompts, user]);
+  }, [loadChatNotifications, loadCollaboratorUsers, loadProjects, loadThemeMeetings, loadUiCopyPrompts, user, loadAttempt]);
 
   async function markChatNotificationRead(notificationId: string) {
     const body = await requestJson<NotificationsPayload>('/api/notifications', 'Could not mark notification as read.', {
@@ -8021,11 +8305,20 @@ export function OperationsConsole() {
   }, []);
 
   // Cross-view link (e.g. from meeting actions): switch to Projects (pushing ?view=projects so Back returns) and open the record.
-  const [projectOpenRequest, setProjectOpenRequest] = useState<{ id: string; mode: ProjectDetailMode } | null>(null);
-  const openProjectRecord = useCallback((projectId: string, mode: ProjectDetailMode = 'workflow') => {
-    setProjectOpenRequest({ id: projectId, mode });
+  const [projectOpenRequest, setProjectOpenRequest] = useState<{ id: string; mode: ProjectDetailMode; workflowTab?: WorkflowTab } | null>(null);
+  const openProjectRecord = useCallback((projectId: string, mode: ProjectDetailMode = 'workflow', workflowTab?: WorkflowTab) => {
+    setProjectOpenRequest({ id: projectId, mode, workflowTab });
     selectView('projects');
   }, [selectView]);
+  // Projects list filter requested by another view; reset whenever Projects is left.
+  const [projectsFilterRequest, setProjectsFilterRequest] = useState<ProjectListFilter>('active');
+  const openProjectsList = useCallback((filter: ProjectListFilter = 'active') => {
+    setProjectsFilterRequest(filter);
+    selectView('projects');
+  }, [selectView]);
+  useEffect(() => {
+    if (activeView !== 'projects') setProjectsFilterRequest('active');
+  }, [activeView]);
   const handleProjectOpenRequestHandled = useCallback(() => setProjectOpenRequest(null), []);
 
   function openChatSessionFromNotification(sessionId: string, notificationId?: string) {
@@ -8053,7 +8346,7 @@ export function OperationsConsole() {
   const unreadChatNotificationCount = chatNotifications.filter((notification) => !notification.readAt).length;
   const unreadMeetingNotificationCount = (themePayload?.notifications || []).filter((notification) => !notification.read).length;
   const attentionProjectNotifications =
-    projectsPayload?.projects?.filter((project) => project.lifecycle !== 'archived' && projectNeedsAttention(project)) || [];
+    projectsPayload?.projects?.filter((project) => projectInProgress(project) && projectNeedsAttention(project)) || [];
   const canManageThemeSettings = user
     ? canSeeAllRole(user.role) || user.role === 'organizer' || Boolean(themePayload?.access?.canManageThemeIds?.length)
     : false;
@@ -8065,7 +8358,7 @@ export function OperationsConsole() {
     ],
     [],
   );
-  const activeProjectCount = projectsPayload?.projects?.filter((project) => project.lifecycle !== 'archived').length;
+  const activeProjectCount = projectsPayload?.projects?.filter(projectInProgress).length;
   const viewLabels: Record<ActiveView, string> = {
     briefing: 'Briefing', projects: 'Projects', chat: 'Chat', meeting: 'Meetings', checklists: 'Checklists', feedback: 'Feedback', users: 'Settings',
   };
@@ -8115,7 +8408,8 @@ export function OperationsConsole() {
 
   return (
     <main className="console-app vs-shell" lang="en-GB">
-      <nav id="primary-navigation" className="console-rail vs-sidebar" aria-label="Primary" data-open={navOpen || undefined}>
+      <a className="vs-skip-link" href="#main-content" onClick={(event) => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Skip to content</a>
+      <nav id="primary-navigation"className="console-rail vs-sidebar" aria-label="Primary" data-open={navOpen || undefined}>
         <div className="vs-brand">
           <img className="vs-wordmark" src="/art/vios-wordmark.png" alt="VIOS Lab" />
           <span className="vs-brand-divider" aria-hidden="true" />
@@ -8215,6 +8509,7 @@ export function OperationsConsole() {
               }}
             />
             <button
+              ref={accountTriggerRef}
               className="account-summary"
               type="button"
               aria-label={`Account menu, ${user.displayName}, ${roleLabel(user.role)}`}
@@ -8233,10 +8528,18 @@ export function OperationsConsole() {
               <ChevronDown className="account-menu-chevron" aria-hidden="true" />
             </button>
             {accountMenuOpen && (
-              <div className="account-menu" role="menu">
+              <div
+                ref={accountMenuRef}
+                className="account-menu"
+                role="menu"
+                aria-label="Account"
+                onKeyDown={(event) => menuKeyDown(event, () => setAccountMenuOpen(false), accountTriggerRef.current)}
+                onBlur={(event) => menuBlur(event, () => setAccountMenuOpen(false), accountTriggerRef.current)}
+              >
                 <button
                   type="button"
                   role="menuitem"
+                  tabIndex={-1}
                   onClick={() => {
                     setAccountMenuOpen(false);
                     setPersonalDetailsSignal((current) => current + 1);
@@ -8246,7 +8549,7 @@ export function OperationsConsole() {
                   <Settings aria-hidden="true" />
                   Settings
                 </button>
-                <button type="button" role="menuitem" onClick={logout}>
+                <button type="button" role="menuitem" tabIndex={-1} onClick={logout}>
                   <LogOut aria-hidden="true" />
                   Log out
                 </button>
@@ -8264,11 +8567,16 @@ export function OperationsConsole() {
           onOpenSettings={openWelcomeSettings}
         />
 
-        <div className="console-content">
+        <div className="console-content" id="main-content" tabIndex={-1}>
           {error && (
-            <div className="ops-notice error">
+            <div className="ops-notice error" role="alert">
               <AlertCircle aria-hidden="true" />
               <span>{error}</span>
+              {loadFailed && (
+                <button className="ops-secondary" type="button" onClick={() => { setError(null); setLoadFailed(false); setLoadAttempt((attempt) => attempt + 1); }}>
+                  Retry
+                </button>
+              )}
             </div>
           )}
           {activeView === 'briefing' && (
@@ -8279,7 +8587,8 @@ export function OperationsConsole() {
               themeMeetingsLoading={themeMeetingsLoading}
               chatNotifications={chatNotifications}
               viewer={user}
-              onOpenProjects={() => selectView('projects')}
+              onOpenProjects={openProjectsList}
+              onOpenProject={(projectId) => openProjectRecord(projectId, 'details')}
               onOpenMeeting={() => selectView('meeting')}
               onOpenNotifications={() => {
                 setAccountMenuOpen(false);
@@ -8298,6 +8607,7 @@ export function OperationsConsole() {
               onOpenMeeting={() => selectView('meeting')}
               openRequest={projectOpenRequest}
               onOpenRequestHandled={handleProjectOpenRequestHandled}
+              initialFilter={projectsFilterRequest}
             />
           )}
           {activeView === 'chat' && (
@@ -8325,7 +8635,7 @@ export function OperationsConsole() {
               viewer={user}
               projects={projectsPayload?.projects || []}
               uiCopyPrompts={uiCopyPrompts}
-              onOpenProject={openProjectRecord}
+              onOpenProject={(projectId, workflowTab) => openProjectRecord(projectId, 'workflow', workflowTab)}
             />
             </>
           )}

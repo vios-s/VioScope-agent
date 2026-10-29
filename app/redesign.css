@@ -50,6 +50,31 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+/* Skip link: first focusable element in the shell, visible only on keyboard focus. */
+.vs-skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 8px 14px;
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-accent);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.vs-skip-link:focus-visible {
+  transform: none;
+  outline: 2px solid var(--vs-accent-line);
+  outline-offset: 2px;
+}
+
+#main-content:focus {
+  outline: none;
+}
+
 /* ---------- Shell ---------- */
 
 .console-app.vs-shell {
@@ -719,6 +744,13 @@ textarea:focus-visible {
 .console-content > .ops-notice {
   margin: 16px var(--vs-page-gutter) 0;
 }
+
+/* Load failures offer Retry at the end of the notice. */
+.ops-notice > button,
+.vs-retry-notice > button { margin-left: auto; flex-shrink: 0; }
+.vs-retry-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chat-history-empty.form-message.error { display: grid; gap: 8px; justify-items: start; }
+.chat-history-empty.form-message.error p { margin: 0; }
 
 .form-message {
   padding: 10px 12px;

@@ -17,6 +17,7 @@ export function ConfirmDialog({
   children,
   tone = 'danger',
   cancelLabel = 'Cancel',
+  confirmDisabled = false,
 }: {
   id: string;
   open: boolean;
@@ -33,6 +34,8 @@ export function ConfirmDialog({
   /** 'danger' for destructive or irreversible actions; 'default' for ordinary confirmations. */
   tone?: 'danger' | 'default';
   cancelLabel?: string;
+  /** Disables the confirm button when there is nothing to do (the message explains why). */
+  confirmDisabled?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
@@ -97,7 +100,7 @@ export function ConfirmDialog({
           <button ref={cancelRef} className="ops-secondary" type="button" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </button>
-          <button className={`ops-primary${tone === 'danger' ? ' danger-confirm' : ''}`} type="button" onClick={onConfirm} disabled={busy || !phraseMatches}>
+          <button className={`ops-primary${tone === 'danger' ? ' danger-confirm' : ''}`} type="button" onClick={onConfirm} disabled={busy || !phraseMatches || confirmDisabled}>
             {busy ? 'Working' : confirmLabel}
           </button>
         </footer>

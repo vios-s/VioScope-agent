@@ -56,6 +56,18 @@ try {
   assert.equal((await projects.getProjectForUser(project.id, owner)).stage, 2, 'Suggestions do not advance the project.');
   answer = { ...valid, evidence: [{ source: 'blocker', quote: 'Invented result' }] };
   assert.equal((await POST(request())).status, 400);
+  // Over-long drafts get exactly one automatic retry with an explicit shorter limit; quotes are never truncated.
+  const long = { ...valid, progress: '- ' + 'word '.repeat(80) };
+  let answers: unknown[] = [long, valid], retryPrompts: string[] = [];
+  const plainFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => { answer = answers.shift(); retryPrompts.push(String(init?.body || '')); return plainFetch(input, init); };
+  const retried = await POST(request()); assert.equal(retried.status, 200, await retried.clone().text());
+  assert.deepEqual((await retried.json()).suggestion, valid);
+  assert.equal(retryPrompts.length, 2); assert.ok(!retryPrompts[0].includes('RETRY') && /at most 50 words/.test(retryPrompts[1]));
+  answers = [long, long]; retryPrompts = [];
+  const tooLong = await POST(request()); assert.equal(tooLong.status, 400);
+  assert.match((await tooLong.json()).error, /longer than 75 words after a shorter retry/); assert.equal(retryPrompts.length, 2);
+  globalThis.fetch = plainFetch;
   answer = valid;
   changeDuringGeneration = async () => { await projects.updateProject(project.id, { stage: 3 }, owner); };
   assert.equal((await POST(request())).status, 409, 'Discard advice if the project changes during generation.');

@@ -420,6 +420,15 @@ async function main() {
     }, cookieFor(pi)));
     assert.equal(piCreatesAdmin.status, 400, 'PI should not create admin accounts.');
 
+    const piOverwritesAdmin = await usersRoute.POST(jsonRequest('/api/users', {
+      username: users.admin.username,
+      role: 'member',
+      temporaryPassword: 'Takeover1!',
+    }, cookieFor(pi)));
+    assert.equal(piOverwritesAdmin.status, 400, 'Add member must not overwrite an existing account.');
+    assert.match((await jsonBody(piOverwritesAdmin)).error, /already exists/);
+    assert.equal((await login(users.admin.username, users.admin.password)).response.status, 200, 'Existing password must be unchanged.');
+
     const adminDisablesSelf = await userRoute.PATCH(
       jsonRequest(`/api/users/${admin.id}`, { provisioningStatus: 'disabled' }, cookieFor(admin)),
       { params: Promise.resolve({ userId: admin.id }) },

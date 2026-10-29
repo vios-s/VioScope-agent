@@ -41,12 +41,16 @@ export const themeSuggestionSchema = z.object({
   evidence: z.array(z.object({ source: z.string().min(1), quote: z.string().trim().min(1).max(1000) })).min(1).max(6),
 });
 export type ThemeSuggestion = z.infer<typeof themeSuggestionSchema>;
+export class ThemeSuggestionLengthError extends Error {
+  constructor(readonly words: number) { super('The suggestion exceeded the 75-word limit. Try again.'); }
+}
 export function validateThemeSuggestion(value: unknown, context: ReturnType<typeof meetingSuggestionContext>) {
   const result = themeSuggestionSchema.parse(value);
   // Model list formatting varies; preserve the text while canonicalizing its presentation.
   result.progress = result.progress.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
     .map(line => `- ${line.replace(/^[-*+•●–—]\s+/, '')}`).join('\n');
-  if (result.progress.split(/\s+/).length > 75) throw new Error('The suggestion exceeded the 75-word limit. Try again.');
+  const words = result.progress.split(/\s+/).length;
+  if (words > 75) throw new ThemeSuggestionLengthError(words);
   for (const evidence of result.evidence) {
     if (!context.sources[evidence.source]?.includes(evidence.quote)) throw new Error('The suggestion cited evidence absent from the project. Try again.');
   }

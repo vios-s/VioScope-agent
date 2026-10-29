@@ -141,7 +141,8 @@ dialog.vs-dialog-form {
 }
 
 /* Body: labelled fields */
-.users-modal label {
+.users-modal label,
+.users-modal .users-modal-field {
   display: grid;
   gap: 6px;
   color: var(--vs-ink);

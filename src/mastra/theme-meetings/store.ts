@@ -270,16 +270,22 @@ export async function saveThemeMeetingUpdate(
 ): Promise<ThemeMeetingUpdatesFile> {
   const path = resolveThemeMeetingUpdatesPath(options.updatesPath);
   return withFileLock(path, async () => {
-    const { updates } = await readThemeMeetingUpdates(options);
+    // Validate the whole file, but write other members' records back exactly as stored: retired
+    // types (milestone_check, strategic_slot) are normalised on read only, never rewritten.
+    const raw = (await pathExists(path)) ? (parseYaml(await readFile(/*turbopackIgnore: true*/ path, 'utf8')) || {}) : {};
+    const { updates } = themeMeetingUpdatesFileSchema.parse(raw);
+    const stored: unknown[] = Array.isArray(raw.updates) ? raw.updates : [];
     const current = updates.find((item) => sameUpdateSlot(item, update)) || null;
     if (contentHash(current) === contentHash(update)) return { updates };
     if (expectedHash && contentHash(current) !== expectedHash) throw new Error('Theme update changed after the preview. Send a fresh request.');
-    const nextUpdates = updates.filter((current) => !sameUpdateSlot(current, update));
-    nextUpdates.push(update);
-    nextUpdates.sort((a, b) => updateKey(a).localeCompare(updateKey(b)));
+    const next = updates
+      .map((item, index) => ({ item, stored: stored[index] }))
+      .filter(({ item }) => !sameUpdateSlot(item, update));
+    next.push({ item: update, stored: update });
+    next.sort((a, b) => updateKey(a.item).localeCompare(updateKey(b.item)));
 
-    const file = themeMeetingUpdatesFileSchema.parse({ updates: nextUpdates });
-    await atomicWrite(path, stringifyYaml(file));
+    const file = themeMeetingUpdatesFileSchema.parse({ updates: next.map(({ stored }) => stored) });
+    await atomicWrite(path, stringifyYaml({ ...raw, updates: next.map(({ stored }) => stored) }));
     return file;
   });
 }

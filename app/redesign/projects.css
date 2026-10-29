@@ -1335,6 +1335,21 @@
   font-weight: 600;
 }
 
+/* Stale version: warning tone; the draft stays in the form below. */
+.users-modal.project-detail-modal .vs-workflow-stale {
+  border-color: var(--vs-warn-border);
+  background: var(--vs-warn-bg);
+  margin-bottom: 12px;
+}
+
+.vs-stale-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vs-stale-compare { width: 100%; }
+.vs-stale-diff { display: grid; gap: 10px; margin: 8px 0 0; }
+.vs-stale-diff > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 4px 12px; }
+.vs-stale-diff dt { grid-column: 1 / -1; color: var(--vs-ink); font-weight: 600; }
+.vs-stale-diff dd { min-width: 0; margin: 0; }
+.vs-stale-diff pre { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+
 /* Workflow forms read like a definition list: label column, then the field. */
 .users-modal.project-detail-modal .project-workflow form > fieldset {
   display: grid;

@@ -1,8 +1,14 @@
+import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { themeMeetingConfigSchema, themeMeetingUpdateSchema, themeMeetingUpdatesFileSchema, themeMeetingPlanSchema, themeUpdateTypeSchema } from '../src/mastra/theme-meetings/schema';
 import { formatMeetingProject, meetingProjectContext } from '../src/mastra/theme-meetings/project-context';
 import { renderThemeMeetingAgendaEmail } from '../src/mastra/theme-meetings/agenda-email';
 import { confirmAgenda } from '../src/mastra/theme-meetings/workflow';
+import { saveThemeMeetingUpdate } from '../src/mastra/theme-meetings/store';
+import { closePostgresPools } from '../src/mastra/db/postgres';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 assert.deepEqual(themeUpdateTypeSchema.options, ['deep_dive', 'short_update', 'nothing_to_report']);
 const config = themeMeetingConfigSchema.parse({
@@ -51,4 +57,16 @@ assert.match(email.html, /Update &middot; 5 min/);
 assert.match(email.text, /Update \(5 min\)/);
 assert.match(email.html, /Project stage: 3/);
 assert.match(email.text, /Project stage: 3/);
+// Saving one member's update must not rewrite another member's stored legacy record.
+const storeDir = await mkdtemp(join(tmpdir(), 'theme-legacy-'));
+const updatesPath = join(storeDir, 'updates.yaml');
+await writeFile(updatesPath, `updates:\n  - meeting_date: "2026-10-14"\n    theme_id: A\n    member: Legacy Member\n    member_username: legacy\n    update_type: milestone_check\n    progress_text: Old record.\n    submitted_at: "2026-10-13T12:00:00Z"\n    legacy_note: kept\n`);
+const savedFile = await saveThemeMeetingUpdate(themeMeetingUpdateSchema.parse({ ...base, update_type: 'deep_dive' }), { updatesPath });
+assert.equal(savedFile.updates.find((item) => item.member_username === 'legacy')!.update_type, 'short_update', 'Legacy types are still read as Update.');
+const rawStore = await readFile(updatesPath, 'utf8');
+assert.match(rawStore, /update_type: milestone_check/, 'Stored legacy type is preserved.');
+assert.match(rawStore, /legacy_note: kept/, 'Unknown stored keys are preserved.');
+assert.match(rawStore, /update_type: deep_dive/);
+await rm(storeDir, { recursive: true, force: true });
+await closePostgresPools(process.env.DATABASE_URL);
 console.log('Three meeting types, legacy reads, stage snapshots, immutable confirmation and agenda rendering verified.');

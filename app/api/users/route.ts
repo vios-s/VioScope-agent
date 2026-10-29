@@ -4,6 +4,7 @@ import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session'
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import {
+  getUserByUsername,
   isUserPosition,
   isUserRole,
   listUsersForAdmin,
@@ -88,6 +89,12 @@ export async function POST(request: Request) {
     const temporaryPassword = text(body.temporaryPassword) || username;
     validateEmail(email);
     assertAssignableRole(actor, nextRole);
+    // "Add member" must never overwrite an existing account (password, role, status); only a
+    // profile-only record from the public team cache may be activated this way.
+    const existing = await getUserByUsername(username);
+    if (existing && existing.provisioningStatus !== 'profile_only') {
+      throw new Error('A member with this username already exists. Use Edit to change their details.');
+    }
 
     const createdUser = await upsertLocalUser({
       username,

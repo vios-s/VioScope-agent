@@ -22,7 +22,7 @@ type Selection = { username: string; minutes: number; deferred: boolean };
 type Row = { item: ThemeMeetingAgendaItem; minutes: number; skipped: boolean };
 type Drag = { username: string; from: number; to: number; dy: number; height: number };
 /** Renders a project title as a link to its record when the viewer can open it, otherwise as plain text. */
-type ProjectLink = (projectId: string | null | undefined, title: string) => ReactNode;
+type ProjectLink = (projectId: string | null | undefined, title: string, workflowTab?: 'tasks') => ReactNode;
 
 const ukTime = (value: string) => new Date(value).toLocaleString('en-GB', { timeZone: 'Europe/London', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
@@ -39,7 +39,7 @@ function emailDialogMessage(version: number, audience: ConfirmedAgendaEmailAudie
     audience.emailEnabled ? '' : 'Email delivery is switched off on this server, so nothing will be sent.',
     `Send version ${version} to ${people(total)} (theme members, PIs and the administrator, and agenda subscribers).`,
     audience.skipped ? `${people(audience.skipped)} will be skipped (no email address, inactive account or email notifications turned off).` : '',
-    already ? (fresh ? `Already sent to ${already}; resending sends only to the ${people(fresh)} who have not received it.` : `Everyone who can receive it already has this version; nothing new will be sent.`) : '',
+    already ? (fresh ? `Already sent to ${already}; resending sends only to the ${people(fresh)} who have not received it.` : `Everyone has already received version ${version}; nothing new will be sent.`) : '',
   ].filter(Boolean).join(' ');
 }
 const sameSelections = (a: Selection[], b: Selection[]) => a.length === b.length &&
@@ -429,7 +429,8 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
     </ConfirmDialog>
     <ConfirmDialog id={`mt-email-agenda-${themeId}`} open={dialog === 'email'} tone="default" title="Email this agenda?"
       message={confirmation ? emailDialogMessage(confirmation.version, data?.emailAudience, data?.emailedAt) : ''}
-      confirmLabel="Email" cancelLabel="Cancel" busy={busy} onCancel={() => setDialog(null)} onConfirm={() => void sendEmail()}>
+      confirmLabel="Email" cancelLabel="Cancel" busy={busy} onCancel={() => setDialog(null)} onConfirm={() => void sendEmail()}
+      confirmDisabled={Boolean(confirmation && data?.emailAudience?.version === confirmation.version && data.emailAudience.recipients.length > 0 && data.emailAudience.recipients.every((recipient) => recipient.alreadySent))}>
       {dialogError && <p className="form-message error" role="alert">{dialogError}</p>}
       {confirmation && data?.emailAudience?.version === confirmation.version && data.emailAudience.recipients.length > 0 && <details className="mt-email-recipients">
         <summary>Recipients ({data.emailAudience.recipients.length})</summary>
@@ -512,7 +513,7 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
             <fieldset disabled={busy}><legend>{item.task}</legend>
               <dl className="theme-workflow-facts">
                 <div><dt>Responsible</dt><dd>{person(item.owner)}</dd></div>
-                <div><dt>Project</dt><dd>{item.projectTitle ? <>{projectLink(item.projectId, item.projectTitle)} <span className="theme-workflow-where">· in Research workflow → Project tasks</span></> : 'No project — group action'}</dd></div>
+                <div><dt>Project</dt><dd>{item.projectTitle ? <>{projectLink(item.projectId, item.projectTitle, 'tasks')} <span className="theme-workflow-where">· in Research workflow → Project tasks</span></> : 'No project — group action'}</dd></div>
                 <div><dt>Due</dt><dd className="vs-mono">{item.dueDate}</dd></div>
                 <div><dt>Status</dt><dd><span className={`theme-workflow-status is-${item.status}${overdue ? ' is-overdue' : ''}`}>{item.status === 'done' ? 'Done' : 'Open'}{overdue ? ' · Overdue' : ''}</span></dd></div>
               </dl>
@@ -541,7 +542,7 @@ export function ThemeMeetingWorkflow({ userId, planRevision = '', themeId, meeti
   themeId: string; meetingDate: string; meetingTime: string; cancelled: boolean; canAccess: boolean;
   fallbackItems: ThemeMeetingAgendaItem[]; memberNames?: Record<string, string>; onChanged: () => Promise<void> | void; children?: ReactNode;
   /** Opens a project record; links render only for projects in the viewer's own project list. */
-  onOpenProject?: (projectId: string) => void; openableProjectIds?: string[];
+  onOpenProject?: (projectId: string, workflowTab?: 'tasks') => void; openableProjectIds?: string[];
   /** Other accessible themes on this date whose payload is fetched in the background so switching cards is instant. */
   prefetchThemeIds?: string[];
 }) {
@@ -552,8 +553,8 @@ export function ThemeMeetingWorkflow({ userId, planRevision = '', themeId, meeti
       if (id && id !== themeId && !workflowCache.has(cacheKey(userId, id, meetingDate))) void loadWorkflow(userId, id, meetingDate).catch(() => undefined);
     }
   }, [prefetchKey, userId, themeId, meetingDate]);
-  const projectLink: ProjectLink = (projectId, title) => onOpenProject && projectId && openableProjectIds.includes(projectId)
-    ? <button className="mt-project-link" type="button" aria-label={`Open project ${title}`} onClick={() => onOpenProject(projectId)}>{title}</button>
+  const projectLink: ProjectLink = (projectId, title, workflowTab) => onOpenProject && projectId && openableProjectIds.includes(projectId)
+    ? <button className="mt-project-link" type="button" aria-label={`Open project ${title}${workflowTab ? ' at Project tasks' : ''}`} onClick={() => onOpenProject(projectId, workflowTab)}>{title}</button>
     : title;
   const boardRevision = `${planRevision}|${revision}`;
   return <>
