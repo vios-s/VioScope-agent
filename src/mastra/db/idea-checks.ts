@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { seedProjectResearch } from './project-workflow';
 import { projectSetupSchema } from '../projects/workflow';
 import { validateIdeaReview, type SavedIdeaReview, type IdeaReview } from '../projects/idea-review-schema';
@@ -94,6 +95,9 @@ export async function writeIdeaCheck(id: string, input: IdeaCommand, user: AuthU
     }
     const title = command.operation === 'save' && command.title !== undefined
       ? command.title : pitch.title;
+    // An unchanged save is a no-op: no new version, and the current human decision stays in force.
+    if (command.operation === 'save' && current && title === (current.title ?? pitch.title) && isDeepStrictEqual(draft, current.draft)
+      && isDeepStrictEqual(command.source ?? null, current.source ?? null)) return { version: current.version, unchanged: true };
     await db.pool.query('UPDATE idea_pitches SET title=$2 WHERE id=$1', [id, title]);
     const payload = { title, draft, source: command.operation === 'save' ? command.source : current?.source || null, decision: command.operation === 'decide' ? command.decision : null, operation: command.operation };
     await db.pool.query('INSERT INTO idea_pitch_revisions(pitch_id,version,payload,by_username) VALUES($1,$2,$3::jsonb,$4)',

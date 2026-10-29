@@ -508,23 +508,6 @@
   color: var(--vs-ink-3);
 }
 
-.idea-delete-confirm {
-  display: grid;
-  gap: 10px;
-  padding: 16px 18px;
-  border: 1px solid var(--vs-danger-border);
-  border-radius: var(--vs-radius-panel);
-  background: var(--vs-surface);
-}
-
-.idea-delete-confirm h3 {
-  font: var(--vs-text-heading);
-}
-
-.idea-delete-confirm p {
-  color: var(--vs-ink-2);
-}
-
 .idea-source {
   padding: 12px 16px;
   border: 1px solid var(--vs-line);

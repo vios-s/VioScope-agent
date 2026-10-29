@@ -125,7 +125,16 @@ try {
   assert.match(sent[0].subject, /confirmed theme meeting agenda 2026-10-28 Theme A \(version 2\)/);
   assert.match(sent[0].html, /CONFIRMED AGENDA &middot; VERSION 2/);
   assert.ok(sent[0].text.indexOf(v2Order[0]) < sent[0].text.indexOf(v2Order[1]), 'Confirmed order is preserved.');
-  assert.doesNotMatch(sent[0].text, /Skipped at this meeting/, 'New versions schedule every submission, so the email lists no skipped items.');
+  assert.doesNotMatch(sent[0].text, /Deferred/, 'New versions schedule every submission, so the email lists no deferred items.');
+  // The confirmed email header describes the confirmed snapshot, not the live submission state.
+  assert.match(sent[0].text, /Scheduled: 3 items \| Planned: 55\/60 min/);
+  assert.match(sent[0].html, /Scheduled: <strong>3 items<\/strong>/);
+  assert.doesNotMatch(sent[0].text + sent[0].html, /Missing updates|Submitted:/, 'Confirmed emails omit live submission counts.');
+  const { renderThemeMeetingAgendaEmail } = await import('../src/mastra/theme-meetings/agenda-email');
+  const legacyDeferred = (await workflow.readMeetingWorkflow()).confirmations[0].entries.find((entry) => entry.deferred)!;
+  const legacyEmail = renderThemeMeetingAgendaEmail(confirmed, { confirmation: { version: 1, confirmedBy: 'chair', confirmedAt: new Date().toISOString(), skipped: [legacyDeferred] } });
+  assert.match(legacyEmail.text, /Deferred · not scheduled at this meeting\n\ncarol \| Deep Dive \| not scheduled/, 'Legacy deferred items use deferral wording.');
+  assert.doesNotMatch(legacyEmail.text + legacyEmail.html, /Skipped at this meeting/, '"Skip" means only a whole skipped meeting.');
   assert.match(sent[0].text, /carol/, 'Every submission is scheduled.');
   assert.match(sent[0].text, /10:00 \| /, 'Start times follow the confirmed order.');
   assert.ok((await ok(await get('chair'))).emailedAt, 'The confirmed version records its email time.');
@@ -174,11 +183,29 @@ try {
   assert.equal(completed.history[1].by, 'alice');
   await ok(await post('chair', { ...update, version: completed.version, status: 'open', note: 'Repeat with another seed.' }));
   assert.equal((await ok(await get('chair', '2026-11-04'))).actions[0].status, 'open', 'Carry unfinished work to the next meeting.');
-  const memberView = await ok(await get('alice'));
-  const managerView = await ok(await get('chair'));
-  assert.ok(memberView.confirmation.entries.length > 1, 'Theme members see the full confirmed agenda.');
-  assert.deepEqual(memberView.confirmation.entries, managerView.confirmation.entries, 'Members and managers see the same confirmed agenda.');
-  assert.ok(memberView.candidates.every((item: { member_username: string }) => item.member_username === 'alice'), 'Unconfirmed submissions stay private to their author.');
+  type Entry = { member_username: string; member: string; update_type: string; deferred: boolean; progress_text?: string; questions?: string; project_context?: unknown };
+  // Earlier meetings: members see only their own confirmed entries.
+  const pastView = await ok(await get('alice'));
+  assert.ok(pastView.confirmation.entries.length === 1 && pastView.confirmation.entries[0].member_username === 'alice', 'Earlier confirmed agendas stay private.');
+  assert.ok(pastView.candidates.every((item: { member_username: string }) => item.member_username === 'alice'), 'Unconfirmed submissions stay private to their author.');
+  // Current/next meeting: scheduled entries in full; legacy deferred entries reduced to name and update type.
+  const nextDate = planner.nextThemeMeetingDate(config, 'A')!;
+  assert.ok(nextDate > date);
+  const beforeCutoff = new Date(Date.parse(`${nextDate}T00:00:00Z`) - 2 * 86_400_000);
+  for (const name of ['alice', 'bob', 'carol']) await planner.submitThemeMeetingUpdate({ meetingDate: nextDate, themeId: 'A', member: name, updateType: 'deep_dive', progressText: `${name} next evidence.`, questions: `${name} question?`, now: beforeCutoff });
+  const nextDraft = await ok(await get('chair', nextDate));
+  assert.ok(nextDraft.candidates.length === 3);
+  const nextEntries = nextDraft.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: 20, deferred: item.member_username === 'carol' }));
+  await ok(await post('chair', { operation: 'confirm', meetingDate: nextDate, sourceVersion: nextDraft.sourceVersion, entries: nextEntries }));
+  const memberNext: Entry[] = (await ok(await get('alice', nextDate))).confirmation.entries;
+  const managerNext: Entry[] = (await ok(await get('chair', nextDate))).confirmation.entries;
+  assert.equal(memberNext.length, 3, 'Members see the whole current confirmed agenda.');
+  assert.deepEqual(memberNext.find((entry) => entry.member_username === 'bob'), managerNext.find((entry) => entry.member_username === 'bob'), 'Scheduled entries are shown in full.');
+  const reduced = memberNext.find((entry) => entry.member_username === 'carol')!;
+  assert.deepEqual([reduced.member, reduced.update_type, reduced.deferred], ['carol', 'deep_dive', true]);
+  assert.ok(reduced.progress_text === undefined && reduced.questions === undefined && reduced.project_context === undefined, 'Deferred entries omit text, questions and project context.');
+  assert.equal(managerNext.find((entry) => entry.member_username === 'carol')!.progress_text, 'carol next evidence.', 'Managers keep the full deferred entry.');
+  assert.equal(memberNext.find((entry) => entry.member_username === 'alice')!.questions, 'alice question?', 'Own entries stay complete.');
   // Optional project links share only the selected action with authorized project viewers.
   const projects = await import('../src/mastra/db/projects');
   const projectRoute = await import('../app/api/projects/[projectId]/meeting-actions/route');

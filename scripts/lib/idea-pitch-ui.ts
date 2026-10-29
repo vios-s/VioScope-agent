@@ -124,6 +124,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await panel.getByLabel('I confirm this records the human decision after discussion with the supervisory team.', { exact: true }).check();
     await panel.getByRole('button', { name: 'Confirm decision', exact: true }).click();
     await panel.getByText('Human decision saved. No project created.', { exact: true }).waitFor();
+    assert.equal(await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).isDisabled(), true, 'A clean form cannot be re-saved over the decision.');
     const formats = panel.getByRole('combobox', { name: /^Download format/ });
     assert.equal(await formats.inputValue(), 'docx');
     for (const format of ['docx', 'pdf', 'md', 'txt']) {
@@ -131,7 +132,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       const pendingDownload = page.waitForEvent('download');
       await panel.getByRole('button', { name: 'Download approved pitch', exact: true }).click();
       const download = await pendingDownload;
-      assert.equal(download.suggestedFilename(), `idea-pitch-v${peers ? 4 : 3}.${format}`);
+      assert.equal(download.suggestedFilename(), `idea-pitch-demo-cell-counting-feasibility-pilot-v${peers ? 4 : 3}.${format}`);
       await download.saveAs(resolve(output, `approved-cell-counting.${format}`));
       assert.equal(await download.failure(), null);
     }
@@ -144,15 +145,17 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       await page.screenshot({ path: resolve(output, `saved-${width}.png`) });
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
+    const deleteDialog = page.getByRole('dialog', { name: 'Delete this pitch?' });
     await panel.getByRole('button', { name: 'Delete pitch', exact: true }).click();
-    assert.equal(await panel.getByRole('button', { name: 'Permanently delete pitch', exact: true }).isEnabled(), false);
-    await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.equal(await deleteDialog.getByRole('button', { name: 'Permanently delete pitch', exact: true }).isEnabled(), false);
+    await deleteDialog.getByRole('textbox', { name: 'Type the pitch title to confirm' }).fill('DEMO — wrong title');
+    assert.equal(await deleteDialog.getByRole('button', { name: 'Permanently delete pitch', exact: true }).isEnabled(), false);
+    await deleteDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     assert.equal((await context.request.get(base + '/api/idea-pitches/' + id)).status(), 200);
     await panel.getByRole('button', { name: 'Delete pitch', exact: true }).click();
-    await panel.getByLabel('I understand this pitch and its history will be deleted.', { exact: true }).check();
-    await panel.locator('.idea-delete-confirm').scrollIntoViewIfNeeded();
+    await deleteDialog.getByRole('textbox', { name: 'Type the pitch title to confirm' }).fill('DEMO — Cell counting feasibility pilot');
     await page.screenshot({ path: resolve(output, 'delete-confirmation.png') });
-    await panel.getByRole('button', { name: 'Permanently delete pitch', exact: true }).click();
+    await deleteDialog.getByRole('button', { name: 'Permanently delete pitch', exact: true }).click();
     await railItem(page, id).waitFor({ state: 'detached' });
     assert.equal(await title.inputValue(), '');
     assert.equal((await context.request.get(base + '/api/idea-pitches/' + id)).status(), 403);
@@ -166,8 +169,8 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await panel.getByRole('heading', { name: 'DEMO — Required title', exact: true }).waitFor();
     assert.equal(await title.inputValue(), 'DEMO — Required title');
     await panel.getByRole('button', { name: 'Delete pitch', exact: true }).click();
-    await panel.getByLabel('I understand this pitch and its history will be deleted.', { exact: true }).check();
-    await panel.getByRole('button', { name: 'Permanently delete pitch', exact: true }).click();
+    await deleteDialog.getByRole('textbox', { name: 'Type the pitch title to confirm' }).fill('DEMO — Required title');
+    await deleteDialog.getByRole('button', { name: 'Permanently delete pitch', exact: true }).click();
     await page.locator('.idea-rail-item[aria-current="true"]').waitFor({ state: 'detached' });
     const handoffPitch = await (await context.request.post(base + '/api/idea-pitches', { data: { title: 'DEMO — Project meeting handoff' } })).json();
     const handoffUrl = base + '/api/idea-pitches/' + handoffPitch.id;

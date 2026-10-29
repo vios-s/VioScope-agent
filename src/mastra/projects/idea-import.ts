@@ -19,50 +19,76 @@ export function checkedSource(text: string) {
   if (value.length > maxPitchSourceChars) throw new Error('The pitch exceeds 32000 characters. Upload a shorter pitch; content is never silently truncated.');
   return value;
 }
+type XmlNode = Record<string, unknown>;
+/** Word paragraphs become lines built from their runs in document order; table cells are tab-separated. */
+function wordText(nodes: XmlNode[]): string {
+  return nodes.map((node) => {
+    const [tag, children] = Object.entries(node).find(([key]) => key !== ':@') || ['', []];
+    const inner = () => Array.isArray(children) ? wordText(children as XmlNode[]) : '';
+    switch (tag) {
+      case 'w:t': return Array.isArray(children) ? children.map(child => String((child as XmlNode)['#text'] ?? '')).join('') : '';
+      case 'w:tab': return '\t';
+      case 'w:br': case 'w:cr': return '\n';
+      case 'w:p': return inner() + '\n';
+      case 'w:tc': return inner().trim().replace(/\s*\n\s*/g, ' ') + '\t';
+      case 'w:tr': return inner().replace(/\t$/, '') + '\n';
+      case '#text': case 'mc:Fallback': return '';
+      default: return inner();
+    }
+  }).join('');
+}
+async function extractOfficeOrPdf(buffer: Buffer, ext: string, name: string) {
+  if (ext === '.pdf') {
+    const dir = await mkdtemp(join(tmpdir(), 'vioscope-idea-import-'));
+    try {
+      const path = join(dir, 'pitch.pdf'); await writeFile(path, buffer, { mode: 0o600 });
+      const result = await promisify(execFile)('pdftotext', ['-layout', path, '-'], { timeout: 10000, maxBuffer: 512000, encoding: 'utf8' });
+      return result.stdout;
+    } catch { throw new Error('Could not read this PDF. Try a text-based PDF, DOCX or pasted text.'); }
+    finally { await rm(dir, { recursive: true, force: true }); }
+  }
+  const zip = await JSZip.loadAsync(buffer);
+  const entries = Object.values(zip.files);
+  const expanded = entries.reduce((sum, entry) => sum + ((entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize || 0), 0);
+  if (entries.length > 2000 || expanded > 20 * 1024 * 1024) throw new Error('The Office document expands beyond the supported limit.');
+  if (ext === '.pptx') {
+    const deck = await extractPptxBuffer(buffer, name);
+    if (!deck.slides.some(slide => slide.text.length || slide.notes.length)) throw new Error('No readable slide text found. Paste the pitch text instead.');
+    return deck.text;
+  }
+  const document = zip.file('word/document.xml');
+  if (!document) throw new Error('No Word document text found.');
+  const xml = await document.async('string');
+  if (xml.length > 10 * 1024 * 1024 || /<!DOCTYPE/i.test(xml)) throw new Error('Unsupported Word document.');
+  const parsed = new XMLParser({ ignoreAttributes: true, preserveOrder: true, trimValues: false, parseTagValue: false }).parse(xml) as XmlNode[];
+  return wordText(parsed).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+}
+/** DOCX or text-based PDF text, shared by pitch import and Skeleton Lock upload (same 5 MB limit). */
+export async function extractDocumentText(file: File) {
+  if (!file.size || file.size > maxPitchUploadBytes) throw new Error('Upload a non-empty file of at most 5 MB.');
+  const ext = extname(file.name).toLowerCase();
+  if (ext !== '.docx' && ext !== '.pdf') throw new Error('Supported document formats: DOCX and text-based PDF.');
+  const text = (await extractOfficeOrPdf(Buffer.from(await file.arrayBuffer()), ext, file.name)).replace(/\r\n/g, '\n').trim();
+  if (!text) throw new Error('No readable text found. Upload a text-based document; scanned pages and images need transcription first.');
+  return text;
+}
 export async function extractPitchUpload(file: File) {
   if (!file.size || file.size > maxPitchUploadBytes) throw new Error('Upload a non-empty file of at most 5 MB.');
   const ext = extname(file.name).toLowerCase();
   if (!['.txt', '.md', '.docx', '.pdf', '.pptx'].includes(ext)) throw new Error('Supported formats: TXT, MD, DOCX, text-based PDF and PPTX.');
   const buffer = Buffer.from(await file.arrayBuffer());
-  let text = '';
-  if (ext === '.txt' || ext === '.md') text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
-  else if (ext === '.pdf') {
-    const dir = await mkdtemp(join(tmpdir(), 'vioscope-idea-import-'));
-    try {
-      const path = join(dir, 'pitch.pdf'); await writeFile(path, buffer, { mode: 0o600 });
-      const result = await promisify(execFile)('pdftotext', ['-layout', path, '-'], { timeout: 10000, maxBuffer: 512000, encoding: 'utf8' });
-      text = result.stdout;
-    } catch { throw new Error('Could not read this PDF. Try a text-based PDF, DOCX or pasted text.'); }
-    finally { await rm(dir, { recursive: true, force: true }); }
-  } else {
-    const zip = await JSZip.loadAsync(buffer);
-    const entries = Object.values(zip.files);
-    const expanded = entries.reduce((sum, entry) => sum + ((entry as unknown as { _data?: { uncompressedSize?: number } })._data?.uncompressedSize || 0), 0);
-    if (entries.length > 2000 || expanded > 20 * 1024 * 1024) throw new Error('The Office document expands beyond the supported limit.');
-    if (ext === '.pptx') {
-      const deck = await extractPptxBuffer(buffer, file.name);
-      if (!deck.slides.some(slide => slide.text.length || slide.notes.length)) throw new Error('No readable slide text found. Paste the pitch text instead.');
-      text = deck.text;
-    }
-    else {
-      const document = zip.file('word/document.xml');
-      if (!document) throw new Error('No Word document text found.');
-      const xml = await document.async('string');
-      if (xml.length > 10 * 1024 * 1024 || /<!DOCTYPE/i.test(xml)) throw new Error('Unsupported Word document.');
-      const parsed = new XMLParser({ ignoreAttributes: true, parseTagValue: false }).parse(xml);
-      const lines: string[] = [];
-      const collect = (value: unknown): void => {
-        if (Array.isArray(value)) { value.forEach(collect); return; }
-        if (!value || typeof value !== 'object') return;
-        for (const [key, child] of Object.entries(value)) {
-          if (key === 'w:t') lines.push(typeof child === 'object' ? String((child as Record<string, unknown>)['#text'] || '') : String(child));
-          else collect(child);
-        }
-      };
-      collect(parsed); text = lines.join('\n');
-    }
-  }
+  const text = ext === '.txt' || ext === '.md' ? new TextDecoder('utf-8', { fatal: true }).decode(buffer) : await extractOfficeOrPdf(buffer, ext, file.name);
   return { name: file.name.slice(0, 200), text: checkedSource(text), method: 'upload' as const };
+}
+const heading = String.raw`[ \t]*(?:#{1,6}[ \t]*)?(?:[*_]{1,2})?[ \t]*(?:\d+[ \t]*[.):][ \t]*)?The[ \t]+(?:Why|Context|What|De-?Risk|Resources)\b(?:[ \t]*\([^)\n]*\))?[ \t]*:?[ \t]*(?:[*_]{1,2})?[ \t]*:?[ \t]*`;
+const leadingHeading = new RegExp(`^\\s*${heading}(?:\\n|$)`, 'i');
+const trailingHeading = new RegExp(`(?:^|\\n)${heading}\\s*$`, 'i');
+/** A short first line that is not a block heading or Track line, offered as a title suggestion only. */
+export function suggestedPitchTitle(source: string) {
+  const lines = source.split('\n').map(line => line.trim()).filter(Boolean);
+  const first = (lines[0] || '').replace(/^#{1,6}\s*/, '').replace(/^([*_]{1,2})(.*)\1$/, '$2').trim();
+  if (lines.length < 2 || !first || first.length > 200 || leadingHeading.test(first) || /^track\s*[:=-]/i.test(first)) return '';
+  return first;
 }
 export function validatePitchExtraction(value: unknown, source: string): IdeaDraft {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid extracted pitch.');
@@ -71,6 +97,8 @@ export function validatePitchExtraction(value: unknown, source: string): IdeaDra
     if (key !== 'track' && typeof text === 'string' && text.trim() && !source.includes(text.trim())) throw new Error('The extracted block contains text not present in the document. Paste the text into the blocks instead.');
   }
   const draft = ideaDraftSchema.parse(value);
+  // Source headings that repeat a template block title ("## 1. The Why") are not pitch content.
+  for (const { key } of ideaFields) draft[key] = draft[key].replace(leadingHeading, '').replace(trailingHeading, '').trim();
   if (draft.track && !new RegExp(`\\btrack\\s*[:=-]\\s*(?:track\\s*)?${draft.track}\\b`, 'i').test(source)) throw new Error('The extracted track is not explicitly stated in the source.');
   return draft;
 }

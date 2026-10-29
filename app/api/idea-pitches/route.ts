@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { canSeeAll, requireSessionUser } from '../../../src/mastra/auth/session';
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { createIdeaPitch, listIdeaPitches } from '../../../src/mastra/db/idea-checks';
+import { ideaTitleSchema } from '../../../src/mastra/projects/idea-check';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { withDatabaseTransaction } from '../../../src/mastra/db/postgres';
 export const runtime = 'nodejs';
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const actor = await requireSessionUser(request);
-    const { title } = z.object({ title: z.string().trim().min(1).max(200) }).strict().parse(await request.json());
+    const { title } = z.object({ title: ideaTitleSchema }).strict().parse(await request.json());
     const result = await withDatabaseTransaction(async () => {
       const pitch = await createIdeaPitch(title, actor);
       await recordAuditLog({ actor, action: 'idea_pitch.create', targetType: 'idea_pitch', targetId: pitch.id, summary: 'User created an idea pitch.' });

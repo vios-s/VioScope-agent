@@ -26,6 +26,7 @@ export type SubmissionReviewInput = {
   deadline?: string;
   maxDraftChars?: number;
   maxOutputTokens?: number;
+  reportTitle?: string;
 };
 
 export type SubmissionReviewResult = {
@@ -144,7 +145,7 @@ function renderList(items: string[]): string {
   return items.map((item, index) => `${index + 1}. ${item}`).join('\n');
 }
 
-function renderSubmissionReviewMarkdown(review: SubmissionReviewStructured): string {
+function renderSubmissionReviewMarkdown(review: SubmissionReviewStructured, title = 'VIOS B2 Pre-Submission Review'): string {
   const appliedSkills = review.appliedSkills
     .map(
       (skill) =>
@@ -176,7 +177,7 @@ function renderSubmissionReviewMarkdown(review: SubmissionReviewStructured): str
     .map((entry) => `### ${entry.skill}\n${entry.notes.length ? entry.notes.map((note) => `- ${note}`).join('\n') : '- No notes.'}`)
     .join('\n\n');
 
-  return `# VIOS B2 Pre-Submission Review
+  return `# ${title}
 
 ## Overall Verdict
 ${review.verdict}
@@ -302,7 +303,7 @@ ${renderPromptTemplate(submissionReviewPrompt.jsonResponseTemplate, {
   });
 
   return {
-    report: renderSubmissionReviewMarkdown(structured),
+    report: renderSubmissionReviewMarkdown(structured, input.reportTitle),
     structured,
     draftName: draft.name,
     skills: skillMetadata(skills),

@@ -1161,13 +1161,16 @@ export async function listActiveAccountDirectory(): Promise<AccountDirectoryEntr
   await ensureUsersTable();
   const postgres = createPostgresClient('vioscope-users');
   try {
-    const result = await postgres.pool.query<Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role'> & { hasAvatar: boolean }>(
+    const result = await postgres.pool.query<Pick<AuthUser, 'id' | 'username' | 'displayName' | 'role'> & { hasAvatar: boolean; httpsAvatar: string | null }>(
       `SELECT id::text, username, display_name AS "displayName", role,
-              coalesce(nullif(trim(metadata->>'avatar_url'), ''), '') <> '' AS "hasAvatar"
+              coalesce(trim(metadata->>'avatar_url') ~* '^data:image/(png|jpeg|gif|webp);base64,', false) AS "hasAvatar",
+              CASE WHEN trim(metadata->>'avatar_url') ~* '^https://' THEN trim(metadata->>'avatar_url') END AS "httpsAvatar"
        FROM users WHERE provisioning_status = 'active' ORDER BY display_name, username`,
     );
-    // Avatars are served by /api/users/:id/avatar so directory payloads stay small.
-    return result.rows.map(({ hasAvatar, ...user }) => (hasAvatar ? { ...user, avatarUrl: `/api/users/${user.id}/avatar` } : user));
+    // Uploaded (data:) avatars are served by /api/users/:id/avatar so directory payloads stay small;
+    // a stored https URL is passed through as is, and anything else shows initials.
+    return result.rows.map(({ hasAvatar, httpsAvatar, ...user }) => (hasAvatar ? { ...user, avatarUrl: `/api/users/${user.id}/avatar` }
+      : httpsAvatar ? { ...user, avatarUrl: httpsAvatar } : user));
   } finally {
     await postgres.disconnect();
   }

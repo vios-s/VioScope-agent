@@ -1,7 +1,7 @@
 import { formatMeetingProject } from './project-context';
 import { themeUpdateTypeLabels as slotLabels, type ThemeMeetingAgendaItem, type ThemeMeetingPlan } from './schema';
 
-/** The human-confirmed version being circulated; `skipped` lists items the manager left out of this meeting. */
+/** The human-confirmed version being circulated; `skipped` lists legacy entries deferred (not scheduled) in that version. */
 export type ConfirmedAgendaEmail = { version: number; confirmedBy: string; confirmedAt: string; skipped: ThemeMeetingAgendaItem[] };
 
 const advisory = 'This agenda is advisory until confirmed by a coordinator, PI, or administrator.';
@@ -11,6 +11,8 @@ function escapeHtml(value: string): string {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[character]!);
 }
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
 function multiline(value: string): string {
   return escapeHtml(value).replace(/\r\n|\r|\n/g, '<br>');
@@ -112,12 +114,13 @@ export function renderThemeMeetingAgendaEmail(
       return [item, start] as const;
     }));
   };
+  // Legacy per-item deferral; "skip" is reserved for a whole skipped meeting.
   const skippedText = confirmed?.skipped.length
-    ? ['Skipped at this meeting', confirmed.skipped.map((item) => `${item.member} | ${slotLabels[item.update_type]} | not scheduled`).join('\n')]
+    ? ['Deferred · not scheduled at this meeting', confirmed.skipped.map((item) => `${item.member} | ${slotLabels[item.update_type]} | not scheduled`).join('\n')]
     : [];
   const skippedHtml = confirmed?.skipped.length ? `
     <tr><td style="padding:16px 24px;">
-      <h3 style="margin:0 0 8px;font-size:18px;color:#183b4e;">Skipped at this meeting</h3>
+      <h3 style="margin:0 0 8px;font-size:18px;color:#183b4e;">Deferred &middot; not scheduled at this meeting</h3>
       <ul style="margin:0;padding-left:22px;color:#52616b;">${confirmed.skipped.map((item) => `<li style="margin:0 0 6px;">${escapeHtml(item.member)} &middot; ${slotLabels[item.update_type]} &middot; not scheduled</li>`).join('')}</ul>
     </td></tr>` : '';
   const meetings = plan.meetings.filter((meeting) => !meeting.cancelled);
@@ -132,8 +135,10 @@ export function renderThemeMeetingAgendaEmail(
       return [
       `Theme ${meeting.theme_id} — ${meeting.title}`,
       `${meeting.time} | ${meeting.duration_minutes} min | Coordinator: ${meeting.coordinator}`,
-      `Submitted: ${meeting.submitted_members.length}/${meeting.members.length} | Planned: ${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}`,
-      `${missingLabel}: ${meeting.missing_members.join(', ') || 'None'}`,
+      // A confirmed email describes the confirmed snapshot only, never the live submission state.
+      confirmed ? `Scheduled: ${plural(meeting.agenda_items.length, 'item')} | Planned: ${meeting.planned_minutes}/${meeting.duration_minutes} min`
+        : `Submitted: ${meeting.submitted_members.length}/${meeting.members.length} | Planned: ${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}`,
+      ...(confirmed ? [] : [`${missingLabel}: ${meeting.missing_members.join(', ') || 'None'}`]),
       'Discussion agenda',
       discussion.map((item) => `${confirmed ? `${start.get(item)} | ` : ''}${item.member} | ${slotLabels[item.update_type]} | ${item.duration_minutes} min`).join('\n') || emptyDiscussion,
       ...(discussion.length ? [] : [noSlotsNotice(meeting)]),
@@ -170,8 +175,10 @@ export function renderThemeMeetingAgendaEmail(
     <tr><td style="padding:28px 24px 12px;border-top:1px solid #dce3e9;">
       <h2 style="margin:0 0 8px;font-size:21px;line-height:1.4;color:#183b4e;">Theme ${escapeHtml(meeting.theme_id)} &mdash; ${escapeHtml(meeting.title)}</h2>
       <p style="margin:0 0 12px;">${escapeHtml(meeting.time)} &middot; ${meeting.duration_minutes} min &middot; Coordinator: ${escapeHtml(meeting.coordinator)}</p>
-      <p style="margin:0 0 6px;color:#52616b;">Submitted: <strong>${meeting.submitted_members.length}/${meeting.members.length}</strong> &nbsp; Planned: <strong>${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}</strong></p>
-      <p style="margin:0 0 8px;color:#52616b;">${missingLabel}: ${escapeHtml(meeting.missing_members.join(', ') || 'None')}</p>
+      ${confirmed
+        ? `<p style="margin:0 0 8px;color:#52616b;">Scheduled: <strong>${plural(meeting.agenda_items.length, 'item')}</strong> &nbsp; Planned: <strong>${meeting.planned_minutes}/${meeting.duration_minutes} min</strong></p>`
+        : `<p style="margin:0 0 6px;color:#52616b;">Submitted: <strong>${meeting.submitted_members.length}/${meeting.members.length}</strong> &nbsp; Planned: <strong>${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}</strong></p>
+      <p style="margin:0 0 8px;color:#52616b;">${missingLabel}: ${escapeHtml(meeting.missing_members.join(', ') || 'None')}</p>`}
     </td></tr>
     <tr><td style="padding:8px 24px 16px;">
       <h3 style="margin:0 0 10px;font-size:18px;color:#183b4e;">Discussion agenda</h3>

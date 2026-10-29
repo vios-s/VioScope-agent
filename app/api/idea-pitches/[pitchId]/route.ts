@@ -10,7 +10,7 @@ import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { withDatabaseTransaction } from '../../../../src/mastra/db/postgres';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-const commandSchema = z.union([ideaCommandSchema, z.object({ operation: z.literal('create_project'), version: z.number().int().positive(), confirmed: z.literal(true), initialAction: initialProjectActionSchema.optional(), setup: projectSetupSchema.optional() }).strict()]);
+const commandSchema = z.discriminatedUnion('operation', [...ideaCommandSchema.options, z.object({ operation: z.literal('create_project'), version: z.number().int().positive(), confirmed: z.literal(true, { error: 'Confirm that this approved pitch should become a project.' }), initialAction: initialProjectActionSchema.optional(), setup: projectSetupSchema.optional() }).strict()]);
 export async function GET(request: Request, context: { params: Promise<{ pitchId: string }> }) {
   try {
     const user = await requireSessionUser(request);
@@ -39,7 +39,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ pitc
     const actor = await requireSessionUser(request);
     const { pitchId } = await context.params;
     z.string().uuid().parse(pitchId);
-    const command = z.object({ version: z.number().int().min(0), confirmed: z.literal(true) }).strict().parse(await request.json());
+    const command = z.object({ version: z.number().int().min(0), confirmed: z.literal(true, { error: 'Confirm the deletion before deleting this pitch.' }) }).strict().parse(await request.json());
     const result = await withDatabaseTransaction(async () => {
       const deleted = await deleteIdeaPitch(pitchId, command.version, actor);
       await recordAuditLog({ actor, action: 'idea_pitch.delete', targetType: 'idea_pitch', targetId: pitchId,

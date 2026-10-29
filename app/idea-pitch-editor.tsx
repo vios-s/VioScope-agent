@@ -4,9 +4,9 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Check, Clock, Compass, Download, Lock, Trash2, Upload } from 'lucide-react';
 import { IdeaPitchSharing } from './idea-pitch-sharing';
 import { checklistDraftKey, readChecklistDraft, writeChecklistDraft, removeChecklistDraft } from './checklist-drafts';
-import { requestJson } from './client-request';
+import { ApiRequestError, requestJson } from './client-request';
 import { ConfirmDialog } from './confirm-dialog';
-import { checkIdea, ideaDraftSchema, ideaFields, defaultPitchExportFormat, type PitchExportFormat, type IdeaCheckPayload, type IdeaDecision, type IdeaDraft, type IdeaSource } from '../src/mastra/projects/idea-check';
+import { checkIdea, ideaDraftSchema, ideaFields, ideaOutcomeLabels, pitchExportFilename, defaultPitchExportFormat, type PitchExportFormat, type IdeaCheckPayload, type IdeaDecision, type IdeaDraft, type IdeaSource } from '../src/mastra/projects/idea-check';
 import { ideaBlockStatusLabels, ideaDiscussantQuestions, ideaDiscussantStatusLabels, isLegacyIdeaReview, type IdeaReview, type SavedIdeaReview } from '../src/mastra/projects/idea-review-schema';
 
 export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, onDeleted, onStateChanged }: { userId: string; pitchId: string; onChanged: (id: string) => Promise<void>; onProjectCreated: () => Promise<void>; onDeleted: () => Promise<void>; onStateChanged: (state: { dirty: boolean; busy: boolean }) => void }) {
@@ -23,7 +23,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   const [source, setSource] = useState<IdeaSource | null>(restored.current?.source || null);
   const [upload, setUpload] = useState<File | null>(null);
   const [pasted, setPasted] = useState(restored.current?.pasted || '');
-  const [preview, setPreview] = useState<{ draft: IdeaDraft; source: IdeaSource } | null>(null);
+  const [preview, setPreview] = useState<{ draft: IdeaDraft; source: IdeaSource; title?: string } | null>(null);
   const [decision, setDecision] = useState<IdeaDecision>({ outcome: 'revise', rationale: '', nextMilestone: '' });
   const [confirmed, setConfirmed] = useState(false);
   const [createConfirmed, setCreateConfirmed] = useState(false);
@@ -31,7 +31,6 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   const [setup, setSetup] = useState({track:'A',piUsername:'',pdraUsername:'',collaborators:''});
   const [actionDueDate, setActionDueDate] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [operationBusy, setBusy] = useState(false);
   const [sharingBusy, setSharingBusy] = useState(false);
   const busy = operationBusy || sharingBusy;
@@ -86,7 +85,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
     try {
       const target = await ensurePitch();
       const form = new FormData(); if (upload) form.set('file', upload); if (pasted.trim()) form.set('text', pasted);
-      setPreview(await requestJson<{ draft: IdeaDraft; source: IdeaSource }>(`${target}/import`, 'Could not organise the document.', { method: 'POST', body: form }));
+      setPreview(await requestJson<{ draft: IdeaDraft; source: IdeaSource; title?: string }>(`${target}/import`, 'Could not organise the document.', { method: 'POST', body: form }));
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not import.'); }
     finally { setBusy(false); }
   }
@@ -97,7 +96,10 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       await requestJson(`${url}/review`, 'Could not review the pitch.', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: data.current.version }) });
       setData(await requestJson<IdeaCheckPayload>(url, 'Review saved, but could not refresh. Reload saved version.'));
       setStatus('AI advice saved. A person must still make the decision.');
-    } catch (caught) { setError('Could not complete the AI review. Your saved draft is unchanged. Try Check pitch with AI again.'); }
+    } catch (caught) {
+      // Access and stale-version refusals explain themselves; model failures get the generic retry advice.
+      setError(caught instanceof ApiRequestError && (caught.status === 403 || caught.status === 409) ? caught.message : 'Could not complete the AI review. Your saved draft is unchanged. Try Check pitch with AI again.');
+    }
     finally { setBusy(false); }
   }
   const dirty = Boolean(conflictingDraft) || title !== (data?.pitch.id ? data.pitch.title : '') || JSON.stringify(draft) !== JSON.stringify(data?.current?.draft || ideaDraftSchema.parse({})) || JSON.stringify(source) !== JSON.stringify(data?.current?.source || null);
@@ -118,7 +120,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
         throw new Error(result.error || 'Could not export this pitch. Try again or choose another format.');
       }
       const blob = await response.blob(); const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement('a'); link.href = objectUrl; link.download = `idea-pitch-v${data.current.version}.${exportFormat}`;
+      const link = document.createElement('a'); link.href = objectUrl; link.download = pitchExportFilename(data.pitch.title, data.current.version, exportFormat);
       document.body.append(link); link.click(); link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
       setStatus('Approved pitch downloaded.');
@@ -126,8 +128,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
     finally { setBusy(false); }
   }
   async function removePitch() {
-    if (!deleteConfirmed || !data || !resolvedId.current) return;
-    setBusy(true); setError('');
+    if (!data || !resolvedId.current) return;
+    setDeleteOpen(false); setBusy(true); setError('');
     try {
       await requestJson(url, 'Could not delete pitch.', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: data.current?.version || 0, confirmed: true }) });
       await onDeleted();
@@ -142,7 +144,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
     setBusy(true); setError(''); setStatus('');
     try {
       const target = await ensurePitch();
-      await requestJson(target, 'Could not save idea check.', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const result = await requestJson<{ unchanged?: boolean }>(target, 'Could not save idea check.', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ operation, version: data.current?.version || 0,
           ...(operation === 'save' ? { title, draft, source } : operation === 'decide' ? { decision, confirmed } : { confirmed: createConfirmed, initialAction: { text: initialAction, dueDate: actionDueDate }, setup: {...setup,piUsername:setup.piUsername||null,pdraUsername:setup.pdraUsername||null,collaborators:setup.collaborators.split(',').map(value=>value.trim()).filter(Boolean)} }) }) });
       removeChecklistDraft(storageKey); restored.current = null;
@@ -150,7 +152,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       setData(payload); setExportFormat(defaultPitchExportFormat(payload.current?.source?.name)); setTitle(payload.pitch.title); setDraft(ideaDraftSchema.parse(payload.current!.draft)); if (payload.current!.draft.track) setSetup(current => ({ ...current, track: payload.current!.draft.track })); setConfirmed(false); setCreateConfirmed(false);
       await onChanged(resolvedId.current);
       if (operation === 'create_project') await onProjectCreated();
-      setStatus(operation === 'save' ? 'Draft saved. Human decision pending.' : operation === 'decide' ? 'Human decision saved. No project created.' : 'Project created. The original pitch is retained.');
+      setStatus(result.unchanged ? 'No changes to save. The current version and decision are unchanged.' : operation === 'save' ? 'Draft saved. Human decision pending.' : operation === 'decide' ? 'Human decision saved. No project created.' : 'Project created. The original pitch is retained.');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not save.'); }
     finally { setBusy(false); }
   }
@@ -186,16 +188,10 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
             <span className="vs-mono">{data.current ? `v${data.current.version} · saved ${formatRecordTime(data.current.at)} by @${data.current.by}` : 'Not saved yet'}</span>
             {data.canManage && <span className="idea-private"><Lock aria-hidden="true" />Private · history visible to the proposer, PI and administrators{data.collaborators.length ? ` · read-only copy shared with ${data.collaborators.length}` : ''}</span>}
           </p>
-          {resolvedId.current && data.canEdit && <button type="button" className="ops-secondary idea-delete-button" disabled={locked} onClick={() => { setDeleteOpen(true); setDeleteConfirmed(false); }}><Trash2 aria-hidden="true" />Delete pitch</button>}
+          {resolvedId.current && data.canEdit && <button type="button" className="ops-secondary idea-delete-button" disabled={locked} onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" />Delete pitch</button>}
         </div>
         <p className="idea-hint">Draft text is kept in this browser tab until sign-out. Use Save pitch draft to save a version. Select uploaded files again after refreshing.</p>
       </div>
-      {deleteOpen && <section className="idea-delete-confirm" aria-labelledby={`${prefix}-delete-heading`}>
-        <h3 id={`${prefix}-delete-heading`}>Delete this pitch?</h3>
-        <p>This permanently removes “{data.pitch.id ? data.pitch.title : title || 'Untitled idea'}”, all its versions, source text and AI reviews. It cannot be undone.</p>
-        <label className="idea-confirm"><input type="checkbox" checked={deleteConfirmed} disabled={locked} onChange={(event) => setDeleteConfirmed(event.target.checked)} /> I understand this pitch and its history will be deleted.</label>
-        <div className="idea-inline-actions"><button type="button" className="ops-secondary" disabled={locked} onClick={() => setDeleteOpen(false)}>Cancel</button><button type="button" className="ops-secondary danger" disabled={busy || !deleteConfirmed} onClick={() => void removePitch()}>Permanently delete pitch</button></div>
-      </section>}
       {!data.canManage && <p role="status" className="ops-notice idea-readonly">Shared with you · Read only. You can see the latest saved pitch; private history, source documents and AI reviews are not shared.</p>}
       {source && <details className="idea-source"><summary>Source text: {source.name}</summary><pre className="idea-source-text">{source.text}</pre></details>}
       {data.canEdit && <section className="idea-import" aria-labelledby={`${prefix}-import-heading`}>
@@ -212,8 +208,12 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
         {preview && <div className="idea-preview"><h4>Review extracted blocks before applying</h4>
           <p>Only exact excerpts are placed into blocks. Missing information stays empty. Applying replaces the current blocks but does not save them.</p>
           <details><summary>Extracted source: {preview.source.name}</summary><pre className="idea-source-text">{preview.source.text}</pre></details>
-          <dl><div><dt>Track</dt><dd>{preview.draft.track || 'Missing — fill in yourself'}</dd></div>{ideaFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{preview.draft[field.key] || 'Missing — fill in yourself'}</dd></div>)}</dl>
-          <button type="button" className="ops-secondary" disabled={locked} onClick={() => { setDraft(preview.draft); setSource(preview.source); setPreview(null); setConfirmed(false); setCreateConfirmed(false); setStatus('Preview applied to unsaved blocks. Review and save the draft.'); }}>Replace blocks with this preview</button>
+          <dl>{preview.title && <div><dt>Suggested title</dt><dd>{preview.title}</dd></div>}<div><dt>Track</dt><dd>{preview.draft.track || 'Missing — fill in yourself'}</dd></div>{ideaFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{preview.draft[field.key] || 'Missing — fill in yourself'}</dd></div>)}</dl>
+          {preview.title && preview.title !== title && <p>{title.trim() ? 'The pitch title is kept. Use the suggested title only if it fits better.' : 'The suggested title will fill the empty pitch title.'}</p>}
+          <div className="idea-inline-actions">
+            <button type="button" className="ops-secondary" disabled={locked} onClick={() => { setDraft(preview.draft); setSource(preview.source); if (!title.trim() && preview.title) setTitle(preview.title); setPreview(null); setConfirmed(false); setCreateConfirmed(false); setStatus('Preview applied to unsaved blocks. Review and save the draft.'); }}>Replace blocks with this preview</button>
+            {preview.title && title.trim() && preview.title !== title && <button type="button" className="ops-secondary" disabled={locked} onClick={() => { setTitle(preview.title!); setConfirmed(false); setCreateConfirmed(false); }}>Use suggested title</button>}
+          </div>
         </div>}
       </section>}
       <form id={formId} className="idea-writing-sheet" onSubmit={(event) => { event.preventDefault(); void save('save'); }}>
@@ -234,7 +234,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       </form>
       {data.canManage && (data.pitch.projectId ? <p role="status" className="form-message">Created project: {data.pitch.title}. Find it under Projects.</p> : conversionOpen && <form id={`${prefix}-convert`} className="idea-convert" onSubmit={(event) => { event.preventDefault(); void save('create_project'); }}>
         <fieldset disabled={locked}><legend>Create a project from this pitch</legend>
-          <p>The approved question, contribution, validation plan and risks become the initial project research profile. The original approved pitch remains unchanged.</p>
+          <p>The approved Why becomes the research question, the What becomes the core claim, the De-Risk becomes the validation plan and the Resources become the resource notes. The Context stays with the linked pitch origin. The original approved pitch remains unchanged.</p>
           <p>Approved next milestone: {savedDecision!.nextMilestone}</p>
           <div className="idea-convert-grid">
             <label>Project track<select value={setup.track} onChange={event=>{setSetup({...setup,track:event.target.value});setCreateConfirmed(false);}}><option value="A">Track A — Flagship</option><option value="B">Track B — Momentum</option></select></label>
@@ -252,7 +252,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       </form>)}
       {data.canManage && <details className="idea-history" open><summary>History (all revisions)</summary>
         {!data.history.length && <p>Your saved versions will appear here.</p>}
-        {data.history.map((revision) => <details key={revision.version}><summary><span className="vs-mono">v{revision.version}</span> · @{revision.by} · <span className="vs-mono">{formatRecordTime(revision.at)}</span> · {revision.decision?.outcome || 'Draft — review pending'}</summary>
+        {data.history.map((revision) => <details key={revision.version}><summary><span className="vs-mono">v{revision.version}</span> · @{revision.by} · <span className="vs-mono">{formatRecordTime(revision.at)}</span> · {revision.decision ? `Decision: ${ideaOutcomeLabels[revision.decision.outcome]}` : 'Draft saved · awaiting decision'}</summary>
           {revision.title && <p>Title: {revision.title}</p>}
           {revision.source && <details><summary>Source: {revision.source.name}</summary><pre className="idea-source-text">{revision.source.text}</pre></details>}
           {revision.decision && <><p>{revision.decision.rationale}</p><p>{revision.decision.nextMilestone}</p></>}
@@ -288,7 +288,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       <section className="idea-rail-panel idea-decision" aria-labelledby={`${prefix}-decision-heading`}>
         <h3 id={`${prefix}-decision-heading`}>Decision</h3>
         <p>Recorded by a person after reviewing the saved draft: Proceed, Revise or Stop, with a reason and next milestone. AI feedback alone is not approval.</p>
-        <p className="idea-decision-state">{savedDecision ? <Check aria-hidden="true" /> : <Clock aria-hidden="true" />}<span><strong>{savedDecision ? `Current decision: ${savedDecision.outcome}` : data.current ? 'Awaiting a human decision' : 'Save a draft before a decision'}</strong>{dirty && data.current ? ' · Unsaved changes' : ''}</span></p>
+        <p className="idea-decision-state">{savedDecision ? <Check aria-hidden="true" /> : <Clock aria-hidden="true" />}<span><strong>{savedDecision ? `Current decision: ${ideaOutcomeLabels[savedDecision.outcome]}` : data.current ? 'Awaiting a human decision' : 'Save a draft before a decision'}</strong>{dirty && data.current ? ' · Unsaved changes' : ''}</span></p>
         {savedDecision && <dl className="idea-decision-record"><div><dt>Reason / evidence</dt><dd>{savedDecision.rationale}</dd></div><div><dt>Next milestone or closure</dt><dd>{savedDecision.nextMilestone}</dd></div></dl>}
         {data.canEdit && <form onSubmit={(event) => { event.preventDefault(); void save('decide'); }}>
           <fieldset disabled={locked || !data.current || dirty}><legend>Record the human decision</legend>
@@ -323,11 +323,15 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       {data.canManage && !data.pitch.projectId && (conversionOpen
         ? <a className="ops-secondary idea-convert-link" href={`#${prefix}-convert`}>Convert to project</a>
         : <button type="button" className="ops-secondary" disabled title="Available after a saved Proceed decision">Convert to project</button>)}
-      {data.canEdit && <button className="ops-primary" type="submit" form={formId} disabled={locked}>Save pitch draft</button>}
+      {data.canEdit && <button className="ops-primary" type="submit" form={formId} disabled={locked || !dirty} title={dirty ? undefined : 'No unsaved changes'}>Save pitch draft</button>}
     </div>}
     <ConfirmDialog id="idea-reload-confirm" open={reloadConfirmOpen} tone="default" title="Reload the saved version?"
       message="Your unsaved changes in this pitch will be discarded and the last saved version will be shown."
       confirmLabel="Discard and reload" cancelLabel="Keep editing" onCancel={() => setReloadConfirmOpen(false)} onConfirm={() => { setReloadConfirmOpen(false); setReload((value) => value + 1); }} />
+    {data?.pitch.id && <ConfirmDialog id="idea-delete-confirm" open={deleteOpen} title="Delete this pitch?" busy={busy}
+      message={`This permanently removes “${data.pitch.title}”, all its versions, source text and AI reviews. It cannot be undone.`}
+      confirmLabel="Permanently delete pitch" confirmPhrase={{ value: data.pitch.title, label: 'Type the pitch title to confirm' }}
+      onCancel={() => setDeleteOpen(false)} onConfirm={() => void removePitch()} />}
   </section>;
 }
 
@@ -346,8 +350,9 @@ const sentence = (value: string) => value.charAt(0).toUpperCase() + value.slice(
 const blockLabel = (field: string) => ideaFields.find(item => item.key === field)?.label || 'Track';
 export function reviewHeadline(report: ReviewReport) {
   if (isLegacyIdeaReview(report)) return `Earlier eight-criteria review · ${report.recommendation.replaceAll('_', ' ')}`;
-  const open = report.blocks.filter(item => item.status === 'missing' || item.status === 'needs_work').length;
-  return open ? `${open} of ${report.blocks.length} blocks need work` : 'All blocks adequate or better';
+  const missing = report.blocks.filter(item => item.status === 'missing').length;
+  const needsWork = report.blocks.filter(item => item.status === 'needs_work').length;
+  return missing || needsWork ? [missing && `${missing} missing`, needsWork && `${needsWork} need${needsWork === 1 ? 's' : ''} work`].filter(Boolean).join(' · ') : 'All blocks adequate or better';
 }
 const blocks = (count: number) => `${count} block${count === 1 ? '' : 's'}`;
 /** Deterministic, advisory readiness derived from a saved v2 review; never asked from the model and never a decision. */

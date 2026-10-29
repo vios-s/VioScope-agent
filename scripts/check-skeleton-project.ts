@@ -17,10 +17,10 @@ try {
   await writeFile(join(directory,'themes.yaml'), 'timezone: Europe/London\ncycle:\n  rotation: [AB]\n  anchor_date: 2026-10-28\nthemes:\n  - theme_id: A\n    title: Synthetic theme\n    cycle_group: AB\n    time: "10:00"\n    coordinator: principal\n    coordinator_user: principal\n    members: [alice, bob]\n    member_users: [alice, bob]\n');
   const users = await import('../src/mastra/db/users'); await users.ensureUsersTable();
   const db = createPostgresClient();
-  for (const [name,role] of [['alice','member'],['bob','member'],['carol','member'],['outsider','member'],['principal','pi'],['admincheck','administrator']]) {
+  for (const [name,role] of [['alice','member'],['bob','member'],['carol','member'],['outsider','member'],['principal','pi'],['otherpi','pi'],['admincheck','administrator']]) {
     await db.pool.query(`INSERT INTO users(id,username,display_name,email,role,provisioning_status,password_reset_required) VALUES($1,$2,$3,$4,$5,'active',false)`, [randomUUID(),name,name==='outsider'?'bob':name,`${name}@example.test`,role]);
   }
-  const accounts = new Map(await Promise.all(['alice','bob','carol','outsider','principal','admincheck'].map(async name => [name,(await users.getUserByUsername(name))!] as const)));
+  const accounts = new Map(await Promise.all(['alice','bob','carol','outsider','principal','otherpi','admincheck'].map(async name => [name,(await users.getUserByUsername(name))!] as const)));
   const projectDb = await import('../src/mastra/db/projects');
   await assert.rejects(projectDb.createProject({title:'Invalid PI', piUsername:'bob'},accounts.get('alice')!),/PI must/);
   await assert.rejects(projectDb.createProject({title:'Self review', pdraUsername:'alice'},accounts.get('alice')!),/own PDRA/);
@@ -73,7 +73,25 @@ try {
     const fresh=await records.saveSkeletonReview(project.id,skeletonProjectSnapshot(current),'Synthetic source evidence',result,accounts.get('alice')!);
     await checkSkeletonProjectUi(sessionCookieName,{owner:createSessionToken(accounts.get('alice')!),pdra:createSessionToken(accounts.get('bob')!),pi:createSessionToken(accounts.get('principal')!)},project.id,fresh.id);
   }
-  console.log('Project-bound Skeleton Lock passed: inherited identity/context, independent PDRA/PI judgments, evidence history, stale revisions, new AI versions, reassignment and access revocation.');
+  // Separation of duties: owners never judge their own project; one person never records both steps; admins act only by labelled override.
+  const judge=(id:string,name:string,kind:'pdra'|'pi',outcome:string,revision:number,override=false)=>records.decideSkeletonReview(id,{kind,outcome,note:'Synthetic evidence-based judgment.',revision,confirmed:true,...(override?{override:true}:{})},accounts.get(name)!);
+  const adminOwned=await projectDb.createProject({title:'Synthetic admin-owned skeleton',piUsername:'principal',pdraUsername:'bob'},accounts.get('admincheck')!);
+  const adminReview=await records.saveSkeletonReview(adminOwned.id,skeletonProjectSnapshot(adminOwned),'Synthetic evidence',result,accounts.get('admincheck')!);
+  await assert.rejects(judge(adminReview.id,'admincheck','pdra','locked',0,true),/project owner cannot/,'An administrator owner cannot judge their own project.');
+  await assert.rejects(judge(adminReview.id,'admincheck','pi','approved',0,true),/project owner cannot/);
+  const pairProject=await projectDb.createProject({title:'Synthetic separated skeleton',piUsername:'principal',pdraUsername:'bob'},accounts.get('alice')!);
+  const pair=await records.saveSkeletonReview(pairProject.id,skeletonProjectSnapshot(pairProject),'Synthetic evidence',result,accounts.get('alice')!);
+  await assert.rejects(judge(pair.id,'admincheck','pdra','locked',0),/explicit administrator override/,'Administrators need an explicit override.');
+  await assert.rejects(judge(pair.id,'otherpi','pdra','locked',0,true),/explicit administrator override/,'Only administrators can override.');
+  let paired=await judge(pair.id,'admincheck','pdra','locked',0,true);
+  assert.equal(paired.decisions[0].override,true,'The override is recorded with the decision.');
+  await assert.rejects(judge(pair.id,'otherpi','pi','approved',1),/Only the project PI/,'A PI of another project cannot confirm.');
+  await assert.rejects(judge(pair.id,'admincheck','pi','approved',1,true),/another person must record the PI confirmation/,'One person cannot record both steps.');
+  paired=await judge(pair.id,'principal','pi','approved',1);
+  assert.equal(paired.decisions[1].override,undefined);
+  assert.equal(latestSkeletonDecisions(paired.decisions).pi?.outcome,'approved');
+  await assert.rejects(judge(pair.id,'principal','pdra','revise',2,true),/explicit administrator override|another person/);
+  console.log('Project-bound Skeleton Lock passed: inherited identity/context, independent PDRA/PI judgments, owner exclusion, project-PI-only confirmation, labelled administrator override, one person per step, evidence history, stale revisions, new AI versions, reassignment and access revocation.');
 }finally {
   await closePostgresPools(process.env.DATABASE_URL);
   if(created)await source.pool.query(`DROP DATABASE "${database}" WITH (FORCE)`);

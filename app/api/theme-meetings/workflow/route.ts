@@ -7,7 +7,7 @@ import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { getProjectForUser, listProjectsForUser } from '../../../../src/mastra/db/projects';
 import { getUserByUsername } from '../../../../src/mastra/db/users';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan, confirmedAgendaDeliveryPrefix, confirmedAgendaEmailAudience, sendThemeMeetingAgendaEmails } from '../../../../src/mastra/theme-meetings/planner';
+import { buildThemeMeetingPlan, confirmedAgendaDeliveryPrefix, nextThemeMeetingDate, confirmedAgendaEmailAudience, sendThemeMeetingAgendaEmails } from '../../../../src/mastra/theme-meetings/planner';
 import { readThemeMeetingEmailDeliveries, resolveThemeMeetingUpdatesPath } from '../../../../src/mastra/theme-meetings/store';
 import { contentHash, withFileLock } from '../../../../src/mastra/atomic-file';
 import { addMeetingAction, agendaSelectionSchema, agendaSourceVersion, applyConfirmedAgendas, changeMeetingWorkflow, confirmAgenda,
@@ -72,10 +72,17 @@ export async function GET(request: Request) {
       // Managers only: counts and names (never addresses) for the Email dialog, from the same rules the send uses.
       emailAudience: manager && confirmation && !meeting.cancelled
         ? await confirmedAgendaEmailAudience({ ...payload.plan, meetings: [meeting] }, payload.config, key.themeId, confirmation.version) : null,
+      viewerId: user.id,
       candidates: meeting.agenda_items.filter((item) => visible(item.member_username)),
-      // Theme members see the whole confirmed agenda (the same content the confirmed agenda email circulates);
-      // unconfirmed draft submissions stay visible only to their author and managers.
-      confirmation,
+      // Unconfirmed draft submissions stay visible only to their author and managers. For the theme's current/next
+      // meeting, members see the confirmed schedule (as the confirmed agenda email circulates it): scheduled entries
+      // in full, legacy deferred entries as name and update type only. For earlier meetings members see only their own entries.
+      confirmation: confirmation && !manager ? { ...confirmation, entries: confirmation.entries.flatMap((entry): object[] => {
+        if (entry.member_username === user.username) return [entry];
+        if (key.meetingDate !== nextThemeMeetingDate(payload.config, key.themeId)) return [];
+        return entry.deferred ? [{ meeting_date: entry.meeting_date, theme_id: entry.theme_id, theme_title: entry.theme_title, member: entry.member,
+          member_username: entry.member_username, update_type: entry.update_type, duration_minutes: entry.duration_minutes, deferred: true }] : [entry];
+      }) } : confirmation,
       projects: manager ? projects.filter((project) => project.lifecycle !== 'archived').map(({ id, title }) => ({ id, title })) : [],
       members: manager ? meeting.member_usernames : [user.username],
       actions: state.actions.filter((action) => action.themeId === key.themeId && action.meetingDate <= key.meetingDate &&

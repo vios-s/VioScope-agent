@@ -12,6 +12,7 @@ import { skeletonProjectSnapshot } from '../../../src/mastra/submission/skeleton
 import { renderSkeletonDraft, skeletonDraftSchema } from '../../../src/mastra/submission/skeleton';
 import { extractPptxBuffer } from '../../../src/mastra/submission/pptx';
 import { reviewSubmission } from '../../../src/mastra/submission/review';
+import { extractDocumentText } from '../../../src/mastra/projects/idea-import';
 export const runtime = 'nodejs';
 export const maxDuration = 180;
 export async function GET(request: Request) {
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   try {
     const user = await requireSessionUser(request);
     const form = await request.formData();
-    const projectId = z.string().uuid().parse(form.get('projectId'));
+    const projectId = z.string().uuid('Choose an active project.').parse(form.get('projectId'));
     const project = await getProjectForUser(projectId, user);
     if (!project.access.canEdit) throw new AuthError('Only the project owner, PI or administrator can request a check.', 403, 'forbidden');
     if (project.lifecycle !== 'active') throw new Error('Choose an active project.');
@@ -34,15 +35,18 @@ export async function POST(request: Request) {
       const file = form.get('file');
       if (!(file instanceof File) || !file.size) throw new Error('Choose a non-empty draft or deck.');
       const extension = extname(file.name).toLowerCase();
-      if (!['.txt','.md','.markdown','.tex','.latex','.rst','.pptx'].includes(extension)) throw new Error('Upload TXT, Markdown, LaTeX, RST or PPTX.');
-      if (file.size > (extension === '.pptx' ? 25 : 2) * 1024 * 1024) throw new Error('The uploaded file exceeds the supported size.');
-      const buffer = Buffer.from(await file.arrayBuffer());
-      text = extension === '.pptx' ? (await extractPptxBuffer(buffer, file.name)).text : new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+      if (!['.txt','.md','.markdown','.tex','.latex','.rst','.pptx','.docx','.pdf'].includes(extension)) throw new Error('Upload TXT, Markdown, LaTeX, RST, DOCX, text-based PDF or PPTX.');
+      if (extension === '.docx' || extension === '.pdf') text = await extractDocumentText(file);
+      else {
+        if (file.size > (extension === '.pptx' ? 25 : 2) * 1024 * 1024) throw new Error('The uploaded file exceeds the supported size.');
+        const buffer = Buffer.from(await file.arrayBuffer());
+        text = extension === '.pptx' ? (await extractPptxBuffer(buffer, file.name)).text : new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+      }
     }
     const snapshot = skeletonProjectSnapshot(project);
     const draftText = `Project context (recorded in Projects):\n${JSON.stringify(snapshot)}\n\n${text.trim()}`;
     if (!text.trim() || draftText.length > 60000) throw new Error('Provide readable evidence within 60,000 characters. Content is never silently truncated.');
-    const result = await reviewSubmission({ draftText, draftName: `${project.title} — Skeleton Lock`, skills: ['vios-skeleton-lock'], targetVenue: project.venue || undefined, deadline: project.submissionDeadline || undefined, maxDraftChars: 60000 });
+    const result = await reviewSubmission({ draftText, draftName: `${project.title} — Skeleton Lock`, skills: ['vios-skeleton-lock'], reportTitle: 'VIOS Skeleton Lock review', targetVenue: project.venue || undefined, deadline: project.submissionDeadline || undefined, maxDraftChars: 60000 });
     const review = await withDatabaseTransaction(async () => {
       const saved = await saveSkeletonReview(projectId, snapshot, draftText, result, user);
       await recordAuditLog({ actor: user, action: 'skeleton.review_created', targetType: 'project', targetId: projectId, summary: 'Project-bound Skeleton Lock AI check saved.', metadata: { reviewId: saved.id } });

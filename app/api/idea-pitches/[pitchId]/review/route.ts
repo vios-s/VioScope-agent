@@ -16,7 +16,9 @@ export async function POST(request: Request, context: { params: Promise<{ pitchI
     z.string().uuid().parse(pitchId);
     const { version } = z.object({ version: z.number().int().positive() }).strict().parse(await request.json());
     const state = await getIdeaCheck(pitchId, actor);
-    if (!state.canEdit || !state.current || state.current.version !== version) throw new AuthError('Save the current draft before requesting a review.', 409, 'conflict');
+    if (!state.canManage) throw new AuthError('Only the proposer, PI or administrator can request an AI review of this pitch.', 403, 'forbidden');
+    if (!state.canEdit) throw new AuthError('This pitch has become a project and can no longer be reviewed.', 403, 'forbidden');
+    if (!state.current || state.current.version !== version) throw new AuthError('Save the current draft before requesting a review.', 409, 'conflict');
     const review = await reviewIdeaPitch(state.pitch.title, state.current.draft);
     const saved = await withDatabaseTransaction(async () => {
       const result = await saveIdeaReview(pitchId, version, review, actor);

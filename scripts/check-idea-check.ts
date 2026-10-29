@@ -75,10 +75,15 @@ try {
   const draft = ideaDraftSchema.parse({ question: 'Can the baseline generalize to a new setting?' });
   assert.equal(checkIdea(draft).filter(item => !item.present).length, 4);
   assert.equal((await post('bob', { operation: 'save', version: 0, draft })).status, 403);
-  assert.equal((await post('alice', { operation: 'save', version: 0, title: '   ', draft })).status, 400, 'A blank title cannot be saved.');
+  const blankTitle = await post('alice', { operation: 'save', version: 0, title: '   ', draft });
+  assert.equal(blankTitle.status, 400, 'A blank title cannot be saved.');
+  assert.equal((await blankTitle.json()).error, 'Enter a pitch title.', 'Validation errors are short sentences, not raw schema JSON.');
   await ok(await post('alice', { operation: 'save', version: 0, draft }));
   const decision = { outcome: 'proceed', rationale: 'Initial comparison supports testing the claim.', nextMilestone: 'Alice runs a pilot by Friday.' };
-  assert.equal((await post('alice', { operation: 'decide', version: 1, decision, confirmed: false })).status, 400);
+  const unconfirmed = await post('alice', { operation: 'decide', version: 1, decision, confirmed: false });
+  assert.equal(unconfirmed.status, 400);
+  assert.equal((await unconfirmed.json()).error, 'Confirm the human decision before recording it.');
+  assert.equal((await (await post('alice', { operation: 'decide', version: 1, decision: { ...decision, rationale: ' ' }, confirmed: true })).json()).error, 'Enter the reason and evidence for the decision.');
   assert.equal((await post('alice', { operation: 'decide', version: 1, decision, confirmed: true })).status, 400);
   assert.equal((await post('alice', { operation: 'create_project', version: 1, confirmed: true })).status, 400);
   await ok(await post('alice', { operation: 'decide', version: 1, decision: { ...decision, outcome: 'revise' }, confirmed: true }));
@@ -96,6 +101,14 @@ try {
   await ok(await post('principal', { operation: 'decide', version: 4, decision: { ...decision, outcome: 'stop' }, confirmed: true }));
   assert.equal((await post('alice', { operation: 'create_project', version: 5, confirmed: true })).status, 400);
   await ok(await post('admincheck', { operation: 'decide', version: 5, decision, confirmed: true }));
+  // Saving without changes neither creates a version nor clears the confirmed Proceed.
+  const unchangedState = await ok(await get('alice'));
+  for (const command of [{ title: 'Synthetic early idea' }, {}]) {
+    const noop = await ok(await post('alice', { operation: 'save', version: 6, draft: unchangedState.current.draft, source: unchangedState.current.source, ...command }));
+    assert.deepEqual(noop, { version: 6, unchanged: true });
+  }
+  const afterNoop = await ok(await get('alice'));
+  assert.equal(afterNoop.current.version, 6); assert.equal(afterNoop.current.decision.outcome, 'proceed'); assert.equal(afterNoop.history.length, 6);
   assert.equal((await post('alice', { operation: 'create_project', version: 6, confirmed: false })).status, 400);
   assert.equal((await post('alice', { operation: 'create_project', version: 4, confirmed: true })).status, 409);
   assert.equal((await post('bob', { operation: 'create_project', version: 6, confirmed: true })).status, 403);
@@ -122,6 +135,12 @@ try {
   const relocated = validateIdeaReview({ ...report, blocks: firstBlock({ evidence: [{ field: 'context', quote: excerpt.toUpperCase() + '.' }] }) }, currentDraft);
   assert.deepEqual(relocated.blocks[0].evidence, [{ field: 'why', quote: excerpt }]);
   rejects({ blocks: firstBlock({ evidence: [{ field: 'why', quote: excerpt.split(' ').reverse().join(' ') }] }) }, /not present/);
+  // A reflowed quote whose verbatim span exceeds the 1000-character limit is kept within it, so saving cannot lose the run.
+  const spaced = { ...currentDraft, why: Array.from({ length: 200 }, (_, i) => `word${i}`).join('   ') };
+  const longQuote = spaced.why.replaceAll('   ', ' ').slice(0, 990).replace(/\s\S*$/, '');
+  const longReport = validateIdeaReview({ ...report, blocks: firstBlock({ evidence: [{ field: 'why', quote: longQuote }] }) }, spaced);
+  assert.ok(longReport.blocks[0].evidence[0].quote.length <= 1000 && spaced.why.includes(longReport.blocks[0].evidence[0].quote));
+  assert.deepEqual(validateIdeaReview(longReport, spaced), longReport, 'Saving re-validates the relocated quote without throwing.');
   rejects({ blocks: firstBlock({ evidence: [] }) }, /must be marked missing/, { ...currentDraft, why: '' });
   rejects({ blocks: firstBlock({ status: 'strong', evidence: [{ field: 'context', quote: currentDraft.context }] }) }, /quote that block/);
   rejects({ blocks: [...report.blocks.slice(1), report.blocks[1]] }, /every pitch block/);
@@ -187,7 +206,8 @@ try {
   const legacyHtml = renderToStaticMarkup(createElement(IdeaReviewReport, { report: legacyReport }));
   for (const expected of ['Legacy assessment text.', 'Needs work', 'Question', 'Legacy next test.']) assert.ok(legacyHtml.includes(expected), expected);
   const currentHtml = renderToStaticMarkup(createElement(IdeaReviewReport, { report }));
-  assert.equal(reviewHeadline(report), '5 of 5 blocks need work');
+  assert.equal(reviewHeadline(report), '5 need work');
+  assert.equal(reviewHeadline({ ...report, blocks: report.blocks.map((item, i) => i ? item : { ...item, status: 'missing' as const }) }), '1 missing · 4 need work', 'The headline counts like the readiness line.');
   // Readiness is a fixed rule over the saved review, not a model output.
   const graded = (statuses: string[], delta = 'addressed', poc = 'addressed') => ({ ...report, blocks: report.blocks.map((item, i) => ({ ...item, status: statuses[i] })), discussant: { delta: { ...report.discussant.delta, status: delta }, poc: { ...report.discussant.poc, status: poc } } }) as typeof report;
   const good = ['adequate', 'strong', 'adequate', 'strong', 'adequate'];
@@ -212,6 +232,9 @@ try {
   assert.deepEqual(shared.history, []); assert.deepEqual(shared.reviews, []); assert.deepEqual(shared.collaborators, []);
   assert.equal((await post('bob', { operation: 'save', version: 6, draft })).status, 403);
   assert.equal((await post('bob', { operation: 'create_project', version: 6, confirmed: true })).status, 403);
+  const sharedReview = await (await import('../app/api/idea-pitches/[pitchId]/review/route')).POST(new Request('http://localhost/pitch/review', { method: 'POST', headers: headers('bob'), body: JSON.stringify({ version: 6 }) }), context);
+  assert.equal(sharedReview.status, 403);
+  assert.match((await sharedReview.json()).error, /Only the proposer, PI or administrator/, 'A read-only collaborator gets an access message, not a save prompt.');
   assert.equal((await share('bob', 'carol')).status, 403);
   assert.equal((await route.DELETE(new Request('http://localhost/pitch', { method: 'DELETE', headers: headers('bob'), body: JSON.stringify({ version: 6, confirmed: true }) }), context)).status, 403);
   const sharedExport = await import('../app/api/idea-pitches/[pitchId]/export/route');
@@ -312,6 +335,10 @@ try {
   const exportResult = await exportRequest('principal', 6);
   assert.equal(exportResult.status, 200);
   assert.equal(exportResult.headers.get('Cache-Control'), 'private, no-store');
+  assert.equal(exportResult.headers.get('Content-Disposition'), 'attachment; filename="idea-pitch-synthetic-early-idea-v6.txt"');
+  const { pitchExportFilename } = await import('../src/mastra/projects/idea-check');
+  assert.equal(pitchExportFilename('[Demo] Café — Sparse routing!', 9, 'docx'), 'idea-pitch-demo-cafe-sparse-routing-v9.docx');
+  assert.equal(pitchExportFilename('稀疏路由', 2, 'pdf'), 'idea-pitch-untitled-v2.pdf');
   const { approvedPitchDocument, exportApprovedPitch } = await import('../src/mastra/projects/idea-export');
   const approvedPayload = await ideaDb.getIdeaCheck(pitch.id, accounts.get('alice')!);
   const privatePayload = { ...approvedPayload, current: { ...approvedPayload.current!, source: { name: 'private-source.txt', method: 'upload' as const, text: 'DO_NOT_EXPORT_SOURCE' } }, history: [{ ...approvedPayload.current!, title: 'DO_NOT_EXPORT_HISTORY' }] };
@@ -344,7 +371,9 @@ try {
   await ideaDb.saveIdeaReview(disposable.id, 2, { report, rules: 'synthetic rules', rulesHash: 'synthetic-hash', model: 'synthetic-model' }, accounts.get('alice')!);
   assert.equal((await remove('bob', 2)).status, 403);
   assert.equal((await remove('outsider', 2)).status, 403);
-  assert.equal((await remove('alice', 2, false)).status, 400);
+  const unconfirmedDelete = await remove('alice', 2, false);
+  assert.equal(unconfirmedDelete.status, 400);
+  assert.equal((await unconfirmedDelete.json()).error, 'Confirm the deletion before deleting this pitch.');
   assert.equal((await remove('alice', 1)).status, 409);
   assert.equal((await remove('alice', 6, true, context)).status, 400, 'Converted pitches cannot be deleted.');
   await ok(await remove('admincheck', 2));

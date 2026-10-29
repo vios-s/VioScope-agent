@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import JSZip from 'jszip';
-import { checkedSource, extractPitchUpload, organizePitchSource, validatePitchExtraction } from '../src/mastra/projects/idea-import';
+import { checkedSource, extractDocumentText, extractPitchUpload, organizePitchSource, suggestedPitchTitle, validatePitchExtraction } from '../src/mastra/projects/idea-import';
 import { loadIdeaPitchRules, reviewIdeaPitch } from '../src/mastra/projects/idea-review';
 import { ideaDraftSchema } from '../src/mastra/projects/idea-check';
 
@@ -13,6 +13,30 @@ assert.equal((await extractPitchUpload(new File([source], 'pitch.txt'))).text, s
 assert.equal((await extractPitchUpload(new File([source], 'pitch.md'))).text, source);
 const doc = new JSZip(); doc.file('word/document.xml', `<w:document><w:body><w:p><w:r><w:t>${source}</w:t></w:r></w:p></w:body></w:document>`);
 assert.equal((await extractPitchUpload(new File([await doc.generateAsync({ type: 'arraybuffer' })], 'pitch.docx'))).text, source);
+// Word splits formatted text into runs: one paragraph must stay one line with its spaces, in document order.
+const mixed = new JSZip(); mixed.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>
+  <w:p><w:r><w:t>Pitch title</w:t></w:r></w:p>
+  <w:p><w:r><w:t xml:space="preserve">The model is </w:t></w:r><w:r><w:rPr><w:b/></w:rPr><w:t>much</w:t></w:r><w:r><w:t xml:space="preserve"> faster &amp; cheaper.</w:t></w:r></w:p>
+  <w:p><w:r><w:t>Data</w:t><w:tab/><w:t>Compute</w:t><w:br/><w:t>Second line</w:t></w:r></w:p>
+  <w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell A</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Cell B</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
+  <w:p><w:del><w:r><w:delText>deleted</w:delText></w:r></w:del><w:r><w:t>Last</w:t></w:r></w:p>
+</w:body></w:document>`);
+const mixedBytes = await mixed.generateAsync({ type: 'arraybuffer' });
+const mixedText = 'Pitch title\nThe model is much faster & cheaper.\nData\tCompute\nSecond line\nCell A\tCell B\nLast';
+assert.equal((await extractPitchUpload(new File([mixedBytes], 'mixed.docx'))).text, mixedText);
+assert.equal(await extractDocumentText(new File([mixedBytes], 'mixed.docx')), mixedText, 'Skeleton Lock uses the same DOCX extraction.');
+await assert.rejects(extractDocumentText(new File(['plain'], 'notes.txt')), /DOCX and text-based PDF/);
+// Template headings are stripped from extracted blocks; a leading title line is only a suggestion.
+const headed = '# [Demo] Sparse routing\n\nTrack: A\n\n## 1. The Why (The Hook)\nThe Pain Point: routing is slow.\n\n**2. The Context:**\nThe Giants: MoE.\n\n## 3. The What';
+const stripped = validatePitchExtraction({ why: '## 1. The Why (The Hook)\nThe Pain Point: routing is slow.\n\n**2. The Context:**', context: '**2. The Context:**\nThe Giants: MoE.' }, headed);
+assert.equal(stripped.why, 'The Pain Point: routing is slow.');
+assert.equal(stripped.context, 'The Giants: MoE.');
+assert.equal(validatePitchExtraction({ why: 'The Why it matters is cost.' }, 'The Why it matters is cost.').why, 'The Why it matters is cost.', 'Prose that starts like a heading is kept.');
+assert.equal(suggestedPitchTitle(headed), '[Demo] Sparse routing');
+assert.equal(suggestedPitchTitle('## 1. The Why\nText'), '');
+assert.equal(suggestedPitchTitle('Track: A\nText'), '');
+assert.equal(suggestedPitchTitle('Only one line'), '');
 const deck = new JSZip(); deck.file('ppt/slides/slide1.xml', `<p:sld><a:p><a:r><a:t>${source}</a:t></a:r></a:p></p:sld>`);
 assert.ok((await extractPitchUpload(new File([await deck.generateAsync({ type: 'arraybuffer' })], 'pitch.pptx'))).text.includes(source));
 const stream = `BT /F1 12 Tf 50 750 Td (${source}) Tj ET`;
@@ -50,4 +74,4 @@ if (process.env.CHECK_IDEA_ELM === 'true') {
   const review = await reviewIdeaPitch('Synthetic compression pitch', extracted);
   console.log(JSON.stringify({ liveElm: true, blocks: review.report.blocks.map(item => `${item.block}:${item.status}`), discussant: [review.report.discussant.delta.status, review.report.discussant.poc.status], rulesHash: review.rulesHash.slice(0, 12) }));
 }
-console.log('Idea import passed: TXT, MD, DOCX, PPTX, PDF, upload limits, no invented extracted text and editable rule reload.');
+console.log('Idea import passed: TXT, MD, DOCX (ordered runs, tabs, breaks, tables), template heading stripping, title suggestion, PPTX, PDF, upload limits, no invented extracted text and editable rule reload.');

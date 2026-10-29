@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import type { Browser } from 'playwright';
 import { AuthError } from '../auth/session';
-import { ideaFields, ideaDraftSchema, type IdeaCheckPayload, type PitchExportFormat } from './idea-check';
+import { ideaFields, ideaDraftSchema, pitchExportFilename, type IdeaCheckPayload, type PitchExportFormat } from './idea-check';
 
 // Keep this projection explicit: private source text, review reports and old versions never leave here.
 export function approvedPitchDocument(payload: IdeaCheckPayload, version: number) {
@@ -56,7 +56,7 @@ async function pdfDocument(document: PitchDocument) {
 }
 export async function exportApprovedPitch(payload: IdeaCheckPayload, version: number, format: PitchExportFormat) {
   const document = approvedPitchDocument(payload, version);
-  const filename = `idea-pitch-v${version}.${format}`;
+  const filename = pitchExportFilename(payload.pitch.title, version, format);
   if (format === 'docx') return { filename, mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', body: await wordDocument(document) };
   if (format === 'pdf') return { filename, mime: 'application/pdf', body: await pdfDocument(document) };
   const content = format === 'md'

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProjectRecord } from '../src/mastra/db/projects';
 import { skeletonFields, skeletonDraftSchema } from '../src/mastra/submission/skeleton';
-import { latestSkeletonDecisions, type SkeletonDecision, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
+import { latestSkeletonDecisions, skeletonOutcomeLabels, skeletonVerdictLabels, type SkeletonDecision, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
 import { checklistDraftKey, useChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
 import { ConfirmDialog } from './confirm-dialog';
@@ -60,9 +60,11 @@ export function SkeletonLock({ userId }: { userId: string }) {
     if (view === 'pdra') return data?.viewer.administrator || current?.pdraUsername === data?.viewer.username;
     return !projectId || view === 'pi' || review.projectId === projectId;
   });
+  // Reviews saved before the rename carry the generic B2 report heading.
+  const reportText = selected?.result.report.replace(/^# VIOS B2 Pre-Submission Review/, '# VIOS Skeleton Lock review') || '';
   function download(format: 'md' | 'json') {
     if (!selected) return;
-    const body = format === 'md' ? selected.result.report : JSON.stringify(selected.result, null, 2);
+    const body = format === 'md' ? reportText : JSON.stringify(selected.result, null, 2);
     const url = URL.createObjectURL(new Blob([body], { type: format === 'md' ? 'text/markdown' : 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = `skeleton-review-${selected.id}.${format}`; link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -86,16 +88,24 @@ export function SkeletonLock({ userId }: { userId: string }) {
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not run check.'); }
     finally { setBusy(false); }
   }
-  async function judge(kind: 'pdra' | 'pi', outcome: string, note: string) {
+  async function judge(kind: 'pdra' | 'pi', outcome: string, note: string, override: boolean) {
     if (!selected) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      const result = await requestJson<{ review: SkeletonRecord }>(`/api/skeleton-lock/${selected.id}`, 'Could not record judgment.', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, outcome, note, revision: selected.revision, confirmed: true }) });
+      const result = await requestJson<{ review: SkeletonRecord }>(`/api/skeleton-lock/${selected.id}`, 'Could not record judgment.', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, outcome, note, revision: selected.revision, confirmed: true, ...(override ? { override: true } : {}) }) });
       setSelectedId(result.review.id); setSelected(result.review); await refresh(); setMessage(kind === 'pdra' ? 'PDRA judgment recorded. PI skeleton checkpoint confirmation remains separate.' : 'PI confirmation recorded. Project stage is unchanged.');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not record judgment.'); }
     finally { setBusy(false); }
   }
   const latest = selected ? latestSkeletonDecisions(selected.decisions) : null;
+  // Mirrors the server: never the project owner, never both steps by one person; administrators act only as a labelled override.
+  const viewer = data?.viewer.username;
+  const mayJudge = (kind: 'pdra' | 'pi') => {
+    if (!selected || !selectedProject || !latest || selectedProject.ownerUsername === viewer) return null;
+    if (kind === 'pdra' ? selected.decisions.some(item => item.kind === 'pi' && item.by === viewer) : latest.pdra?.by === viewer) return null;
+    if ((kind === 'pdra' ? selectedProject.pdraUsername : selectedProject.piUsername) === viewer) return 'assigned';
+    return data?.viewer.administrator ? 'override' : null;
+  };
   function switchProject(nextId: string) {
     setPendingProjectId(null); setProjectId(nextId); setSelectedId(''); setSelected(null); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null);
   }
@@ -141,7 +151,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
                 </div>
               </div>)}</div>}
               {mode === 'paste' && <label className="skeleton-method">Paste outline <textarea required rows={10} maxLength={55000} value={text} onChange={event => setText(event.target.value)} /></label>}
-              {mode === 'upload' && <label className="skeleton-method">Upload outline <input required type="file" accept=".txt,.md,.markdown,.tex,.latex,.rst,.pptx" onChange={event => setFile(event.target.files?.[0] || null)} /><span className="skeleton-muted">TXT, Markdown, LaTeX, RST or PPTX. Text: 2 MB; decks: 25 MB.</span></label>}
+              {mode === 'upload' && <label className="skeleton-method">Upload outline <input required type="file" accept=".txt,.md,.markdown,.tex,.latex,.rst,.docx,.pdf,.pptx" onChange={event => setFile(event.target.files?.[0] || null)} /><span className="skeleton-muted">TXT, Markdown, LaTeX, RST, DOCX, text-based PDF or PPTX. Text: 2 MB; DOCX and PDF: 5 MB; decks: 25 MB. Check the extracted text in the saved review for missing images or equations.</span></label>}
               <div className="skeleton-submit-row">
                 <p>A new check creates a separate saved review. AI cannot grant approval or move the project to another stage.</p>
                 <button type="submit" className="ops-primary">{busy ? 'Checking…' : 'Check skeleton with AI'}</button>
@@ -153,18 +163,18 @@ export function SkeletonLock({ userId }: { userId: string }) {
       {selected && selectedProject && latest && <section className="skeleton-review-detail" aria-labelledby="skeleton-detail-heading">
         <div className="skeleton-detail-main">
           <h3 id="skeleton-detail-heading">{selected.projectSnapshot.title} — saved review</h3>
-          <p className="skeleton-muted">Saved <span className="vs-mono">{new Date(selected.createdAt).toLocaleString('en-GB')}</span> · revision <span className="vs-mono">{selected.revision}</span>. AI evidence and inherited details below are the saved snapshot. Judgment requires the latest review and unchanged project details.</p>
+          <p className="skeleton-muted">Saved <span className="vs-mono">{formatRecordTime(selected.createdAt)}</span> · revision <span className="vs-mono">{selected.revision}</span>. AI evidence and inherited details below are the saved snapshot. Judgment requires the latest review and unchanged project details.</p>
           <ProjectContext project={selected.projectSnapshot} />
           <section className="skeleton-ai" aria-labelledby="skeleton-ai-heading">
             <div className="idea-advice-head">
               <span className="idea-advice-mark" aria-hidden="true"><Compass /></span>
-              <h4 id="skeleton-ai-heading">AI recommendation: {selected.result.structured.verdict}</h4>
+              <h4 id="skeleton-ai-heading">AI recommendation: {skeletonVerdictLabels[selected.result.structured.verdict] || selected.result.structured.verdict}</h4>
               <span className="idea-advisory-tag">Advisory</span>
             </div>
             <p>{selected.result.structured.summary}</p>
             <div className="skeleton-review-table"><table><thead><tr><th>Area</th><th>Status</th><th>Evidence</th><th>Gap / next action</th></tr></thead><tbody>{selected.result.structured.findings.map((item,index) => <tr key={index}><td>{item.area}</td><td><span className={`skeleton-finding is-${item.status}`}>{item.status}</span></td><td className="vs-mono">{item.evidence.join(', ')}</td><td>{item.gap}<p>{item.requiredAction}</p></td></tr>)}</tbody></table></div>
             <details><summary>Source evidence with line numbers</summary><pre>{selected.draftText.split('\n').map((line,index) => `${index + 1}: ${line}`).join('\n')}</pre></details>
-            <details><summary>Complete AI report</summary><pre>{selected.result.report}</pre></details>
+            <details><summary>Complete AI report</summary><pre>{reportText}</pre></details>
             <div className="skeleton-downloads"><button type="button" className="ops-secondary" onClick={() => download('md')}><Download aria-hidden="true" />Download AI report (MD)</button><button type="button" className="ops-secondary" onClick={() => download('json')}><Download aria-hidden="true" />Download AI report (JSON)</button></div>
           </section>
           {selectedProject.access.canEdit && <SkeletonFollowUp key={selected.id} review={selected} owner={selectedProject.ownerUsername} />}
@@ -173,17 +183,17 @@ export function SkeletonLock({ userId }: { userId: string }) {
           <section className="idea-rail-panel skeleton-step" aria-labelledby="skeleton-pdra-heading">
             <h4 id="skeleton-pdra-heading">PDRA judgment</h4>
             {latest.pdra ? <DecisionRecord decision={latest.pdra} /> : <p className="skeleton-awaiting"><Clock aria-hidden="true" />Awaiting {selected.projectSnapshot.pdraUsername ? `@${selected.projectSnapshot.pdraUsername}` : 'an assigned PDRA'}.</p>}
-            {(selectedProject.pdraUsername === data.viewer.username || data.viewer.administrator) && <JudgmentForm key={`pdra-${selected.id}-${selected.revision}`} kind="pdra" busy={busy} onSave={judge} />}
+            {mayJudge('pdra') && <JudgmentForm key={`pdra-${selected.id}-${selected.revision}`} kind="pdra" override={mayJudge('pdra') === 'override'} busy={busy} onSave={judge} />}
           </section>
           <section className="idea-rail-panel skeleton-step" aria-labelledby="skeleton-pi-heading">
             <h4 id="skeleton-pi-heading">PI confirmation</h4>
             {latest.pdra && <DecisionRecord decision={latest.pdra} />}
-            {latest.pi ? <DecisionRecord decision={latest.pi} /> : <p className="skeleton-awaiting"><Clock aria-hidden="true" />Awaiting {selected.projectSnapshot.piUsername ? `@${selected.projectSnapshot.piUsername}` : 'the project PI'}. Only the project PI or an administrator can confirm.</p>}
-            {data.viewer.manager && <JudgmentForm key={`pi-${selected.id}-${selected.revision}`} kind="pi" busy={busy} onSave={judge} />}
+            {latest.pi ? <DecisionRecord decision={latest.pi} /> : <p className="skeleton-awaiting"><Clock aria-hidden="true" />Awaiting {selected.projectSnapshot.piUsername ? `@${selected.projectSnapshot.piUsername}` : 'the project PI'}. Only the project PI can confirm; an administrator may record an explicit administrator override. The project owner and the PDRA who judged this review cannot confirm it.</p>}
+            {mayJudge('pi') && <JudgmentForm key={`pi-${selected.id}-${selected.revision}`} kind="pi" override={mayJudge('pi') === 'override'} busy={busy} onSave={judge} />}
           </section>
           <section className="skeleton-judgment-history" aria-labelledby="skeleton-history-list-heading">
             <h4 id="skeleton-history-list-heading">Judgment history</h4>{!selected.decisions.length && <p className="skeleton-muted">No human judgment recorded.</p>}
-            <ol>{selected.decisions.map((decision,index) => <li key={index}><strong>{decision.kind.toUpperCase()}: {decision.outcome}</strong> · @{decision.by} · <span className="vs-mono">{formatRecordTime(decision.at)}</span><p>{decision.note}</p></li>)}</ol>
+            <ol>{selected.decisions.map((decision,index) => <li key={index}><strong>{decision.kind === 'pdra' ? 'PDRA judgment' : 'PI confirmation'}: {skeletonOutcomeLabels[decision.outcome] || decision.outcome}</strong>{decision.override ? ' · Administrator override' : ''} · @{decision.by} · <span className="vs-mono">{formatRecordTime(decision.at)}</span><p>{decision.note}</p></li>)}</ol>
           </section>
         </aside>
       </section>}
@@ -194,8 +204,8 @@ export function SkeletonLock({ userId }: { userId: string }) {
         <div className="skeleton-review-list">{visible.map(review => {
           const decisions = latestSkeletonDecisions(review.decisions);
           return <button key={review.id} type="button" className={`skeleton-review-row${review.id === selected?.id ? ' active' : ''}`} aria-current={review.id === selected?.id ? 'true' : undefined} disabled={busy} onClick={() => void openReview(review.id)}>
-            <strong>{review.projectSnapshot.title}</strong><span className="skeleton-row-meta">@{review.projectSnapshot.ownerUsername} · <span className="vs-mono">{new Date(review.createdAt).toLocaleString('en-GB')}</span></span>
-            <span className="skeleton-row-states">AI: {review.verdict} · PDRA: {decisions.pdra?.outcome || 'pending'} · PI: {decisions.pi?.outcome || 'pending'}</span>
+            <strong>{review.projectSnapshot.title}</strong><span className="skeleton-row-meta">@{review.projectSnapshot.ownerUsername} · <span className="vs-mono">{formatRecordTime(review.createdAt)}</span></span>
+            <span className="skeleton-row-states">AI: {skeletonVerdictLabels[review.verdict] || review.verdict} · PDRA: {decisions.pdra ? skeletonOutcomeLabels[decisions.pdra.outcome] || decisions.pdra.outcome : 'Pending'} · PI: {decisions.pi ? skeletonOutcomeLabels[decisions.pi.outcome] || decisions.pi.outcome : 'Pending'}</span>
           </button>;
         })}</div>
       </section>
@@ -205,20 +215,20 @@ export function SkeletonLock({ userId }: { userId: string }) {
       confirmLabel="Discard and switch" cancelLabel="Keep editing" onCancel={() => setPendingProjectId(null)} onConfirm={() => switchProject(pendingProjectId ?? '')} />
   </section>;
 }
-const outcomeLabels: Record<string, string> = { revise: 'Revise before locking', conditional: 'Conditional — actions required', locked: 'Ready to lock', needs_revision: 'Needs revision', approved: 'Skeleton lock approved' };
 function DecisionRecord({ decision }: { decision: SkeletonDecision }) {
   return <div className="skeleton-decision-record">
-    <span className="skeleton-decision-meta">{decision.kind === 'pdra' ? 'PDRA judgment' : 'PI confirmation'} · @{decision.by} · <span className="vs-mono">{formatRecordTime(decision.at)}</span></span>
-    <span><strong>{outcomeLabels[decision.outcome] || decision.outcome}.</strong> {decision.note}</span>
+    <span className="skeleton-decision-meta">{decision.kind === 'pdra' ? 'PDRA judgment' : 'PI confirmation'}{decision.override ? ' · Administrator override' : ''} · @{decision.by} · <span className="vs-mono">{formatRecordTime(decision.at)}</span></span>
+    <span><strong>{skeletonOutcomeLabels[decision.outcome] || decision.outcome}.</strong> {decision.note}</span>
   </div>;
 }
-function JudgmentForm({ kind, busy, onSave }: { kind: 'pdra' | 'pi'; busy: boolean; onSave: (kind: 'pdra' | 'pi', outcome: string, note: string) => Promise<void> }) {
+function JudgmentForm({ kind, override, busy, onSave }: { kind: 'pdra' | 'pi'; override: boolean; busy: boolean; onSave: (kind: 'pdra' | 'pi', outcome: string, note: string, override: boolean) => Promise<void> }) {
   const [outcome, setOutcome] = useState(kind === 'pdra' ? 'revise' : 'needs_revision'); const [note, setNote] = useState(''); const [confirmed, setConfirmed] = useState(false);
-  return <form className="skeleton-judgment" onSubmit={event => { event.preventDefault(); void onSave(kind, outcome, note); }}><fieldset disabled={busy}>
-    <legend>{kind === 'pdra' ? 'PDRA judgment' : 'PI skeleton checkpoint confirmation'}</legend>
-    <label>Judgment <select value={outcome} onChange={event => { setOutcome(event.target.value); setConfirmed(false); }}>{(kind === 'pdra' ? [['revise','Revise before locking'],['conditional','Conditional — actions required'],['locked','Ready to lock']] : [['needs_revision','Needs revision'],['approved','Approve skeleton lock']]).map(([value,label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+  return <form className="skeleton-judgment" onSubmit={event => { event.preventDefault(); void onSave(kind, outcome, note, override); }}><fieldset disabled={busy}>
+    <legend>{override ? 'Administrator override — ' : ''}{kind === 'pdra' ? 'PDRA judgment' : 'PI skeleton checkpoint confirmation'}</legend>
+    {override && <p className="skeleton-muted">You are not the assigned {kind === 'pdra' ? 'PDRA' : 'project PI'}. This judgment is recorded and shown as an administrator override.</p>}
+    <label>Judgment <select value={outcome} onChange={event => { setOutcome(event.target.value); setConfirmed(false); }}>{(kind === 'pdra' ? [['revise','Revise before locking'],['conditional','Conditional — actions required'],['locked','Ready to lock']] : [['needs_revision','Return for revision'],['approved','Confirm skeleton lock']]).map(([value,label]) => <option value={value} key={value}>{label}</option>)}</select></label>
     <label>Reason, evidence and required actions <textarea required rows={4} maxLength={4000} value={note} onChange={event => { setNote(event.target.value); setConfirmed(false); }} /></label>
-    <label className="skeleton-confirm"><input type="checkbox" required checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I have reviewed the source evidence and AI advice and confirm this is my human judgment.</label>
+    <label className="skeleton-confirm"><input type="checkbox" required checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I have reviewed the source evidence and AI advice and confirm this is my human judgment{override ? ', recorded as an administrator override' : ''}.</label>
     <button type="submit" className="ops-primary" disabled={!confirmed}>{kind === 'pdra' ? 'Record PDRA judgment' : 'Record PI confirmation'}</button>
   </fieldset></form>;
 }

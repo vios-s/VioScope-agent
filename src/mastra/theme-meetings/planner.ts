@@ -198,6 +198,17 @@ export function cycleGroupForDate(config: ThemeMeetingConfig, meetingDate: strin
   return config.cycle.rotation[modulo(weekOffset, config.cycle.rotation.length)];
 }
 
+/** The theme's current or next meeting date: the first Wednesday from the default plan date whose cycle group is the theme's. */
+export function nextThemeMeetingDate(config: ThemeMeetingConfig, themeId: string, now = new Date()): string | null {
+  const group = config.themes.find((theme) => theme.theme_id === themeId)?.cycle_group;
+  const start = upcomingWednesday(now, config.timezone);
+  for (let week = 0; group && week < config.cycle.rotation.length; week += 1) {
+    const date = addDays(start, week * 7);
+    if (cycleGroupForDate(config, date) === group) return date;
+  }
+  return null;
+}
+
 function normalizeName(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }

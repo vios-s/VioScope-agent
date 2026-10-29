@@ -35,14 +35,16 @@ export const ideaDraftSchema = z.preprocess(input => {
 export type IdeaDraft = z.infer<typeof ideaDraftSchema>;
 export const initialProjectActionSchema = z.object({ text: z.string().trim().min(1).max(240), dueDate: z.iso.date() }).strict();
 
+export const ideaOutcomeLabels = { proceed: 'Proceed', revise: 'Revise', stop: 'Stop' } as const;
+export const ideaTitleSchema = z.string().trim().min(1, 'Enter a pitch title.').max(200, 'Keep the pitch title within 200 characters.');
 export const ideaDecisionSchema = z.object({ outcome: z.enum(['proceed', 'revise', 'stop']),
-  rationale: z.string().trim().min(1).max(4000), nextMilestone: z.string().trim().min(1).max(2000) }).strict();
+  rationale: z.string().trim().min(1, 'Enter the reason and evidence for the decision.').max(4000), nextMilestone: z.string().trim().min(1, 'Enter the next milestone or closure plan.').max(2000) }).strict();
 export type IdeaDecision = z.infer<typeof ideaDecisionSchema>;
 export const ideaSourceSchema = z.object({ name: z.string().max(200), text: z.string().max(32000), method: z.enum(['upload', 'paste']) }).strict();
 export type IdeaSource = z.infer<typeof ideaSourceSchema>;
 export const ideaCommandSchema = z.discriminatedUnion('operation', [
-  z.object({ operation: z.literal('save'), title: z.string().trim().min(1).max(200).optional(), version: z.number().int().min(0), draft: ideaDraftSchema, source: ideaSourceSchema.nullable().default(null) }).strict(),
-  z.object({ operation: z.literal('decide'), version: z.number().int().min(1), decision: ideaDecisionSchema, confirmed: z.literal(true) }).strict(),
+  z.object({ operation: z.literal('save'), title: ideaTitleSchema.optional(), version: z.number().int().min(0), draft: ideaDraftSchema, source: ideaSourceSchema.nullable().default(null) }).strict(),
+  z.object({ operation: z.literal('decide'), version: z.number().int().min(1), decision: ideaDecisionSchema, confirmed: z.literal(true, { error: 'Confirm the human decision before recording it.' }) }).strict(),
 ]);
 export type IdeaCommand = z.infer<typeof ideaCommandSchema>;
 export type IdeaRevision = { title?: string; version: number; draft: IdeaDraft; source: IdeaSource | null; decision: IdeaDecision | null;
@@ -55,6 +57,10 @@ export function checkIdea(draft: IdeaDraft) {
 
 export const pitchExportFormats = ['docx', 'pdf', 'md', 'txt'] as const;
 export type PitchExportFormat = typeof pitchExportFormats[number];
+export function pitchExportFilename(title: string, version: number, format: PitchExportFormat) {
+  const slug = title.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '');
+  return `idea-pitch-${slug || 'untitled'}-v${version}.${format}`;
+}
 export function defaultPitchExportFormat(sourceName?: string): PitchExportFormat {
   const extension = sourceName?.split('.').pop()?.toLowerCase();
   return pitchExportFormats.includes(extension as PitchExportFormat) ? extension as PitchExportFormat : 'docx';

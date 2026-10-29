@@ -6,7 +6,7 @@ import { checklistDraftKey, readChecklistDraft, removeChecklistDraft, writeCheck
 import { requestJson } from './client-request';
 import { IdeaPitchEditor, formatRecordTime } from './idea-pitch-editor';
 import { ConfirmDialog } from './confirm-dialog';
-import type { IdeaPitch } from '../src/mastra/projects/idea-check';
+import { ideaOutcomeLabels, type IdeaPitch } from '../src/mastra/projects/idea-check';
 
 const railGroups = [
   { access: 'owner', label: 'Your pitches' },
@@ -14,7 +14,7 @@ const railGroups = [
   { access: 'shared', label: 'Shared with you · Read only' },
 ] as const;
 
-const statusLabels: Record<string, string> = { draft: 'Awaiting decision', revise: 'Revise', proceed: 'Proceed', stop: 'Stop', project: 'Project created' };
+const statusLabels: Record<string, string> = { draft: 'Awaiting decision', ...ideaOutcomeLabels, project: 'Project created' };
 const pitchState = (pitch: IdeaPitch) => pitch.projectId ? 'project' : pitch.outcome || 'draft';
 
 export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onProjectCreated: () => Promise<void> }) {

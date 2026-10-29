@@ -55,7 +55,7 @@ import { ProjectIdeaOrigin } from './project-idea-origin';
 import { ProjectWorkflow } from './project-workflow';
 import { MeetingProjectSummary } from './meeting-project-summary';
 import { meetingProjectContext } from '../src/mastra/theme-meetings/project-context';
-import { ThemeMeetingWorkflow } from './theme-meeting-workflow';
+import { ThemeMeetingWorkflow, resetThemeMeetingWorkflowCache } from './theme-meeting-workflow';
 import { ApiRequestError, requestJson } from './client-request';
 import type {
   ProjectStatus,
@@ -1314,6 +1314,12 @@ function isViewerName(value: string, viewer: CurrentUser) {
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return (parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : name.slice(0, 2)).toUpperCase();
+}
+
+/** Avatar image that falls back to initials when the image cannot be loaded. */
+function AvatarImage({ src, name }: { src: string; name: string }) {
+  const [failed, setFailed] = useState('');
+  return failed === src ? <>{initials(name)}</> : <img src={src} alt="" onError={() => setFailed(src)} />;
 }
 
 function profileAvatarUrl(user: CurrentUser): string {
@@ -3358,6 +3364,7 @@ function ThemeMeetingPanel({
   const [meetingToCancel, setMeetingToCancel] = useState<ThemeMeetingPlan['meetings'][number] | null>(null);
   const [skipReason, setSkipReason] = useState('');
   const [cancellationBusy, setCancellationBusy] = useState(false);
+  const [skipError, setSkipError] = useState<string | null>(null);
   const [subscriptionBusy, setSubscriptionBusy] = useState(false);
   const [viewThemeId, setViewThemeId] = useState('');
 
@@ -3581,7 +3588,8 @@ function ThemeMeetingPanel({
       setStatus(cancelled ? `Theme ${meeting.theme_id} meeting restored.` : `Theme ${meeting.theme_id} meeting skipped. No reminders, agenda or agenda emails will be sent.`);
       await onChanged();
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : 'Could not update the meeting status.');
+      // Skipping happens inside a modal dialog, so show its error there; restoring has no dialog.
+      (cancelled ? setFormError : setSkipError)(error instanceof Error ? error.message : 'Could not update the meeting status.');
     } finally {
       setCancellationBusy(false);
     }
@@ -3767,6 +3775,8 @@ function ThemeMeetingPanel({
                     key={activeMeeting.theme_id}
                     themeId={activeMeeting.theme_id}
                     meetingDate={plan.meeting_date}
+                    userId={viewer.id}
+                    planRevision={plan.generated_at}
                     meetingTime={activeMeeting.time}
                     cancelled={activeMeeting.cancelled}
                     canAccess={canAccessActive}
@@ -4018,11 +4028,13 @@ function ThemeMeetingPanel({
         message={meetingToCancel ? `Skip Theme ${meetingToCancel.theme_id} on ${formatDate(plan?.meeting_date || '')}? Reminders, agenda generation, agenda confirmation and agenda emails for this meeting will stop. You can restore it later.` : ''}
         confirmLabel="Skip meeting"
         busy={cancellationBusy}
-        onCancel={() => { setMeetingToCancel(null); setSkipReason(''); }}
+        onCancel={() => { setMeetingToCancel(null); setSkipReason(''); setSkipError(null); }}
         onConfirm={() => {
+          setSkipError(null);
           if (meetingToCancel) void changeMeetingCancellation(meetingToCancel, false);
         }}
       >
+        {skipError && <p className="form-message error" role="alert">{skipError}</p>}
         <label className="confirm-dialog-phrase">
           <span>Reason (shown to members)</span>
           <input value={skipReason} maxLength={1000} placeholder="For example, conference week" onChange={(event) => setSkipReason(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} />
@@ -5256,7 +5268,7 @@ function ChatView({
                     onClick={() => chooseMention(user.username)}
                   >
                     <span className="user-avatar mention-avatar" aria-hidden="true">
-                      {user.avatarUrl ? <img src={user.avatarUrl} alt="" /> : initials(user.displayName || user.username)}
+                      {user.avatarUrl ? <AvatarImage src={user.avatarUrl} name={user.displayName || user.username} /> : initials(user.displayName || user.username)}
                     </span>
                     <strong>@{user.username}</strong>
                     <span>{user.displayName}</span>
@@ -8074,6 +8086,7 @@ export function OperationsConsole() {
 
   async function logout() {
     if (user) clearChecklistDrafts(user.id);
+    resetThemeMeetingWorkflowCache();
     await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     setUser(null);
     setAccountMenuOpen(false);

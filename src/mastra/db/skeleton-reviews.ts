@@ -67,15 +67,24 @@ export async function decideSkeletonReview(id: string, input: unknown, user: Aut
     const latest = (await db.pool.query('SELECT id::text FROM skeleton_reviews WHERE project_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1', [project.id])).rows[0];
     if (latest.id !== id) throw new AuthError('A newer AI check exists. Review the latest version.', 409, 'conflict');
     if (!isDeepStrictEqual(skeletonProjectSnapshot(project), record.projectSnapshot)) throw new AuthError('Project details changed. Run a new AI check before judging.', 409, 'conflict');
+    // Separation of duties: the owner never judges their own project, one person never records both steps, and an
+    // administrator who is not the assigned reviewer acts only through an explicit, recorded override.
+    if (project.ownerUsername === user.username) throw new AuthError('The project owner cannot record the PDRA judgment or PI confirmation for their own project.', 403, 'forbidden');
+    const assigned = command.kind === 'pdra' ? project.pdraUsername : project.piUsername;
+    const override = assigned !== user.username;
+    if (override && (user.role !== 'administrator' || !command.override)) throw new AuthError(command.kind === 'pdra'
+      ? 'Only the assigned PDRA can record the PDRA judgment. An administrator may record it only as an explicit administrator override.'
+      : 'Only the project PI can record the confirmation. An administrator may record it only as an explicit administrator override.', 403, 'forbidden');
+    const latestDecisions = latestSkeletonDecisions(record.decisions);
     if (command.kind === 'pdra') {
-      if (project.pdraUsername !== user.username && user.role !== 'administrator') throw new AuthError('Only the assigned PDRA or administrator can record the PDRA verdict.', 403, 'forbidden');
+      if (record.decisions.some(item => item.kind === 'pi' && item.by === user.username)) throw new AuthError('You recorded the PI confirmation for this review, so another person must record the PDRA judgment.', 403, 'forbidden');
     } else {
-      if (!canSeeAll(user)) throw new AuthError('Only a PI or administrator can record final confirmation.', 403, 'forbidden');
-      const pdra = latestSkeletonDecisions(record.decisions).pdra;
+      const pdra = latestDecisions.pdra;
       if (!pdra) throw new Error('Record the PDRA judgment before PI skeleton checkpoint confirmation.');
+      if (pdra.by === user.username) throw new AuthError('You recorded the PDRA judgment for this review, so another person must record the PI confirmation.', 403, 'forbidden');
       if (command.outcome === 'approved' && pdra.outcome === 'revise') throw new Error('The PDRA requested revision. Resolve it before skeleton approval.');
     }
-    const decision = { kind: command.kind, outcome: command.outcome, note: command.note, by: user.username, at: new Date().toISOString() };
+    const decision = { kind: command.kind, outcome: command.outcome, note: command.note, by: user.username, at: new Date().toISOString(), ...(override ? { override: true } : {}) };
     const saved = await db.pool.query(`UPDATE skeleton_reviews SET decisions=decisions || $2::jsonb,revision=revision+1 WHERE id=$1 RETURNING ${columns}`, [id,JSON.stringify([decision])]);
     return saved.rows[0] as SkeletonRecord;
   });

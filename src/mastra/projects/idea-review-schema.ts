@@ -9,8 +9,9 @@ export const ideaBlockStatusLabels = { missing: 'Missing', needs_work: 'Needs wo
 export const ideaDiscussantStatusLabels = { addressed: 'Addressed', partial: 'Partly addressed', unanswered: 'Not addressed' } as const;
 export const ideaDiscussantQuestions = { delta: 'Is the delta big enough for a top-tier venue?', poc: 'If the Week 1–2 PoC fails, do we kill it or pivot?' } as const;
 
+const maxQuoteChars = 1000;
 const text = z.string().trim().min(1).max(4000);
-const evidence = z.array(z.object({ field: z.enum([...ideaReviewBlocks, 'track']), quote: z.string().trim().min(1).max(1000) }).strict()).max(4);
+const evidence = z.array(z.object({ field: z.enum([...ideaReviewBlocks, 'track']), quote: z.string().trim().min(1).max(maxQuoteChars) }).strict()).max(4);
 const discussant = z.object({ status: z.enum(['addressed', 'partial', 'unanswered']), answer: text, evidence }).strict();
 // Review schema v2: one finding per VIOS template block. Older saved reports use LegacyIdeaReview.
 export const ideaReviewSchema = z.object({
@@ -37,7 +38,8 @@ function locateQuote(item: Quote, draft: IdeaDraft): Quote | null {
   const pattern = new RegExp(words.map(word => word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'iu');
   for (const field of [item.field, ...ideaReviewBlocks, 'track' as const]) {
     const match = pattern.exec(draft[field]);
-    if (match) return { field, quote: match[0] };
+    // Reflowed whitespace can make the verbatim span longer than the quote limit; keep its leading part, still verbatim.
+    if (match) return { field, quote: match[0].slice(0, maxQuoteChars).trim() };
   }
   return null;
 }
