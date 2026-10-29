@@ -60,9 +60,9 @@ try {
   });
   await page.goto(base + '/?view=meeting'); await page.locator('.console-topbar').waitFor(); await dismissWelcomeIfVisible(page);
   const form = page.locator('.theme-update-form'); await form.waitFor();
-  const slots = form.getByRole('combobox', { name: 'Slot type', exact: true });
-  assert.deepEqual(await slots.locator('option').allTextContents(), ['Update (5 min)', 'Deep Dive (20-30 min)', 'Nothing to Report (0 min)']);
-  assert.equal(await slots.inputValue(), 'short_update');
+  const slots = form.getByRole('group', { name: 'Update type' }).getByRole('radio');
+  assert.deepEqual(await slots.evaluateAll((inputs) => inputs.map((input) => input.closest('label')?.textContent)), ['Update5 min', 'Deep Dive20-30 min', 'Nothing to Report0 min']);
+  assert.equal(await form.getByRole('radio', { checked: true }).inputValue(), 'short_update');
   assert.equal(await form.getByRole('checkbox', { name: /^Link this project/ }).count(), 0);
   assert.equal(await form.getByRole('textbox', { name: 'Project stage', exact: true }).count(), 0);
   assert.equal(await form.getByText('Suggestions reserve no agenda time.', { exact: false }).count(), 0);
@@ -78,7 +78,7 @@ try {
   assert.equal(submitted, undefined, 'AI advice does not submit a meeting update.');
   await form.getByRole('button', { name: 'Use suggested update', exact: true }).click();
   assert.equal(await form.getByRole('textbox', { name: /^Progress/ }).inputValue(), aiDraft);
-  assert.equal(await slots.inputValue(), 'deep_dive');
+  assert.equal(await form.getByRole('radio', { checked: true }).inputValue(), 'deep_dive');
   await form.getByRole('textbox', { name: /^Progress/ }).fill('Completed the synthetic baseline.');
   await form.getByRole('button', { name: 'Submit update', exact: true }).click();
   await page.getByText('Update submitted.', { exact: true }).waitFor();

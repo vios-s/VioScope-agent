@@ -1,10 +1,26 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { checklistDraftKey, readChecklistDraft, removeChecklistDraft, writeChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
-import { IdeaPitchEditor } from './idea-pitch-editor';
+import { IdeaPitchEditor, formatRecordTime } from './idea-pitch-editor';
 import type { IdeaPitch } from '../src/mastra/projects/idea-check';
+
+const railGroups = [
+  { access: 'owner', label: 'Your pitches' },
+  { access: 'pi', label: 'Other proposers' },
+  { access: 'shared', label: 'Shared with you · Read only' },
+] as const;
+
+function pitchMeta(pitch: IdeaPitch) {
+  const state = pitch.projectId
+    ? 'Converted to project'
+    : pitch.outcome
+      ? `Decision: ${pitch.outcome.charAt(0).toUpperCase()}${pitch.outcome.slice(1)}`
+      : pitch.version ? `Draft v${pitch.version}` : 'Draft';
+  return pitch.updatedAt ? `${state} · ${formatRecordTime(pitch.updatedAt, false)}` : state;
+}
 
 export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onProjectCreated: () => Promise<void> }) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -39,30 +55,41 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
   }, []);
   const matchingPitches = (pitches || []).filter(pitch => `${pitch.title} ${pitch.ownerUsername}`.toLowerCase().includes(search.toLowerCase()) && (filter === 'all' || (pitch.projectId ? 'project' : pitch.outcome || 'draft') === filter));
   return <section className="idea-pitches-panel">
-    <header className="idea-workspace-header">
-      <div><h1>Idea Pitch</h1><p>Shape your research question, check the evidence, then agree the next step with your PI.</p></div>
-      <span className="idea-privacy">Private unless shared</span>
-    </header>
-    {error && <p role="alert">{error} <button className="ops-secondary" type="button" onClick={() => { setError(''); void load().catch((caught) => setError(caught.message)); }}>Retry</button></p>}
-    {status && <p role="status">{status}</p>}
+    {error && <p role="alert" className="ops-notice error idea-page-alert">{error} <button className="ops-secondary" type="button" onClick={() => { setError(''); void load().catch((caught) => setError(caught.message)); }}>Retry</button></p>}
+    {status && <p role="status" className="form-message idea-page-status">{status}</p>}
     {scope === 'all' && <section className="idea-pi-overview" aria-label="PI and administrator pitch overview">
       <h2>PI / Admin overview · All pitches</h2><p>See everyone’s saved pitches. Open a pitch to review its full version history, record a decision or manage sharing.</p>
       <div className="idea-export-controls"><label>Find a pitch<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Title or proposer username" /></label>
       <label>Pitch status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All statuses</option><option value="draft">Awaiting human decision</option><option value="revise">Revise</option><option value="proceed">Proceed</option><option value="stop">Stop</option><option value="project">Project created</option></select></label></div>
       <div className="idea-pi-list">{matchingPitches.map(pitch => <article key={pitch.id}>
-        <button type="button" className="ops-secondary" disabled={editorState.busy} onClick={() => openPitch(pitch.id)}>{pitch.title}</button>
-        <span>@{pitch.ownerUsername}</span><span>{pitch.projectId ? 'Project created' : pitch.outcome || 'Awaiting human decision'} · v{pitch.version || 0}</span>
+        <button type="button" className="idea-pi-open" disabled={editorState.busy} onClick={() => openPitch(pitch.id)}>{pitch.title}</button>
+        <span>@{pitch.ownerUsername}</span><span>{pitch.projectId ? 'Project created' : pitch.outcome || 'Awaiting human decision'} · <span className="vs-mono">v{pitch.version || 0}</span></span>
       </article>)}</div>
       {pitches && matchingPitches.length === 0 && <p>{pitches.length ? 'No pitches match this search.' : 'No saved pitches yet.'}</p>}
     </section>}
-    <div className="idea-pitch-toolbar">
-      <label>Saved pitches <select aria-label="Saved pitches" value={displayed} disabled={editorState.busy} onChange={(event) => openPitch(event.target.value)}>
-        <option value="">New pitch</option>
-        {['owner', 'pi', 'shared'].map(access => <optgroup key={access} label={access === 'shared' ? 'Shared with me · Read only' : access === 'pi' ? 'Other proposers · PI / Admin access' : 'My pitches'}>{(pitches || []).filter(pitch => pitch.access === access).map(pitch => <option key={pitch.id} value={pitch.id}>{pitch.title} · @{pitch.ownerUsername} · {pitch.projectId ? 'Project created' : pitch.outcome || 'Draft'}</option>)}</optgroup>)}
-      </select></label>
-      <button className="ops-secondary" type="button" disabled={editorState.busy} onClick={() => openPitch('')}>New pitch</button>
-      {pitches === null && <span role="status">{error ? 'Saved pitches unavailable.' : 'Loading saved pitches…'}</span>}
+    <div className="idea-workspace">
+      <aside className="idea-pitch-toolbar" aria-label="Pitch list">
+        <button className="ops-secondary idea-new-pitch" type="button" disabled={editorState.busy} onClick={() => openPitch('')}><Plus aria-hidden="true" />New pitch</button>
+        <label className="idea-rail-select">Saved pitches <select aria-label="Saved pitches" value={displayed} disabled={editorState.busy} onChange={(event) => openPitch(event.target.value)}>
+          <option value="">New pitch</option>
+          {['owner', 'pi', 'shared'].map(access => <optgroup key={access} label={access === 'shared' ? 'Shared with me · Read only' : access === 'pi' ? 'Other proposers · PI / Admin access' : 'My pitches'}>{(pitches || []).filter(pitch => pitch.access === access).map(pitch => <option key={pitch.id} value={pitch.id}>{pitch.title} · @{pitch.ownerUsername} · {pitch.projectId ? 'Project created' : pitch.outcome || 'Draft'}</option>)}</optgroup>)}
+        </select></label>
+        {pitches === null && <span className="idea-rail-note" role="status">{error ? 'Saved pitches unavailable.' : 'Loading saved pitches…'}</span>}
+        {railGroups.map(group => {
+          const items = (pitches || []).filter(pitch => pitch.access === group.access);
+          return items.length > 0 && <div className="idea-rail-group" key={group.access}>
+            <h2 className="vs-caps">{group.label}</h2>
+            <ul>{items.map(pitch => <li key={pitch.id}>
+              <button type="button" className={`idea-rail-item${pitch.id === displayed ? ' active' : ''}`} aria-current={pitch.id === displayed ? 'true' : undefined} disabled={editorState.busy} onClick={() => { if (pitch.id !== displayed) openPitch(pitch.id); }}>
+                <span>{pitch.title}</span>
+                <small>{group.access !== 'owner' && `@${pitch.ownerUsername} · `}{pitchMeta(pitch)}</small>
+              </button>
+            </li>)}</ul>
+          </div>;
+        })}
+        <p className="idea-rail-note">An empty editor does not create a pitch. A pitch is stored only when you save it.</p>
+      </aside>
+      <div ref={editorRef} className="idea-editor-host"><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { removeChecklistDraft(checklistDraftKey(userId, 'idea:' + (displayed || 'new'))); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
     </div>
-    <div ref={editorRef}><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { removeChecklistDraft(checklistDraftKey(userId, 'idea:' + (displayed || 'new'))); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
   </section>;
 }

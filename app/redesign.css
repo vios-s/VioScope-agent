@@ -520,6 +520,7 @@ textarea:focus-visible {
 .console-subheader.vs-page-header {
   min-height: 0;
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
@@ -881,7 +882,7 @@ textarea:focus-visible {
   box-shadow: var(--vs-focus-halo);
 }
 
-.console-page .ops-search input,
+.console-page .ops-search input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]),
 .console-page .ops-search input:focus-visible {
   border: 0;
   box-shadow: none;

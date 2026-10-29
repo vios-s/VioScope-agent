@@ -1,1 +1,410 @@
-/* Quiet Instrument: briefing screen. */
+/* Quiet Instrument: briefing screen (BriefingView). */
+
+.briefing-page .console-page-inner,
+.briefing-page .console-page-inner.wide {
+  max-width: 1200px;
+}
+
+.bf-content {
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  min-width: 0;
+}
+
+/* Four-figure stat strip with hairline separators */
+.bf-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  border-top: 1px solid var(--vs-line);
+  border-bottom: 1px solid var(--vs-line);
+}
+
+.bf-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 20px;
+  border-left: 1px solid var(--vs-line-soft);
+}
+
+.bf-stats > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.bf-stats strong {
+  font-variant-numeric: tabular-nums;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--vs-ink);
+}
+
+.bf-stats .bf-stat-warn strong {
+  color: var(--vs-warn-fg);
+}
+
+.bf-stats span {
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.bf-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 48px;
+}
+
+.bf-main {
+  flex: 2 1 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+
+.bf-aside {
+  flex: 1 1 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.bf-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.bf-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bf-section h2,
+.bf-meetings h2 {
+  margin: 0;
+  font: var(--vs-text-heading);
+  color: var(--vs-ink);
+}
+
+.bf-section-head p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.bf-link {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--vs-accent);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.bf-link:hover {
+  background: transparent;
+  color: var(--vs-accent-hover);
+  text-decoration: underline;
+}
+
+.bf-meta {
+  margin: 0;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.bf-empty {
+  min-height: 120px;
+}
+
+/* Needs a decision or follow-up */
+.bf-table-wrap {
+  overflow-x: auto;
+}
+
+.bf-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.bf-table th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vs-line);
+  color: var(--vs-ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.bf-table td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--vs-line-soft);
+  vertical-align: top;
+  color: var(--vs-ink-2);
+}
+
+.bf-table th:first-child,
+.bf-table td:first-child {
+  padding-left: 0;
+}
+
+.bf-table th:last-child,
+.bf-table td:last-child {
+  padding-right: 0;
+}
+
+.bf-table td:first-child strong {
+  display: block;
+  color: var(--vs-ink);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.bf-table td:first-child span {
+  display: block;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.bf-owner,
+.bf-slot {
+  white-space: nowrap;
+}
+
+.bf-stage {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+  white-space: nowrap;
+}
+
+.bf-stage .stage-bar {
+  grid-template-columns: repeat(5, 12px);
+  gap: 3px;
+}
+
+.bf-stage .mt-num {
+  font-size: 13px;
+  color: var(--vs-ink-2);
+}
+
+/* Recent activity */
+.bf-activity {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--vs-line-soft);
+}
+
+.bf-activity li {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--vs-line-soft);
+}
+
+.bf-activity time {
+  padding-top: 2px;
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.bf-activity strong {
+  font-weight: 500;
+  color: var(--vs-ink);
+}
+
+/* Theme meetings panel */
+.bf-meetings {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-panel);
+}
+
+.bf-meeting-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bf-meeting-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 0;
+  border-top: 1px solid var(--vs-line-soft);
+}
+
+.bf-meeting-list li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.bf-meeting-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.bf-meeting-title time {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vs-accent);
+}
+
+.bf-meeting-title strong {
+  font-weight: 500;
+  color: var(--vs-ink);
+}
+
+.bf-meeting-detail,
+.bf-meeting-meter {
+  padding-left: 54px;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.bf-meeting-meter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bf-meeting-meter .mt-meter {
+  height: 4px;
+  border-radius: 2px;
+}
+
+.bf-meeting-meter .mt-num {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bf-meetings > .bf-meta {
+  font-size: 12px;
+}
+
+.bf-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+/* Notifications */
+.bf-notifications {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--vs-line-soft);
+}
+
+.bf-notifications li {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--vs-line-soft);
+  color: var(--vs-ink);
+}
+
+.bf-unread-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border-radius: var(--vs-radius-pill);
+}
+
+.bf-notifications li.is-unread .bf-unread-dot {
+  background: var(--vs-accent);
+}
+
+.bf-notifications li > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bf-notifications small {
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.bf-notifications .bf-none {
+  color: var(--vs-ink-3);
+  font-size: 13px;
+}
+
+/* Evidence */
+.bf-evidence {
+  margin: 0;
+  color: var(--vs-ink-2);
+}
+
+.bf-evidence strong {
+  font-weight: 500;
+  color: var(--vs-ink);
+}
+
+@media (max-width: 640px) {
+  .bf-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bf-stats > div {
+    padding: 14px 12px;
+  }
+
+  .bf-stats > div:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .bf-stats > div:nth-child(n + 3) {
+    border-top: 1px solid var(--vs-line-soft);
+  }
+
+  .bf-activity li {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .bf-meeting-detail,
+  .bf-meeting-meter {
+    padding-left: 0;
+  }
+}
+
+.bf-content .ops-muted-line {
+  margin: 0;
+  padding: 0;
+  font-weight: 400;
+}

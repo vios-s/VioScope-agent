@@ -66,26 +66,28 @@ export function ThemeMeetingWorkflow({ themeId, meetingDate, onChanged }: {
   }
   const open = data?.actions.filter((item) => item.status === 'open') || [];
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
-  return <details className="theme-workflow">
+  return <details className="theme-workflow" id={`theme-workflow-${themeId}`}>
     <summary>Confirmed agenda and follow-up</summary>
     <div className="theme-workflow-body" aria-busy={busy}>
-      <label>Meeting date <input type="date" value={date} disabled={busy} onChange={(event) => { if (event.target.value) setDate(event.target.value); }} /></label>
-      <p className="ops-muted-line">Choose an earlier meeting to record its decisions. Open actions remain visible at later meetings of this theme.</p>
-      {error && <p role="alert">{error} <button className="ops-secondary" type="button" disabled={busy} onClick={() => setRevision((value) => value + 1)}>Reload</button></p>}
-      {status && <p role="status">{status}</p>}
-      {!data ? <p role="status">{error ? 'Meeting records unavailable.' : 'Loading meeting records…'}</p> : <>
-        <p>{data.confirmation ? `Confirmed v${data.confirmation.version} by @${data.confirmation.confirmedBy} on ${new Date(data.confirmation.confirmedAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })} (UK time)` : 'Draft — awaiting coordinator confirmation.'}</p>
-        {data.confirmation && <ol>{data.confirmation.entries.map((entry) => <li key={entry.member_username || entry.member}>
-          {entry.member}: {themeUpdateTypeLabels[entry.update_type]} · {entry.duration_minutes} min{entry.deferred ? ' · Deferred — not booked into a future meeting' : ''}
+      <div className="theme-workflow-date">
+        <label>Meeting date <input type="date" value={date} disabled={busy} onChange={(event) => { if (event.target.value) setDate(event.target.value); }} /></label>
+        <p className="ops-muted-line">Choose an earlier meeting to record its decisions. Open actions remain visible at later meetings of this theme.</p>
+      </div>
+      {error && <p className="form-message error" role="alert">{error} <button className="ops-secondary" type="button" disabled={busy} onClick={() => setRevision((value) => value + 1)}>Reload</button></p>}
+      {status && <p className="form-message" role="status">{status}</p>}
+      {!data ? <p className="ops-muted-line" role="status">{error ? 'Meeting records unavailable.' : 'Loading meeting records…'}</p> : <>
+        <p className={`theme-workflow-state ${data.confirmation ? 'is-confirmed' : 'is-draft'}`}>{data.confirmation ? `Confirmed v${data.confirmation.version} by @${data.confirmation.confirmedBy} on ${new Date(data.confirmation.confirmedAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })} (UK time)` : 'Draft — awaiting coordinator confirmation.'}</p>
+        {data.confirmation && <ol className="theme-workflow-confirmed">{data.confirmation.entries.map((entry) => <li key={entry.member_username || entry.member}>
+          <strong>{entry.member}</strong> <span>{themeUpdateTypeLabels[entry.update_type]} · {entry.duration_minutes} min{entry.deferred ? ' · Deferred — not booked into a future meeting' : ''}</span>
           <MeetingProjectSummary context={entry.project_context} />
         </li>)}</ol>}
-        {data.manager && !data.cancelled && <form onSubmit={(event) => { event.preventDefault(); void save({ operation: 'confirm', sourceVersion: data.sourceVersion, entries }); }}>
+        {data.manager && !data.cancelled && <form className="theme-workflow-panel" onSubmit={(event) => { event.preventDefault(); void save({ operation: 'confirm', sourceVersion: data.sourceVersion, entries }); }}>
           <fieldset disabled={busy}><legend>{data.confirmation ? 'Review and confirm a new version' : 'Prepare the agenda'}</legend>
             <p>Latest submissions below. Confirmation saves a fixed version. Later updates will not change it.</p>
-            <ol>{entries.map((entry, index) => {
+            <ol className="theme-workflow-entries">{entries.map((entry, index) => {
               const candidate = data.candidates.find((item) => item.member_username === entry.username)!;
               return <li key={entry.username} className="theme-workflow-entry">
-                <strong>{candidate.member}</strong><p>{candidate.progress_text}</p><MeetingProjectSummary context={candidate.project_context} />
+                <strong>{candidate.member}</strong><p className="theme-workflow-progress">{candidate.progress_text}</p><MeetingProjectSummary context={candidate.project_context} />
                 <label>Minutes <input type="number" min={candidate.update_type === 'nothing_to_report' ? 0 : 1} max={60} required value={entry.minutes}
                   readOnly={['short_update', 'nothing_to_report'].includes(candidate.update_type)}
                   onChange={(event) => setEntries((current) => current.map((item, i) => i === index ? { ...item, minutes: Number(event.target.value) } : item))} /></label>
@@ -94,11 +96,11 @@ export function ThemeMeetingWorkflow({ themeId, meetingDate, onChanged }: {
                 <button className="ops-secondary" type="button" aria-label={`Move ${candidate.member} later`} disabled={index === entries.length - 1} onClick={() => move(index, 1)}>↓ Later</button>
               </li>;
             })}</ol>
-            <p role="status">{total}/{data.duration} minutes{total > data.duration ? ' — shorten or defer items before confirming.' : ''}</p>
+            <p className={`theme-workflow-total${total > data.duration ? ' is-over' : ''}`} role="status">{total}/{data.duration} minutes{total > data.duration ? ' — shorten or defer items before confirming.' : ''}</p>
             <button className="ops-primary" type="submit" disabled={total > data.duration}>Confirm agenda{data.confirmation ? ' as new version' : ''}</button>
           </fieldset>
         </form>}
-        {data.manager && data.confirmation && !data.cancelled && <form onSubmit={(event) => { event.preventDefault(); void save({ operation: 'add_action', action: { ...action, projectId: action.projectId || null } }); }}>
+        {data.manager && data.confirmation && !data.cancelled && <form className="theme-workflow-panel" onSubmit={(event) => { event.preventDefault(); void save({ operation: 'add_action', action: { ...action, projectId: action.projectId || null } }); }}>
           <fieldset disabled={busy}><legend>Record a decision and next action</legend>
             <label>Related project (optional) <select value={action.projectId} onChange={(event) => setAction({ ...action, projectId: event.target.value })}>
               <option value="">No project — group action</option>{data.projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
@@ -111,13 +113,13 @@ export function ThemeMeetingWorkflow({ themeId, meetingDate, onChanged }: {
             <button className="ops-primary" type="submit">Save decision and action</button>
           </fieldset>
         </form>}
-        <h4>Follow-up · {open.length} open</h4>
-        {!data.actions.length && <p>No recorded actions.</p>}
-        {data.actions.slice().sort((a, b) => a.status.localeCompare(b.status) * -1 || a.dueDate.localeCompare(b.dueDate)).map((item) => <form key={item.id}
+        <h4 className="theme-workflow-heading">Follow-up · {open.length} open</h4>
+        {!data.actions.length && <p className="ops-muted-line">No recorded actions.</p>}
+        {data.actions.slice().sort((a, b) => a.status.localeCompare(b.status) * -1 || a.dueDate.localeCompare(b.dueDate)).map((item) => <form key={item.id} className="theme-workflow-action"
           onSubmit={(event) => { event.preventDefault(); void save({ operation: 'update_action', id: item.id, version: item.version, status: item.status, note: notes[item.id] || '' }); }}>
           <fieldset disabled={busy}><legend>{item.task}</legend>
-            <p>Meeting {item.meetingDate} · @{item.owner} · Due {item.dueDate} · {item.status}{item.status === 'open' && item.dueDate < today ? ' · Overdue' : ''}</p>
-            <p>Project: {item.projectTitle || 'No project — group action'}</p>
+            <p className="theme-workflow-meta">Meeting {item.meetingDate} · @{item.owner} · Due {item.dueDate} · <span className={`theme-workflow-status is-${item.status}${item.status === 'open' && item.dueDate < today ? ' is-overdue' : ''}`}>{item.status}{item.status === 'open' && item.dueDate < today ? ' · Overdue' : ''}</span></p>
+            <p className="theme-workflow-meta">Project: {item.projectTitle || 'No project — group action'}</p>
             <p>Decision: {item.decision}</p>
             <details><summary>History</summary><ul>{item.history.map((change, index) => <li key={index}>@{change.by} · {change.at} · {change.status}: {change.note}</li>)}</ul></details>
             <label>Progress / completion evidence <textarea required maxLength={2000} value={notes[item.id] || ''} onChange={(event) => setNotes({ ...notes, [item.id]: event.target.value })} /></label>

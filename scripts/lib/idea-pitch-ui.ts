@@ -179,9 +179,9 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     const meetingForm = page.locator('.theme-update-form');
     await meetingForm.getByRole('combobox', { name: 'Project source', exact: true }).selectOption(converted.pitch.projectId);
     await meetingForm.getByText('Run three synthetic pilot comparisons', { exact: false }).waitFor();
-    await meetingForm.getByRole('combobox', { name: 'Slot type', exact: true }).selectOption('deep_dive');
+    await meetingForm.getByRole('radio', { name: 'Deep Dive 20-30 min', exact: true }).check();
     await meetingForm.getByRole('textbox', { name: /^Progress/ }).fill('The approved pilot is planned. We need feedback on the comparison protocol.');
-    assert.equal(await meetingForm.getByRole('combobox', { name: 'Slot type', exact: true }).locator('option').count(), 3);
+    assert.equal(await meetingForm.getByRole('group', { name: 'Update type' }).getByRole('radio').count(), 3);
     assert.equal(await meetingForm.getByRole('textbox', { name: 'Project stage', exact: true }).count(), 0);
     assert.match((await meetingForm.getByRole('textbox', { name: /^Progress/ }).getAttribute('placeholder'))!, /The Pain Point/);
     await meetingForm.scrollIntoViewIfNeeded();

@@ -1,1 +1,640 @@
-/* Quiet Instrument: dialogs screen. */
+/* Quiet Instrument: dialogs screen.
+ * Shared modal chrome (States artboard): 14px radius, scrim, title + subtitle header with close X,
+ * hairline-separated body, right-aligned footer actions, destructive confirm in --vs-destructive.
+ * Content inside project/meeting/checklist dialogs is owned by those screens; only chrome lives here.
+ */
+
+/* ---------- Scrim ---------- */
+
+.users-modal-backdrop,
+.audit-modal-backdrop {
+  padding: 32px 24px;
+  background: var(--vs-scrim);
+}
+
+.confirm-dialog::backdrop,
+.welcome-dialog::backdrop {
+  background: var(--vs-scrim);
+}
+
+/* ---------- Dialog surface ---------- */
+
+.users-modal,
+.audit-json-modal,
+.confirm-dialog-card,
+.welcome-dialog-card {
+  border: 0;
+  border-radius: var(--vs-radius-dialog);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  box-shadow: var(--vs-shadow-dialog);
+  font: var(--vs-text-body);
+}
+
+.users-modal {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 64px);
+  gap: 16px;
+  padding: 0 24px 20px;
+  scroll-padding-block: 90px 80px;
+}
+
+.users-modal.user-edit-modal {
+  width: min(640px, 100%);
+}
+
+/* Header: title + optional subtitle, close X at the right, hairline below */
+.users-modal > header,
+.audit-json-modal header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -24px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--vs-line-soft);
+  background: var(--vs-surface);
+}
+
+.users-modal > header h2,
+.audit-json-modal h2,
+.welcome-dialog-card h2,
+.confirm-dialog-card h2 {
+  margin: 0;
+  color: var(--vs-ink);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.users-modal > header p,
+.audit-json-modal header p {
+  margin: 2px 0 0;
+  color: var(--vs-ink-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.users-modal > header button,
+.audit-json-modal header button,
+.welcome-dialog-card header button {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--vs-radius-row-btn);
+  background: transparent;
+  color: var(--vs-ink-2);
+}
+
+.users-modal > header button:hover,
+.audit-json-modal header button:hover,
+.welcome-dialog-card header button:hover {
+  background: var(--vs-surface-3);
+  color: var(--vs-ink);
+}
+
+.users-modal > header svg,
+.audit-json-modal header svg,
+.welcome-dialog-card header svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
+}
+
+/* Footer: right-aligned actions on a hairline */
+.users-modal > footer {
+  position: sticky;
+  bottom: -20px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 4px -24px -20px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--vs-line-soft);
+  background: var(--vs-surface);
+}
+
+/* Body: labelled fields */
+.users-modal label {
+  display: grid;
+  gap: 6px;
+  color: var(--vs-ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.users-modal p {
+  margin: 0;
+  color: var(--vs-ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.users-modal textarea {
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+
+.users-modal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.users-modal select {
+  padding: 0 12px;
+}
+
+.users-modal input:disabled,
+.users-modal input[readonly] {
+  background: var(--vs-surface-2);
+  color: var(--vs-ink-3);
+}
+
+/* Field groups are separated by hairlines, never boxed (no cards inside dialogs). */
+.users-modal .modal-fieldset {
+  display: grid;
+  gap: 14px;
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--vs-line-soft);
+  border-radius: 0;
+  background: transparent;
+}
+
+.users-modal .modal-fieldset h3 {
+  margin: 0;
+  color: var(--vs-ink);
+  font: var(--vs-text-heading);
+  font-size: 15px;
+}
+
+.users-modal .modal-fieldset p {
+  margin: -8px 0 0;
+}
+
+/* Radio-like option pills (States: Status options) */
+.role-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.role-picker button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.role-picker button:hover {
+  border-color: var(--vs-border-control);
+  background: var(--vs-surface-2);
+  color: var(--vs-ink);
+}
+
+.role-picker button.selected {
+  border-color: var(--vs-accent-line);
+  background: var(--vs-accent-wash);
+  color: var(--vs-accent-strong);
+}
+
+/* ---------- Confirmation (alertdialog) ---------- */
+
+.confirm-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 0;
+  border: 0;
+  border-radius: var(--vs-radius-dialog);
+  background: transparent;
+  overflow: visible;
+}
+
+.confirm-dialog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px;
+}
+
+.confirm-dialog-card header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 14px;
+}
+
+.confirm-dialog-icon {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--vs-danger-bg);
+  color: var(--vs-danger-fg);
+}
+
+.confirm-dialog-icon svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.75;
+}
+
+.confirm-dialog-card p {
+  margin: 0;
+  color: var(--vs-ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.confirm-dialog-card footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.danger-confirm,
+.ops-primary.danger-confirm {
+  border-color: var(--vs-destructive);
+  background: var(--vs-destructive);
+  color: #fff;
+}
+
+.danger-confirm:hover:not(:disabled),
+.ops-primary.danger-confirm:hover:not(:disabled) {
+  border-color: var(--vs-danger-fg);
+  background: var(--vs-danger-fg);
+}
+
+/* ---------- Welcome dialog ---------- */
+
+.welcome-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--vs-radius-dialog);
+  background: transparent;
+}
+
+.welcome-dialog-card {
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.welcome-dialog-card > header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid var(--vs-line-soft);
+  background: var(--vs-surface);
+}
+
+.welcome-kicker {
+  display: block;
+  margin: 0 0 4px;
+  font: var(--vs-text-label-caps);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vs-ink-3);
+}
+
+.welcome-dialog-card > p {
+  margin: 0;
+  padding: 18px 24px 4px;
+  color: var(--vs-ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.welcome-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 8px 24px 12px;
+  list-style: none;
+}
+
+.welcome-task-list li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid var(--vs-line-soft);
+  border-radius: 0;
+  background: transparent;
+}
+
+.welcome-task-list li:last-child {
+  border-bottom: 0;
+}
+
+.welcome-task-list > li > svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  stroke-width: 1.75;
+  color: var(--vs-accent);
+}
+
+.welcome-task-list strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--vs-ink);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.welcome-task-list p {
+  margin: 0;
+  color: var(--vs-ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.welcome-task-list a {
+  color: var(--vs-accent-strong);
+  font-weight: 500;
+}
+
+.welcome-dialog-card > footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--vs-line-soft);
+  background: var(--vs-surface);
+}
+
+.welcome-dialog-card .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.welcome-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--vs-ink-2);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* ---------- Audit JSON dialog ---------- */
+
+.audit-json-modal {
+  width: min(960px, 100%);
+  max-height: min(820px, calc(100dvh - 64px));
+  overflow: hidden;
+}
+
+.audit-json-modal header {
+  margin: 0;
+}
+
+.audit-log-fields {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--vs-line-soft);
+}
+
+.audit-json-viewer {
+  margin: 0;
+  padding: 16px 24px 20px;
+  border: 0;
+  border-radius: 0 0 var(--vs-radius-dialog) var(--vs-radius-dialog);
+  background: var(--vs-surface-2);
+  font-family: var(--vs-font-mono);
+  font-size: 12px;
+}
+
+/* ---------- Loading skeleton (States: Loading) ---------- */
+
+.vs-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 0;
+}
+
+.vs-skeleton > span {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--vs-line) 0 46%, transparent 46% 50%, var(--vs-line) 50% 64%, transparent 64% 68%, var(--vs-line) 68% 86%, transparent 86%);
+  opacity: 0.9;
+}
+
+.vs-skeleton > span:nth-child(2) {
+  width: 92%;
+}
+
+.vs-skeleton > span:nth-child(3) {
+  width: 96%;
+}
+
+.vs-skeleton small {
+  color: var(--vs-ink-3);
+  font-size: 12px;
+}
+
+@media (max-width: 767px) {
+  .users-modal-backdrop,
+  .audit-modal-backdrop {
+    padding: 16px 12px;
+  }
+
+  .users-modal {
+    max-height: calc(100dvh - 32px);
+    padding: 0 16px 16px;
+  }
+
+  .users-modal > header,
+  .audit-json-modal header {
+    margin: 0 -16px;
+    padding: 16px 16px 12px;
+  }
+
+  .users-modal > footer {
+    bottom: -16px;
+    margin: 4px -16px -16px;
+    padding: 12px 16px 16px;
+  }
+
+  .confirm-dialog-card {
+    padding: 20px;
+  }
+
+  .welcome-dialog-card > header,
+  .welcome-dialog-card > p,
+  .welcome-task-list,
+  .welcome-dialog-card > footer {
+    padding-inline: 16px;
+  }
+}
+
+/* ---------- Sign in, recovery and account setup (quiet centred panel on white) ---------- */
+
+.vs-auth {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  font: var(--vs-text-body);
+}
+
+.vs-auth-panel {
+  width: min(400px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.vs-auth-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.vs-auth-brand .vs-wordmark {
+  height: 22px;
+  width: 66px;
+}
+
+.vs-auth-brand .vs-brand-divider {
+  height: 22px;
+}
+
+.vs-auth-brand .vs-brand-name {
+  flex: none;
+  font-size: 18px;
+}
+
+.vs-auth-card {
+  padding: 28px;
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-panel);
+  background: var(--vs-surface);
+}
+
+.vs-auth-card .auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.vs-auth-card .auth-form h1 {
+  margin: 0;
+  font: var(--vs-text-page-title);
+  font-size: 28px;
+  letter-spacing: -0.01em;
+}
+
+.vs-auth-card .auth-form > div > p {
+  margin: 6px 0 0;
+  color: var(--vs-ink-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.vs-auth-card .auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--vs-ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.vs-auth-card .auth-form input {
+  width: 100%;
+  min-height: var(--vs-control-lg);
+  padding: 0 12px;
+  border: 1px solid var(--vs-border-control);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  font-size: 14px;
+}
+
+.vs-auth-card .auth-form input:focus-visible {
+  border-color: var(--vs-accent);
+  outline: none;
+  box-shadow: var(--vs-focus-halo);
+}
+
+.vs-auth-card .auth-form > .ops-primary {
+  width: 100%;
+  justify-content: center;
+}
+
+.vs-auth-card .auth-form .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.vs-auth-card .auth-form .button-row .ops-primary {
+  flex: 1 1 auto;
+  justify-content: center;
+}
+
+.vs-auth-link {
+  align-self: center;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--vs-accent-strong);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.vs-auth-link:hover {
+  color: var(--vs-accent-hover);
+  text-decoration: underline;
+}
+
+.vs-auth-footer {
+  margin: 0;
+  color: var(--vs-ink-3);
+  font-size: 12px;
+  text-align: center;
+}
+
+.vs-auth-loading {
+  color: var(--vs-ink-3);
+  font-size: 13px;
+}

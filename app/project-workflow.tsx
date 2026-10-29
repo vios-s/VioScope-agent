@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, type ReactNode, type FormEvent } from 'react';
+import { Check } from 'lucide-react';
 import { requestJson } from './client-request';
 import { researchPhases, checkpointTypes, type ResearchProfile, type WorkflowCommand, type ProjectTask } from '../src/mastra/projects/workflow';
 import type { getProjectWorkflow } from '../src/mastra/db/project-workflow';
@@ -8,29 +9,43 @@ const label=(value:string)=>value.replaceAll('_',' ').replace(/^./,letter=>lette
 const str=(form:FormData,key:string)=>String(form.get(key)||'').trim();
 const optional=(form:FormData,key:string)=>str(form,key)||null;
 const selectedIds=(form:FormData)=>form.getAll('evidenceIds').map(String);
+const shortDate=(value:string)=>new Date(value).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+const checkpointStates:Record<string,string>={proceed:'done',conditional:'pending',revise:'pending',defer:'pending',stop:'stopped'};
 
-export function ProjectWorkflow({projectId,onChanged}:{projectId:string;onChanged?:(project:Payload['project'])=>Promise<void>}){
+export function ProjectWorkflow({projectId,onChanged,rail}:{projectId:string;onChanged?:(project:Payload['project'])=>Promise<void>;rail?:(checkpoints:ReactNode,linked:ReactNode)=>ReactNode}){
  const [data,setData]=useState<Payload|null>(null),[tab,setTab]=useState('research'),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
  const url=`/api/projects/${projectId}/workflow`;
  async function load(){const refreshed=await requestJson<Payload>(url,'Could not load project workflow.');setData(refreshed);await onChanged?.(refreshed.project);}
  useEffect(()=>{let active=true;void requestJson<Payload>(url,'Could not load project workflow.').then(value=>{if(active)setData(value);}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[url]);
  async function save(command:WorkflowCommand){setBusy(true);setError('');setMessage('');try{await requestJson(url,'Could not save workflow.',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(command)});await load();setMessage('Saved. The project history has been retained.');return true;}catch(error){setError(error instanceof Error?error.message:'Could not save.');return false;}finally{setBusy(false);}}
- if(!data)return <section className="project-workflow"><h2>Research workflow</h2>{error?<p role="alert">{error}<button type="button" onClick={()=>void load().catch(error=>setError(error.message))}>Retry</button></p>:<p role="status">Loading workflow…</p>}</section>;
+ if(!data)return <div className="vs-record-body"><section className="project-workflow vs-record-main"><h2>Research workflow</h2>{error?<div className="vs-workflow-error" role="alert"><strong>Could not load the research workflow</strong><span>{error}</span><button className="ops-secondary" type="button" onClick={()=>void load().catch(error=>setError(error.message))}>Retry</button></div>:<p role="status">Loading workflow…</p>}</section>{rail?.(null,null)}</div>;
  const edit=data.project.access.canEdit&&data.project.lifecycle!=='archived';
  const current=data.submissions.find(item=>item.isCurrent);
  const evidenceOptions=<EvidenceOptions data={data}/>;
- return <section className="project-workflow" aria-label="Project research workflow" aria-busy={busy}>
-  <header><h2>Research workflow</h2><p>One project record for research, submission attempts, evidence and follow-up.</p></header>
-  <div className="workflow-tabs">{['research','submissions','tasks','evidence','decisions'].map(value=><button className="ops-secondary" type="button" aria-pressed={tab===value} disabled={busy} key={value} onClick={()=>setTab(value)}>{label(value)}</button>)}</div>
-  {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
+ const counts:Record<string,string>={research:`v${data.research.revision}`,submissions:String(data.submissions.length),tasks:String(data.tasks.length),evidence:String(data.evidence.length),decisions:String(data.decisions.length)};
+ const lastResearch=data.research.history.at(-1) as any;
+ // D11: checkpoint states come only from recorded decisions and Skeleton reviews; never from phase or progress.
+ const checkpoints=<ol className="vs-checkpoint-list">{checkpointTypes.map(type=>{
+  const decision=data.decisions.find(item=>item.data.checkpoint===type);
+  const reviews=type==='skeleton_lock'?data.skeletonReviews:[];
+  const state=decision?checkpointStates[decision.data.outcome]||'pending':reviews.length?'pending':'idle';
+  const detail=decision?`${label(decision.data.outcome)} · @${decision.decidedBy} · ${shortDate(decision.createdAt)}${decision.contextChanged||decision.data.profileRevision!==data.research.revision?' · historical':''}`:reviews.length?`Skeleton review r${reviews[0].revision} recorded · no checkpoint decision yet`:'Not started';
+  return <li key={type} data-state={state}><span className="vs-checkpoint-mark" aria-hidden="true">{state==='done'&&<Check/>}</span><span><span className="vs-checkpoint-name">{label(type)}</span><span className="vs-checkpoint-detail">{detail}</span></span></li>;
+ })}</ol>;
+ const linked=data.skeletonReviews.length?<ul className="vs-linked-list">{data.skeletonReviews.slice(0,3).map((item:any)=><li key={item.id}><span>Skeleton review r{item.revision}</span><span>{shortDate(item.createdAt)}</span></li>)}</ul>:null;
+ return <div className="vs-record-body"><section className="project-workflow vs-record-main" aria-label="Project research workflow" aria-busy={busy}>
+  <header><h2>Research workflow</h2><p>One project record for research, submission attempts, evidence and follow-up. Every saved change is kept in history.</p></header>
+  <div className="workflow-tabs ops-segmented" role="group" aria-label="Workflow records">{['research','submissions','tasks','evidence','decisions'].map(value=><button className={tab===value?'selected':''} type="button" aria-pressed={tab===value} disabled={busy} key={value} onClick={()=>setTab(value)}>{label(value)} <span className="vs-tab-count" aria-hidden="true">{counts[value]}</span></button>)}</div>
+  {error&&<p className="form-message error" role="alert">{error}</p>}{message&&<p className="form-message" role="status">{message}</p>}
   {tab==='research'&&<>
+   <p className="vs-workflow-meta">Research profile · <strong>version {data.research.revision}</strong>{lastResearch?` · saved by @${lastResearch.by} on ${shortDate(lastResearch.at)}`:''}</p>
    <ResearchForm key={data.research.revision} profile={data.research.profile} revision={data.research.revision} disabled={!edit||busy} save={save}/>
-   <details><summary>Research change history</summary>{data.research.history.map((item:any,index:number)=><article key={index}><p>@{item.by} · {item.at}</p><p>{item.reason}</p><details><summary>Saved research profile</summary><pre>{JSON.stringify(item.profile,null,2)}</pre></details></article>)}</details>
+   <details className="vs-history"><summary>Research change history <span>· {data.research.history.length} saved {data.research.history.length===1?'change':'changes'}</span></summary><ol>{data.research.history.slice().reverse().map((item:any,index:number)=><li key={index}><p><span className="vs-mono">{shortDate(item.at)}</span> · @{item.by} · {item.reason}</p><details><summary>Saved research profile</summary><pre>{JSON.stringify(item.profile,null,2)}</pre></details></li>)}</ol></details>
   </>}
   {tab==='submissions'&&<>
-   <h3>Submission plans</h3><p>Each new target or deadline creates a new plan. Previous attempts and decisions remain unchanged.</p>
+   <h3>Submission plans</h3><p className="vs-workflow-note">Each new target or deadline creates a new plan. Previous attempts and decisions remain unchanged.</p>
    {!current&&<p>No submission plan yet. Existing project venue: {data.project.venue||'Not set'}; date: {data.project.submissionDeadline||'Not set'}. Confirm an exact time and timezone below.</p>}
-   {data.submissions.map(item=><article className="workflow-record" key={`${item.id}-${item.revision}`}>
+   {data.submissions.map(item=><article className="workflow-record vs-workflow-card" key={`${item.id}-${item.revision}`}>
     <h4>{item.plan.venue} · {item.plan.cycle}{item.isCurrent?' · Current plan':''}</h4><p>Deadline: {new Date(item.plan.deadline).toLocaleString('en-GB',{timeZone:item.plan.timezone})} ({item.plan.timezone})</p>
     <p>Outcome: {label(item.result.outcome||'planned')}</p>
     <details open={item.isCurrent}><summary>Checkpoint dates</summary><ul>{item.timeline.map((point:any)=><li key={point.checkpoint}>{label(point.checkpoint)}: {new Date(point.at).toLocaleString('en-GB',{timeZone:item.plan.timezone})}</li>)}</ul><p>Dates are reminders to review readiness, not approval. Final submission clearance is separate from Skeleton checkpoint confirmation.</p></details>
@@ -49,7 +64,7 @@ export function ProjectWorkflow({projectId,onChanged}:{projectId:string;onChange
    </WorkflowForm></details>}
   </>}
   {tab==='tasks'&&<>
-   <h3>Project tasks</h3><p>Project, meeting and review actions share one record. Completing a task requires a note; you can also link evidence.</p>
+   <h3>Project tasks</h3><p className="vs-workflow-note">Project, meeting and review actions share one record. Completing a task requires a note; you can also link evidence.</p>
    {!data.tasks.length&&<p>No tasks yet.</p>}
    {data.tasks.map(task=><TaskRow key={`${task.id}-${task.revision}`} task={task} editable={!busy&&data.project.lifecycle!=='archived'&&(edit||task.data.owner===data.viewer.username)} canManage={edit} evidenceOptions={<EvidenceOptions data={data} checked={task.data.evidenceIds}/>} save={save}/>)}
    {edit&&<details><summary>Add a task</summary><WorkflowForm disabled={busy} submitLabel="Create project task" onSave={form=>save({operation:'task',confirmed:true,task:str(form,'task'),owner:str(form,'owner'),dueDate:optional(form,'dueDate'),priority:str(form,'priority') as any,sourceKind:'project',sourceId:null})}>
@@ -58,7 +73,7 @@ export function ProjectWorkflow({projectId,onChanged}:{projectId:string;onChange
    </WorkflowForm></details>}
   </>}
   {tab==='evidence'&&<>
-   <h3>Claims and evidence</h3><p>Evidence records are immutable. Add a new record when a result changes; earlier decisions keep their original references.</p>
+   <h3>Claims and evidence</h3><p className="vs-workflow-note">Evidence records are immutable. Add a new record when a result changes; earlier decisions keep their original references.</p>
    {data.evidence.map(item=><article className="workflow-record" key={item.id}><h4>{item.data.title}</h4><p>{label(item.data.state)} · {label(item.data.kind)} · @{item.createdBy}</p><p>Claim: {item.data.claim}</p><p>{item.data.summary}</p>{item.data.url&&<a href={item.data.url} target="_blank" rel="noreferrer">Open source evidence</a>}{item.data.artifactId&&<p>Artifact version: {data.project.artifacts.find(artifact=>artifact.id===item.data.artifactId)?.title||item.data.artifactId}</p>}</article>)}
    {!data.evidence.length&&<p>No structured evidence recorded.</p>}
    {edit&&<details><summary>Add evidence</summary><WorkflowForm disabled={busy} submitLabel="Save evidence record" onSave={form=>save({operation:'evidence',confirmed:true,title:str(form,'title'),claim:str(form,'claim'),kind:str(form,'kind') as any,state:str(form,'state') as any,summary:str(form,'summary'),artifactId:optional(form,'artifactId'),url:optional(form,'url')})}>
@@ -67,16 +82,16 @@ export function ProjectWorkflow({projectId,onChanged}:{projectId:string;onChange
    </WorkflowForm></details>}
   </>}
   {tab==='decisions'&&<>
-   <h3>Stage decisions</h3><p>Named human decisions apply to the recorded research version and submission attempt. A working phase or progress percentage does not grant approval.</p>
+   <h3>Stage decisions</h3><p className="vs-workflow-note">Named human decisions apply to the recorded research version and submission attempt. A working phase or progress percentage does not grant approval.</p>
    {!data.decisions.length&&<p>No workflow checkpoint decisions recorded. Existing Pitch and Skeleton reviews remain in their own history.</p>}
-   {data.decisions.map(item=><article className="workflow-record" key={item.id}><h4>{label(item.data.checkpoint)} · {label(item.data.outcome)}</h4><p>@{item.decidedBy} · {new Date(item.createdAt).toLocaleString('en-GB')} · Research v{item.data.profileRevision} · Rules {item.data.rulesVersion}</p><p>{item.data.reason}</p><p>{item.data.conditions}{item.data.reviewDue?` · Review by ${item.data.reviewDue}`:''}</p><p>{item.contextChanged?'Historical decision — project context has changed. ':''}{item.data.profileRevision!==data.research.revision?'Historical decision — research has changed.':''}{item.submissionId&&item.submissionId!==current?.id?' Historical submission attempt.':''}</p><details><summary>Evidence and saved context</summary><ul>{item.data.evidenceIds.map((id:string)=><li key={id}>{data.evidence.find(entry=>entry.id===id)?.data.title||id}</li>)}</ul><pre>{JSON.stringify(item.data.projectSnapshot,null,2)}</pre></details></article>)}
+   {data.decisions.map(item=><article className="workflow-record vs-workflow-card" key={item.id}><h4>{label(item.data.checkpoint)} · {label(item.data.outcome)}</h4><p>@{item.decidedBy} · {new Date(item.createdAt).toLocaleString('en-GB')} · Research v{item.data.profileRevision} · Rules {item.data.rulesVersion}</p><p>{item.data.reason}</p><p>{item.data.conditions}{item.data.reviewDue?` · Review by ${item.data.reviewDue}`:''}</p><p>{item.contextChanged?'Historical decision — project context has changed. ':''}{item.data.profileRevision!==data.research.revision?'Historical decision — research has changed.':''}{item.submissionId&&item.submissionId!==current?.id?' Historical submission attempt.':''}</p><details><summary>Evidence and saved context</summary><ul>{item.data.evidenceIds.map((id:string)=><li key={id}>{data.evidence.find(entry=>entry.id===id)?.data.title||id}</li>)}</ul><pre>{JSON.stringify(item.data.projectSnapshot,null,2)}</pre></details></article>)}
    {data.viewer.reviewer&&data.project.lifecycle!=='archived'&&<details><summary>Record a checkpoint decision</summary><WorkflowForm disabled={busy} submitLabel="Record checkpoint decision" onSave={form=>save({operation:'decision',confirmed:true,checkpoint:str(form,'checkpoint') as any,submissionId:current?.id||null,outcome:str(form,'outcome') as any,reason:str(form,'reason'),conditions:str(form,'conditions'),reviewDue:optional(form,'reviewDue'),evidenceIds:selectedIds(form),profileRevision:data.research.revision,skeletonReviewId:optional(form,'skeletonReviewId'),rulesVersion:str(form,'rulesVersion')})}>
     <p>Submission: {current?`${current.plan.venue} · ${current.plan.cycle}`:'No submission plan; only Idea Lock decisions are available.'}</p>
     <label>Checkpoint<select name="checkpoint">{checkpointTypes.filter(value=>data.viewer.manager||value!=='submission_clearance').map(value=><option value={value} key={value}>{label(value)}</option>)}</select></label><label>Decision<select name="outcome">{['revise','conditional','proceed','defer','stop'].map(value=><option key={value}>{value}</option>)}</select></label>
     <label>Reason and evidence assessment<textarea name="reason" required/></label><label>Required actions or conditions<textarea name="conditions"/></label><label>Re-evaluation date<input name="reviewDue" type="date"/></label>{evidenceOptions}<label>Related Skeleton review<select name="skeletonReviewId"><option value="">No review selected</option>{data.skeletonReviews.map(item=><option key={item.id} value={item.id}>{new Date(item.createdAt).toLocaleString('en-GB')} · @{item.createdBy} · Revision {item.revision}</option>)}</select></label><label>Checklist or rules version<input name="rulesVersion" required placeholder="Version used for this assessment"/></label>
    </WorkflowForm></details>}
   </>}
- </section>;
+ </section>{rail?.(checkpoints,linked)}</div>;
 }
 function WorkflowForm({children,disabled,submitLabel,onSave}:{children:ReactNode;disabled:boolean;submitLabel:string;onSave:(form:FormData)=>Promise<boolean>}){
  const [localError,setLocalError]=useState('');

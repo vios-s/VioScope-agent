@@ -74,7 +74,7 @@ async function login(browser: any, username: string, heading?: string) {
   await dismissWelcomeIfVisible(page);
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   if (heading) {
-    await page.getByRole('heading', { name: heading }).first().waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByRole('button', { name: heading, exact: true }).first().waitFor({ state: 'visible', timeout: 15_000 });
   }
   return { context, page };
 }
@@ -94,7 +94,7 @@ async function checkEmptyMemberCreateProject(browser: any) {
     await modal.getByLabel('Venue').fill('ICLR');
     await modal.getByLabel('Submission deadline').fill('2026-10-15');
     await page.getByRole('button', { name: 'Save changes' }).click();
-    await page.getByRole('heading', { name: createdTitle }).waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByText('Track A').first().waitFor({ state: 'visible' });
   } finally {
     await context.close();
@@ -163,16 +163,20 @@ async function checkMember(browser: any) {
     await page.getByText(progressText).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByText('Stage 3 (85%)').waitFor({ state: 'visible' });
     await page.getByLabel('Close project details').click();
-    await page.getByText('Stage 3 / 5 - 85%').waitFor({ state: 'visible' });
+    await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible' });
 
     await page.getByLabel(`Project details for ${title}`).click();
-    await page.getByRole('button', { name: 'Archive' }).click();
-    await page.getByRole('dialog', { name: 'Archive project?' }).getByRole('button', { name: 'Archive' }).click();
-    await page.getByRole('heading', { name: 'Archived projects' }).waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByRole('button', { name: 'Archive project' }).click();
+    const archiveDialog = page.getByRole('dialog', { name: 'Archive project?' });
+    assert.equal(await archiveDialog.getByRole('button', { name: 'Archive project' }).isDisabled(), true, 'Archive needs the typed project title.');
+    await archiveDialog.getByLabel('Type the project title to confirm').fill(title);
+    await archiveDialog.getByRole('button', { name: 'Archive project' }).click();
+    await page.getByRole('tab', { name: /^Archived/ }).click();
     await page.getByLabel(`Unarchive ${title}`).click();
-    await page.getByText('Stage 3 / 5 - 85%').waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByRole('heading', { name: 'Archived projects' }).waitFor({ state: 'hidden' });
+    await page.getByLabel(`Unarchive ${title}`).waitFor({ state: 'hidden', timeout: 15_000 });
     await page.getByLabel('Close project details').click();
+    await page.getByRole('tab', { name: /^Active/ }).click();
+    await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible', timeout: 15_000 });
 
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.getByLabel('Settings sections').getByRole('button', { name: 'Notifications' }).click();
@@ -198,9 +202,9 @@ async function checkMember(browser: any) {
 async function checkPi(browser: any) {
   const { context, page } = await login(browser, users.pi);
   try {
-    await page.getByText('All projects').first().waitFor({ state: 'visible' });
-    await page.getByRole('cell', { name: title, exact: true }).waitFor({ state: 'visible' });
-    await page.getByRole('cell', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
+    await page.getByRole('tab', { name: /^Active/ }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: title, exact: true }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
     await page.getByText('85%').first().waitFor({ state: 'visible' });
     await page.getByRole('button', { name: 'Run project scan' }).click();
     await page.getByText(/[1-9]\d* attention/).waitFor({ state: 'visible', timeout: 15_000 });
@@ -222,9 +226,9 @@ async function checkPi(browser: any) {
 async function checkAdmin(browser: any) {
   const { context, page } = await login(browser, users.admin);
   try {
-    await page.getByText('All projects').first().waitFor({ state: 'visible' });
-    await page.getByRole('cell', { name: title, exact: true }).waitFor({ state: 'visible' });
-    await page.getByRole('cell', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
+    await page.getByRole('tab', { name: /^Active/ }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: title, exact: true }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: 'Run project scan' }).click();
     await page.getByRole('heading', { name: 'Project planning brief' }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByText(createdTitle).first().waitFor({ state: 'visible' });
