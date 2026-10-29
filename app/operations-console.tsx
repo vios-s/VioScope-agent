@@ -2492,7 +2492,6 @@ function ProjectReviewerFields({ draft, users, onChange }: { draft: ProjectDraft
     <label><span>Assigned PDRA reviewer</span><select value={draft.pdraUsername} onChange={event => onChange({ pdraUsername: event.target.value })}>
       <option value="">Not assigned</option>{users.filter(user => user.username !== draft.ownerUsername).map(user => <option key={user.id} value={user.username}>@{user.username}</option>)}
     </select></label>
-    <p>The assigned PDRA can read this project and judge its Skeleton Lock reviews. Assignment does not allow editing project progress.</p>
   </>;
 }
 
