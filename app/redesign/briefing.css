@@ -1,10 +1,5 @@
 /* Quiet Instrument: briefing screen (BriefingView). */
 
-.briefing-page .console-page-inner,
-.briefing-page .console-page-inner.wide {
-  max-width: 1200px;
-}
-
 .bf-content {
   display: flex;
   flex-direction: column;

@@ -1,9 +1,5 @@
 /* Quiet Instrument: feedback screen (Feedback artboard). */
 
-.feedback-page .console-page-inner {
-  max-width: 1200px;
-}
-
 .feedback-layout {
   display: flex;
   flex-wrap: wrap;

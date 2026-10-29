@@ -57,7 +57,7 @@
   --vs-space-6: 24px; --vs-space-8: 32px; --vs-space-10: 40px; --vs-space-12: 48px;
   --vs-page-gutter: 40px;
   --vs-sidebar-width: 232px;
-  --vs-content-max: 1280px;  /* Briefing/Feedback use 1200px, Checklists 1320px */
+  --vs-content-max: none;  /* content column fills the available width */
 
   /* Control sizes */
   --vs-control-sm: 32px; --vs-control-md: 36px; --vs-control-lg: 38px; /* inputs */

@@ -740,7 +740,6 @@
 /* ---------- Notification details opened from Alerts ---------- */
 
 .mt-notification {
-  max-width: calc(var(--vs-content-max) - 2 * var(--vs-page-gutter));
   margin: 24px var(--vs-page-gutter) 0;
   padding: 16px 20px;
   border: 1px solid var(--vs-accent-line);
