@@ -6741,3 +6741,10 @@ html[data-theme="dark"] .briefing-hero::after {
 @media (max-width: 720px) { .skeleton-project-context, .skeleton-blocks { grid-template-columns: minmax(0, 1fr); } }
 
 .skeleton-lock .ops-button-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.skeleton-project-trigger { width: 100%; display: flex; justify-content: space-between; gap: 12px; text-align: left; }
+.skeleton-project-trigger span { min-width: 0; overflow-wrap: anywhere; }
+.skeleton-project-options { border: 1px solid var(--border-soft); border-radius: 7px; padding: 12px; margin-top: 8px; }
+.skeleton-project-options ul { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow-y: auto; }
+.skeleton-project-options li + li { margin-top: 6px; }
+.skeleton-project-options li button { width: 100%; display: grid; gap: 4px; text-align: left; overflow-wrap: anywhere; }

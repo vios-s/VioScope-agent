@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProjectRecord } from '../src/mastra/db/projects';
 import { skeletonFields, skeletonDraftSchema } from '../src/mastra/submission/skeleton';
 import { latestSkeletonDecisions, type SkeletonRecord } from '../src/mastra/submission/skeleton-record';
@@ -91,7 +91,7 @@ export function SkeletonLock() {
       </div>
       {view === 'projects' && <form onSubmit={run}>
         <fieldset disabled={busy} className="skeleton-input-panel"><legend>Project evidence</legend>
-          <label>Existing project <select required value={projectId} onChange={event => { if ((text || file || Object.values(draft).some(value => value.trim())) && !window.confirm('Switch projects and discard the current input? Saved reviews are retained.')) return; setProjectId(event.target.value); setSelected(null); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null); }}><option value="">Choose a project</option>{data.projects.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+          <ProjectPicker projects={data.projects} value={projectId} onSelect={nextId => { if ((text || file || Object.values(draft).some(value => value.trim())) && !window.confirm('Switch projects and discard the current input? Saved reviews are retained.')) return; setProjectId(nextId); setSelected(null); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null); }} />
           {!data.projects.length && <p>Create or join a project before starting Skeleton Lock.</p>}
           {project && <><ProjectContext project={project} />
             {(!project.piUsername || !project.pdraUsername || !project.venue || !project.submissionDeadline) && <p>Some project details are missing. Set the PI, assigned PDRA, target venue and deadline in Projects. Missing values will remain explicit in the AI check.</p>}
@@ -141,4 +141,27 @@ function JudgmentForm({ kind, busy, onSave }: { kind: 'pdra' | 'pi'; busy: boole
     <label className="skeleton-confirm"><input type="checkbox" required checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I have reviewed the source evidence and AI advice and confirm this is my human judgment.</label>
     <button type="submit" className="ops-primary" disabled={!confirmed}>{kind === 'pdra' ? 'Record PDRA judgment' : 'Record PI confirmation'}</button>
   </fieldset></form>;
+}
+
+function ProjectPicker({ projects, value, onSelect }: { projects: ProjectRecord[]; value: string; onSelect: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
+  const selected = projects.find(project => project.id === value);
+  const matches = projects.filter(project => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(query.trim().toLowerCase()));
+  function close() { setOpen(false); triggerRef.current?.focus(); }
+  return <div className="skeleton-project-picker" onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); close(); } }}>
+    <span id="skeleton-project-label">Existing project</span>
+    <button ref={triggerRef} type="button" className="ops-secondary skeleton-project-trigger" aria-labelledby="skeleton-project-label skeleton-project-value" aria-expanded={open} aria-controls="skeleton-project-options" onClick={() => { setQuery(''); setOpen(current => !current); }}>
+      <span id="skeleton-project-value">{selected ? `${selected.title} · @${selected.ownerUsername}` : 'Choose a project'}</span><span aria-hidden="true">{open ? '▴' : '▾'}</span>
+    </button>
+    {open && <div id="skeleton-project-options" className="skeleton-project-options">
+      <label>Search projects <input ref={searchRef} type="search" value={query} placeholder="Search by title or owner" onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') event.preventDefault(); }} /></label>
+      <p role="status">{matches.length} projects found. Select a project below.</p>
+      <ul>{matches.map(project => <li key={project.id}><button type="button" className="ops-secondary" aria-pressed={value === project.id} onClick={() => { onSelect(project.id); close(); }}><strong>{project.title}</strong><span>@{project.ownerUsername}{project.lifecycle !== 'active' ? ` · ${project.lifecycle}` : ''}</span></button></li>)}</ul>
+      {!matches.length && <p>No matching projects.</p>}
+    </div>}
+  </div>;
 }

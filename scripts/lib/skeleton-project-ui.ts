@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import type { Route } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 import { chromium,getFreePort,startNextServer,waitForServer,stopServer } from './playwright-smoke';
 export async function checkSkeletonProjectUi(cookieName:string,tokens:{owner:string;pdra:string;pi:string},projectId:string,reviewId:string){
@@ -9,9 +10,17 @@ export async function checkSkeletonProjectUi(cookieName:string,tokens:{owner:str
     async function pageFor(token:string){
       const context=await browser!.newContext({viewport:{width:1440,height:1000}});await context.addCookies([{name:cookieName,value:token,url:base}]);
       const page=await context.newPage();page.on('pageerror',(error: Error)=>errors.push(error.message));await page.addLocatorHandler(page.locator('.welcome-dialog'),async()=>{await page.getByLabel('Close welcome message').click();});
-      await page.goto(base+'/?view=checklists');await page.getByRole('tab',{name:'Skeleton Lock',exact:true}).click();await page.getByRole('combobox',{name:'Existing project',exact:true}).waitFor();return page;
+      await page.goto(base+'/?view=checklists');await page.getByRole('tab',{name:'Skeleton Lock',exact:true}).click();await page.getByRole('button',{name:/^Existing project/}).waitFor();return page;
     }
-    const owner=await pageFor(tokens.owner);await owner.getByRole('combobox',{name:'Existing project',exact:true}).selectOption(projectId);
+    const owner=await pageFor(tokens.owner);await owner.route('**/api/skeleton-lock',async (route: Route) => { const response=await route.fetch(); const body=await response.json(); const original=body.projects.find((item:{id:string})=>item.id===projectId); body.projects.push(...Array.from({length:100},(_,i)=>({...original,id:`synthetic-list-${i}`,title:`Synthetic list project ${i}`}))); await route.fulfill({response,json:body}); });
+    await owner.reload();await owner.getByRole('tab',{name:'Skeleton Lock',exact:true}).click();
+    const picker=owner.getByRole('button',{name:/^Existing project/});await picker.click();
+    await owner.getByRole('status').filter({hasText:'101 projects found.'}).waitFor();
+    assert.equal(await picker.getAttribute('aria-expanded'),'true');
+    const search=owner.getByRole('searchbox',{name:'Search projects',exact:true});await search.fill('no matching project');await owner.getByText('No matching projects.',{exact:true}).waitFor();
+    await search.fill('Synthetic bound skeleton');await search.press('Enter');assert.equal(await picker.getAttribute('aria-expanded'),'true');
+    await owner.locator('.skeleton-project-options button').filter({hasText:'Synthetic bound skeleton'}).click();assert.equal(await picker.getAttribute('aria-expanded'),'false');
+    await picker.click();await owner.getByRole('searchbox').press('Escape');assert.equal(await picker.getAttribute('aria-expanded'),'false');
     assert.equal(await owner.getByRole('textbox',{name:'Initiator',exact:true}).count(),0);
     assert.equal(await owner.getByRole('textbox',{name:'Deadline',exact:true}).count(),0);
     await owner.getByText('Fictional venue',{exact:true}).waitFor();await owner.getByText('2026-12-15',{exact:true}).waitFor();
