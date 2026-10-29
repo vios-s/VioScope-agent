@@ -46,7 +46,7 @@ try {
   await writeFile(process.env.THEME_MEETING_CONFIG_PATH!, stringify(config));
   const projects = await import('../src/mastra/db/projects');
   const listRoute = await import('../app/api/idea-pitches/route');
-  const { ideaDraftSchema, checkIdea, ideaReviewKeys } = await import('../src/mastra/projects/idea-check');
+  const { ideaDraftSchema, checkIdea } = await import('../src/mastra/projects/idea-check');
   const headers = (name: string) => ({ 'content-type': 'application/json', cookie: `${sessionCookieName}=${createSessionToken(accounts.get(name)!)}` });
   async function ok(response: Response) { assert.equal(response.status, 200, await response.clone().text()); return response.json(); }
   const directoryRoute = await import('../app/api/users/directory/route');
@@ -106,18 +106,83 @@ try {
   assert.equal((await ideaDb.getIdeaCheck(historyPitch.id, accounts.get('alice')!)).history.length, 22, 'All versions remain accessible to the owner.');
   assert.equal((await ideaDb.getIdeaCheck(historyPitch.id, accounts.get('principal')!)).history.length, 22);
 
-  const { validateIdeaReview } = await import('../src/mastra/projects/idea-review-schema');
+  const { validateIdeaReview, ideaReviewBlocks } = await import('../src/mastra/projects/idea-review-schema');
   const currentDraft = (await ok(await get('alice'))).current.draft;
-  const reviewBlock = { question: 'why', importance: 'why', contribution: 'context', evidence: 'why', validation: 'execution', resources: 'resourcePlan', risks: 'strategy', milestone: 'execution' } as const;
-  const report = validateIdeaReview({ recommendation: 'needs_revision', summary: 'Synthetic evidence-backed review.', checks: ideaReviewKeys.map(field => ({ field, status: 'needs_work', assessment: 'More validation detail is needed.', evidence: [{ field: reviewBlock[field], quote: currentDraft[reviewBlock[field]] }], improvement: 'Define an observable next test.' })), nextSteps: ['Run a controlled pilot.'] }, currentDraft);
-  const templateOnly = { ...currentDraft, resources: '', risks: '', milestone: '' };
-  assert.doesNotThrow(() => validateIdeaReview(report, templateOnly), 'The five blocks support all review criteria.');
-  assert.throws(() => validateIdeaReview({ ...report, checks: report.checks.map((check, i) => i ? check : { ...check, evidence: [{ field: 'why', quote: 'Invented supporting evidence' }] }) }, currentDraft));
+  const report = validateIdeaReview({ summary: 'Synthetic evidence-backed review.',
+    blocks: ideaReviewBlocks.map(block => ({ block, status: 'needs_work', focus: ['Evaluation'], gap: 'More validation detail is needed.', improvement: 'Define an observable next test.', evidence: [{ field: block, quote: currentDraft[block] }] })),
+    discussant: { delta: { status: 'partial', answer: 'A delta is claimed without a named baseline.', evidence: [{ field: 'context', quote: currentDraft.context }] },
+      poc: { status: 'unanswered', answer: 'The pitch does not state a kill or pivot rule.', evidence: [] } }, nextSteps: ['Run a controlled pilot.'] }, currentDraft);
+  const firstBlock = (change: Record<string, unknown>) => report.blocks.map((item, i) => i ? item : { ...item, ...change });
+  const rejects = (change: Record<string, unknown>, pattern: RegExp, draft = currentDraft) => assert.throws(() => validateIdeaReview({ ...report, ...change }, draft), pattern);
+  rejects({ blocks: firstBlock({ evidence: [{ field: 'why', quote: 'Invented supporting evidence' }] }) }, /not present/);
+  rejects({ discussant: { ...report.discussant, delta: { ...report.discussant.delta, evidence: [{ field: 'context', quote: 'Invented delta' }] } } }, /not present/);
+  rejects({ blocks: firstBlock({ evidence: [] }) }, /must be marked missing/, { ...currentDraft, why: '' });
+  rejects({ blocks: firstBlock({ status: 'strong', evidence: [{ field: 'context', quote: currentDraft.context }] }) }, /quote that block/);
+  rejects({ blocks: [...report.blocks.slice(1), report.blocks[1]] }, /every pitch block/);
+  rejects({ blocks: firstBlock({ focus: ['Approval'] }) }, /Invalid/);
+  rejects({ discussant: { ...report.discussant, poc: { status: 'addressed', answer: 'The project will be killed.', evidence: [] } } }, /require pitch evidence/);
+  rejects({ nextSteps: ['One.', 'Two.', 'Three.', 'Four.'] }, /nextSteps|Too big|at most/i);
+  for (const verdict of [{ recommendation: 'ready_for_discussion' }, { decision: 'proceed' }, { score: 9 }]) rejects(verdict, /Unrecognized|unrecognized/);
+  assert.equal(validateIdeaReview({ ...report, blocks: firstBlock({ status: 'missing', evidence: [] }) }, { ...currentDraft, why: '' }).blocks[0].status, 'missing', 'An empty block is reported as missing without invented content.');
   await ideaDb.saveIdeaReview(pitch.id, 6, { report, rules: 'synthetic rules', rulesHash: 'synthetic-hash', model: 'synthetic-model' }, accounts.get('alice')!);
   assert.equal((await ok(await get('alice'))).current.decision.outcome, 'proceed', 'AI advice cannot change the human decision.');
   assert.equal((await ok(await get('alice'))).reviews.length, 1);
   await assert.rejects(ideaDb.saveIdeaReview(pitch.id, 5, { report, rules: '', rulesHash: '', model: '' }, accounts.get('alice')!), /changed during review/);
   await ideaDb.saveIdeaReview(pitch.id, 6, { report, rules: 'Admin test rules', rulesHash: 'admin-test', model: 'synthetic-model' }, accounts.get('admincheck')!);
+
+  // Simulated model through the review route: provenance, quote validation, advisory boundary and stale results.
+  let answer: unknown = report, modelCalls = 0, duringGeneration: (() => Promise<void>) | undefined;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    modelCalls++;
+    const body = String(init?.body || '');
+    assert.ok(body.includes('PITCH_DATA_JSON') && body.includes('The Graveyard') && body.includes('discussant'), 'The editable skill and block schema reach the model.');
+    if (duringGeneration) await duringGeneration();
+    return new Response(JSON.stringify({ id: 'resp_synthetic', created_at: 1, model: 'synthetic', status: 'completed',
+      output: [{ id: 'msg_synthetic', type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: JSON.stringify(answer), annotations: [] }] }],
+      usage: { input_tokens: 100, output_tokens: 100, total_tokens: 200 } }), { headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const reviewRoute = await import('../app/api/idea-pitches/[pitchId]/review/route');
+    const requestReview = (name: string, version: number, pitchContext = context) => reviewRoute.POST(new Request('http://localhost/pitch/review', { method: 'POST', headers: headers(name), body: JSON.stringify({ version }) }), pitchContext);
+    assert.notEqual((await requestReview('bob', 6)).status, 200);
+    assert.equal(modelCalls, 0, 'Unauthorised users cannot trigger a model call.');
+    const saved = await ok(await requestReview('alice', 6));
+    const stored = (await db.pool.query('SELECT report,rules_hash,rules_snapshot,model FROM idea_pitch_reviews WHERE id=$1', [saved.id])).rows[0];
+    assert.deepEqual(stored.report, report); assert.match(stored.rules_snapshot, /The Graveyard/); assert.equal(stored.rules_hash.length, 64); assert.ok(stored.model);
+    const reviewCount = async () => (await ok(await get('alice'))).reviews.length;
+    const before = await reviewCount();
+    for (const bad of [{ ...report, recommendation: 'ready_for_discussion' }, { ...report, blocks: firstBlock({ evidence: [{ field: 'why', quote: 'Invented supporting evidence' }] }) }]) {
+      answer = bad; assert.equal((await requestReview('alice', 6)).status, 400);
+    }
+    assert.equal(await reviewCount(), before, 'Rejected model output is not saved.');
+    assert.equal((await ok(await get('alice'))).current.decision.outcome, 'proceed', 'A model review never changes the decision.');
+    answer = report;
+    const stale = await ideaDb.createIdeaPitch('Synthetic stale review', accounts.get('alice')!);
+    await ideaDb.writeIdeaCheck(stale.id, { operation: 'save', version: 0, draft: currentDraft, source: null }, accounts.get('alice')!);
+    duringGeneration = async () => { await ideaDb.writeIdeaCheck(stale.id, { operation: 'save', version: 1, draft: { ...currentDraft, why: currentDraft.why + ' Edited.' }, source: null }, accounts.get('alice')!); };
+    assert.equal((await requestReview('alice', 1, { params: Promise.resolve({ pitchId: stale.id }) })).status, 409, 'A review of a changed draft is discarded.');
+    duringGeneration = undefined;
+    assert.equal((await ideaDb.getIdeaCheck(stale.id, accounts.get('alice')!)).reviews.length, 0);
+    assert.equal(modelCalls, 4, 'Each authorised review makes exactly one simulated model call.');
+  } finally { globalThis.fetch = realFetch; }
+
+  // Saved eight-criteria reviews remain readable and render as earlier reviews.
+  const legacySaved = { recommendation: 'needs_revision', summary: 'Legacy synthetic summary.', nextSteps: ['Legacy next test.'],
+    checks: [{ field: 'question', status: 'needs_work', assessment: 'Legacy assessment text.', evidence: [{ field: 'why', quote: currentDraft.why }], improvement: 'Legacy improvement.' }] };
+  await db.pool.query(`INSERT INTO idea_pitch_reviews(pitch_id,pitch_version,report,rules_hash,rules_snapshot,model,by_username) VALUES($1,6,$2::jsonb,'legacy','legacy rules','legacy-model','alice')`, [pitch.id, JSON.stringify(legacySaved)]);
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { createElement } = await import('react');
+  const { IdeaReviewReport, reviewHeadline } = await import('../app/idea-pitch-editor');
+  const { isLegacyIdeaReview } = await import('../src/mastra/projects/idea-review-schema');
+  const savedReports = (await ok(await get('alice'))).reviews.map((item: { report: Parameters<typeof reviewHeadline>[0] }) => item.report);
+  const legacyReport = savedReports.find(isLegacyIdeaReview)!;
+  assert.match(reviewHeadline(legacyReport), /Earlier eight-criteria review · needs revision/);
+  const legacyHtml = renderToStaticMarkup(createElement(IdeaReviewReport, { report: legacyReport }));
+  for (const expected of ['Legacy assessment text.', 'Needs work', 'Question', 'Legacy next test.']) assert.ok(legacyHtml.includes(expected), expected);
+  const currentHtml = renderToStaticMarkup(createElement(IdeaReviewReport, { report }));
+  assert.equal(reviewHeadline(report), '5 of 5 blocks need work');
+  for (const expected of ['1. The Why (The Hook)', '5. The Resources', 'Needs work', 'Is the delta big enough for a top-tier venue?', 'Partly addressed', 'Not addressed', 'Improve: Define an observable next test.', 'Evaluation']) assert.ok(currentHtml.includes(expected), expected);
   const sharingRoute = await import('../app/api/idea-pitches/[pitchId]/collaborators/route');
   const share = (actor: string, username: string, action = 'add') => sharingRoute.POST(new Request('http://localhost/pitch/collaborators', { method: 'POST', headers: headers(actor), body: JSON.stringify({ username, action }) }), context);
   assert.equal((await share('bob', 'carol')).status, 403);

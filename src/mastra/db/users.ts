@@ -285,7 +285,7 @@ export function passwordStrength(password: string): PasswordStrength {
 
 export function assertMediumPassword(password: string): void {
   if (passwordStrength(password) === 'weak') {
-    throw new Error('Password must be at least medium: 8+ characters with at least one letter, one number, and one special character.');
+    throw new Error('Password must be of at least medium strength: 8 or more characters, including at least one letter, one number and one special character.');
   }
 }
 

@@ -111,18 +111,26 @@ export function SkeletonLock({ userId }: { userId: string }) {
       <p>Project details are inherited; edit them in Projects. Draft text is kept in this browser tab until you sign out. Uploaded files must be selected again after refreshing. AI checks and judgments still require explicit submission.</p>
     </header>
     {error && <p role="alert" className="ops-notice error">{error}</p>}{message && <p role="status" className="form-message">{message}</p>}
-    {!data ? <p role="status" className="skeleton-muted">Loading project checks…</p> : <>
+    {!data ? <p role="status" className="skeleton-muted">Loading project checks…</p> : <div className="skeleton-workspace">
       <div className="ops-segmented skeleton-views" role="group" aria-label="Skeleton review views">
         <button type="button" className={view === 'projects' ? 'active' : ''} disabled={busy} aria-pressed={view === 'projects'} onClick={() => setView('projects')}>Project checks</button>
         {pdraAvailable && <button type="button" className={view === 'pdra' ? 'active' : ''} disabled={busy} aria-pressed={view === 'pdra'} onClick={() => setView('pdra')}>PDRA review</button>}
         {data.viewer.manager && <button type="button" className={view === 'pi' ? 'active' : ''} disabled={busy} aria-pressed={view === 'pi'} onClick={() => setView('pi')}>PI / Admin overview</button>}
       </div>
-      {view === 'projects' && <form onSubmit={run} className="skeleton-input">
-        <fieldset disabled={busy} className="skeleton-input-panel"><legend>Project evidence</legend>
-          <ProjectPicker projects={data.projects} value={projectId} onSelect={nextId => { if (text || file || Object.values(draft).some(value => value.trim())) setPendingProjectId(nextId); else switchProject(nextId); }} />
-          {!data.projects.length && <p className="skeleton-muted">Create or join a project before starting Skeleton Lock.</p>}
-          {project && <><ProjectContext project={project} />
-            {(!project.piUsername || !project.pdraUsername || !project.venue || !project.submissionDeadline) && <p className="ops-notice">Some project details are missing. Set the PI, assigned PDRA, target venue and deadline in Projects. Missing values will remain explicit in the AI check.</p>}
+      <div className="skeleton-content">
+      {view === 'projects' && <div className="skeleton-compose">
+      <div className="skeleton-picker-block">
+        <h3>Project evidence</h3>
+        <ProjectPicker projects={data.projects} value={projectId} disabled={busy} onSelect={nextId => { if (text || file || Object.values(draft).some(value => value.trim())) setPendingProjectId(nextId); else switchProject(nextId); }} />
+        {!data.projects.length && <p className="skeleton-muted">Create or join a project before starting Skeleton Lock.</p>}
+      </div>
+      {project && <aside className="skeleton-context-rail" aria-label="Inherited project details">
+        <h3 className="vs-caps">Inherited from Projects</h3>
+        <ProjectContext project={project} />
+        {(!project.piUsername || !project.pdraUsername || !project.venue || !project.submissionDeadline) && <p className="ops-notice">Some project details are missing. Set the PI, assigned PDRA, target venue and deadline in Projects. Missing values will remain explicit in the AI check.</p>}
+      </aside>}
+      {project && <form onSubmit={run} className="skeleton-input">
+        <fieldset disabled={busy} className="skeleton-input-panel"><legend className="vs-sr-only">Project evidence</legend>
             {project.access.canEdit && project.lifecycle === 'active' ? <>
               <label className="skeleton-method">Input method <select value={mode} onChange={event => setMode(event.target.value)}><option value="blocks">Fill the skeleton sections</option><option value="paste">Paste an outline or draft</option><option value="upload">Upload a draft or deck</option></select></label>
               {mode === 'blocks' && <div className="skeleton-blocks">{skeletonFields.map((field, index) => <div key={field.key} className="skeleton-block">
@@ -140,20 +148,9 @@ export function SkeletonLock({ userId }: { userId: string }) {
                 <button type="submit" className="ops-primary">{busy ? 'Checking…' : 'Check skeleton with AI'}</button>
               </div>
             </> : <p className="skeleton-muted">Project checks are created by the project owner, PI or administrator. You may read reviews permitted by your project access.</p>}
-          </>}
         </fieldset>
       </form>}
-      <section className="skeleton-history" aria-labelledby="skeleton-history-heading">
-        <h3 id="skeleton-history-heading">{view === 'pdra' ? 'Assigned PDRA reviews' : view === 'pi' ? 'All project reviews' : 'Project review history'}</h3>
-        {!visible.length && <p className="skeleton-muted">No project-bound reviews yet. Earlier unlinked runs are retained separately.</p>}
-        <div className="skeleton-review-list">{visible.map(review => {
-          const decisions = latestSkeletonDecisions(review.decisions);
-          return <button key={review.id} type="button" className={`skeleton-review-row${review.id === selected?.id ? ' active' : ''}`} aria-current={review.id === selected?.id ? 'true' : undefined} disabled={busy} onClick={() => void openReview(review.id)}>
-            <strong>{review.projectSnapshot.title}</strong><span className="skeleton-row-meta">@{review.projectSnapshot.ownerUsername} · <span className="vs-mono">{new Date(review.createdAt).toLocaleString('en-GB')}</span></span>
-            <span className="skeleton-row-states">AI: {review.verdict} · PDRA: {decisions.pdra?.outcome || 'pending'} · PI: {decisions.pi?.outcome || 'pending'}</span>
-          </button>;
-        })}</div>
-      </section>
+      </div>}
       {selected && selectedProject && latest && <section className="skeleton-review-detail" aria-labelledby="skeleton-detail-heading">
         <div className="skeleton-detail-main">
           <h3 id="skeleton-detail-heading">{selected.projectSnapshot.title} — saved review</h3>
@@ -191,7 +188,19 @@ export function SkeletonLock({ userId }: { userId: string }) {
           </section>
         </aside>
       </section>}
-    </>}
+      </div>
+      <section className="skeleton-history" aria-labelledby="skeleton-history-heading">
+        <h3 id="skeleton-history-heading">{view === 'pdra' ? 'Assigned PDRA reviews' : view === 'pi' ? 'All project reviews' : 'Project review history'}</h3>
+        {!visible.length && <p className="skeleton-muted">No project-bound reviews yet. Earlier unlinked runs are retained separately.</p>}
+        <div className="skeleton-review-list">{visible.map(review => {
+          const decisions = latestSkeletonDecisions(review.decisions);
+          return <button key={review.id} type="button" className={`skeleton-review-row${review.id === selected?.id ? ' active' : ''}`} aria-current={review.id === selected?.id ? 'true' : undefined} disabled={busy} onClick={() => void openReview(review.id)}>
+            <strong>{review.projectSnapshot.title}</strong><span className="skeleton-row-meta">@{review.projectSnapshot.ownerUsername} · <span className="vs-mono">{new Date(review.createdAt).toLocaleString('en-GB')}</span></span>
+            <span className="skeleton-row-states">AI: {review.verdict} · PDRA: {decisions.pdra?.outcome || 'pending'} · PI: {decisions.pi?.outcome || 'pending'}</span>
+          </button>;
+        })}</div>
+      </section>
+    </div>}
     <ConfirmDialog id="skeleton-switch-confirm" open={pendingProjectId !== null} tone="default" title="Switch project?"
       message="The current Skeleton Lock input will be discarded. Saved reviews are retained."
       confirmLabel="Discard and switch" cancelLabel="Keep editing" onCancel={() => setPendingProjectId(null)} onConfirm={() => switchProject(pendingProjectId ?? '')} />
@@ -215,7 +224,7 @@ function JudgmentForm({ kind, busy, onSave }: { kind: 'pdra' | 'pi'; busy: boole
   </fieldset></form>;
 }
 
-function ProjectPicker({ projects, value, onSelect }: { projects: ProjectRecord[]; value: string; onSelect: (id: string) => void }) {
+function ProjectPicker({ projects, value, disabled, onSelect }: { projects: ProjectRecord[]; value: string; disabled: boolean; onSelect: (id: string) => void }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -226,7 +235,7 @@ function ProjectPicker({ projects, value, onSelect }: { projects: ProjectRecord[
   function close() { setOpen(false); triggerRef.current?.focus(); }
   return <div className="skeleton-project-picker" onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); close(); } }}>
     <span id="skeleton-project-label">Existing project</span>
-    <button ref={triggerRef} type="button" className="skeleton-project-trigger" aria-labelledby="skeleton-project-label skeleton-project-value" aria-expanded={open} aria-controls="skeleton-project-options" onClick={() => { setQuery(''); setOpen(current => !current); }}>
+    <button ref={triggerRef} type="button" className="skeleton-project-trigger" aria-labelledby="skeleton-project-label skeleton-project-value" aria-expanded={open} aria-controls="skeleton-project-options" disabled={disabled} onClick={() => { setQuery(''); setOpen(current => !current); }}>
       <span className="skeleton-project-identity"><span id="skeleton-project-value">{selected?.title || 'Choose a project'}</span>{selected && <span className="skeleton-project-owner">@{selected.ownerUsername}</span>}</span><ChevronDown aria-hidden="true" className={open ? 'is-open' : ''} />
     </button>
     {open && <div id="skeleton-project-options" className="skeleton-project-options">

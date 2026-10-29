@@ -6,7 +6,7 @@ export const ideaFields = [
   { key: 'context', label: '2. The Context (The Landscape)', hint: 'The Giants: What is the current SOTA, and whose work are you building on?\n\nThe Graveyard: Has this been tried and failed? If so, why will we succeed where they didn\'t? (e.g., better compute, new insight, different data).' },
   { key: 'strategy', label: '3. The What (The Technical Strategy)', hint: 'The Core Idea: Explain the “trick” or “mechanism” simply.\n\nData & Compute: What datasets are needed? Do we have the GPU/National Platform capacity for this?\n\nThe Pipeline: High-level steps from t=0 to submission.\n\nThe Kill Switch: What single experiment proves this is a waste of time?' },
   { key: 'execution', label: '4. The De-Risk (The Execution)', hint: 'The 2-Week Experiment: What is the single proof-of-concept experiment that, if it fails, kills the project immediately?\n\nEvaluation: How do we prove we won? (Metrics/Benchmarks).\n\nTimeline: How many submission cycles (as per the VIOS calendar) will this take?' },
-  { key: 'resourcePlan', label: '5. The Resources', hint: 'The dataset: What kind of dataset you are planning to use? Does it already downloaded or you require extra storage\n\nThe computation: What kind of computation you are estimating to have? CPU only or GPUs? In what scale (what GPU, how many, and how much times)\n\nThe human labour: Do you need any human involvement or judgement?' },
+  { key: 'resourcePlan', label: '5. The Resources', hint: 'The dataset: What kind of dataset are you planning to use? Has it already been downloaded, or do you require extra storage?\n\nThe computation: What kind of computation do you estimate you will need? CPU only or GPUs? At what scale (which GPU, how many, and for how long)?\n\nThe human labour: Do you need any human involvement or judgement?' },
 ] as const;
 const legacyGroups = {
   why: [['Pain point', 'question'], ['Target audience', 'importance'], ['Wild factor', 'evidence']],
@@ -15,7 +15,6 @@ const legacyGroups = {
   execution: [['Two-week experiment', 'experiment'], ['Evaluation', 'validation'], ['Timeline', 'timeline'], ['Next milestone', 'milestone']],
   resourcePlan: [['Dataset', 'dataset'], ['Computation', 'compute'], ['Human labour', 'humanLabour'], ['Other resources and access', 'resources']],
 } as const;
-export const ideaReviewKeys = ['question', 'importance', 'contribution', 'evidence', 'validation', 'resources', 'risks', 'milestone'] as const;
 const field = z.string().trim().max(4000).default('');
 const rawIdeaDraftSchema = z.object({
   question: field, importance: field, contribution: field, evidence: field, validation: field, resources: field, risks: field, milestone: field,

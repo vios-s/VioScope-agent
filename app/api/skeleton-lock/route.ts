@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     if (mode === 'paste') text = z.string().trim().min(1).max(55000).parse(form.get('text'));
     if (mode === 'upload') {
       const file = form.get('file');
-      if (!(file instanceof File) || !file.size) throw new Error('Choose a nonempty draft or deck.');
+      if (!(file instanceof File) || !file.size) throw new Error('Choose a non-empty draft or deck.');
       const extension = extname(file.name).toLowerCase();
       if (!['.txt','.md','.markdown','.tex','.latex','.rst','.pptx'].includes(extension)) throw new Error('Upload TXT, Markdown, LaTeX, RST or PPTX.');
       if (file.size > (extension === '.pptx' ? 25 : 2) * 1024 * 1024) throw new Error('The uploaded file exceeds the supported size.');

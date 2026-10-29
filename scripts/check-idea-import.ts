@@ -48,6 +48,6 @@ if (process.env.CHECK_IDEA_ELM === 'true') {
   const extracted = await organizePitchSource(text);
   assert.ok(extracted.why);
   const review = await reviewIdeaPitch('Synthetic compression pitch', extracted);
-  console.log(JSON.stringify({ liveElm: true, recommendation: review.report.recommendation, criteria: review.report.checks.length, rulesHash: review.rulesHash.slice(0, 12) }));
+  console.log(JSON.stringify({ liveElm: true, blocks: review.report.blocks.map(item => `${item.block}:${item.status}`), discussant: [review.report.discussant.delta.status, review.report.discussant.poc.status], rulesHash: review.rulesHash.slice(0, 12) }));
 }
 console.log('Idea import passed: TXT, MD, DOCX, PPTX, PDF, upload limits, no invented extracted text and editable rule reload.');

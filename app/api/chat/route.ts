@@ -70,7 +70,7 @@ function messageWithUserContext(
 ): string {
   const profile = user.profile || { researchInterests: [], publicInfo: [] };
   const lines = [
-    'Signed-in user context for personalization and disambiguation only:',
+    'Signed-in user context for personalisation and disambiguation only:',
     `- Display name: ${user.displayName}`,
     `- Username: ${user.username}`,
     `- VioScope permission role: ${user.role}`,

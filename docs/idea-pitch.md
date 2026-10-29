@@ -12,7 +12,8 @@ only the final approved blocks and decision, not prior versions, source document
 ## Edit the review rules
 
 Default skill: `src/mastra/prompts/idea-pitch/SKILL.md`.
-It defines eight review areas, recommendation meanings, constructive feedback and research-type
+It defines what to look for in each of the five VIOS template blocks, the four block statuses
+(Missing, Needs work, Adequate, Strong), the two New Idea Pitch discussant questions and research-type
 adaptations. Edit its wording to adjust the group's expectations. It is loaded for every AI review
 and import organization request. Existing reports keep their original rule snapshot and fingerprint.
 
@@ -24,10 +25,13 @@ this public repository. An unreadable, blank or oversized configured file causes
 there is no silent fallback to different rules.
 
 Code enforces the output structure and permission boundaries independently of the editable prose.
-The report must cover all eight fields, quote actual input substrings and distinguish recorded facts,
-inferences and gaps. Recommendations are `ready_for_discussion`, `needs_revision` or
-`insufficient_evidence`, never automatic approval. No numerical score or independent literature
-verification is implied. A rule change should be checked on representative pitches before adoption.
+The report gives one finding per template block (status, template prompts concerned, gap, improvement
+and verbatim quotations), answers the discussant questions "Is the delta big enough for a top-tier
+venue?" and "If the Week 1–2 PoC fails, do we kill it or pivot?" as addressed, partly addressed or not
+addressed, and lists at most three next steps. Empty blocks must be Missing; any other status must quote
+that block; every quotation must exist in the saved pitch. The report has no recommendation, score or
+Proceed/Revise/Stop field, and no independent literature verification is implied. Reviews saved before
+this per-block format (eight criteria with a recommendation) remain readable as earlier reviews. A rule change should be checked on representative pitches before adoption.
 
 ## Input and extraction
 
@@ -43,7 +47,10 @@ saved draft. Saving new content resets human approval. Old source text remains i
 
 ## Methodology basis
 
-These are adaptations to an early research pitch, not claims of funding or journal compliance:
+These are adaptations to an early research pitch, not claims of funding or journal compliance. The
+skill lists its sources; the main ones are the Heilmeier Catechism, Faff's pitching template ("What's
+new?" and "So what?"), SRI's NABC, Hamming's "reasonable attack", Klein's pre-mortem for kill criteria
+and the NeurIPS reviewer criteria (originality, quality, clarity, significance). Earlier references:
 
 - [DARPA Heilmeier Catechism](https://www.darpa.mil/about/heilmeier-catechism): express the objective,
   current limitation, proposed contribution, risk, resources, timescale and observable checks.

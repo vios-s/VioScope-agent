@@ -20,7 +20,7 @@ export function checkedSource(text: string) {
   return value;
 }
 export async function extractPitchUpload(file: File) {
-  if (!file.size || file.size > maxPitchUploadBytes) throw new Error('Upload a nonempty file of at most 5 MB.');
+  if (!file.size || file.size > maxPitchUploadBytes) throw new Error('Upload a non-empty file of at most 5 MB.');
   const ext = extname(file.name).toLowerCase();
   if (!['.txt', '.md', '.docx', '.pdf', '.pptx'].includes(ext)) throw new Error('Supported formats: TXT, MD, DOCX, text-based PDF and PPTX.');
   const buffer = Buffer.from(await file.arrayBuffer());

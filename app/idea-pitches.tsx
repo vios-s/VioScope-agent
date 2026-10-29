@@ -14,6 +14,8 @@ const railGroups = [
   { access: 'shared', label: 'Shared with you · Read only' },
 ] as const;
 
+const statusLabels: Record<string, string> = { draft: 'Awaiting human decision', revise: 'Revise', proceed: 'Proceed', stop: 'Stop', project: 'Project created' };
+
 function pitchMeta(pitch: IdeaPitch) {
   const state = pitch.projectId
     ? 'Converted to project'
@@ -70,14 +72,25 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
     {error && <p role="alert" className="ops-notice error idea-page-alert">{error} <button className="ops-secondary" type="button" onClick={() => { setError(''); void load().catch((caught) => setError(caught.message)); }}>Retry</button></p>}
     {status && <p role="status" className="form-message idea-page-status">{status}</p>}
     {scope === 'all' && <section className="idea-pi-overview" aria-label="PI and administrator pitch overview">
-      <h2>PI / Admin overview · All pitches</h2><p>See everyone’s saved pitches. Open a pitch to review its full version history, record a decision or manage sharing.</p>
-      <div className="idea-export-controls"><label>Find a pitch<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Title or proposer username" /></label>
-      <label>Pitch status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All statuses</option><option value="draft">Awaiting human decision</option><option value="revise">Revise</option><option value="proceed">Proceed</option><option value="stop">Stop</option><option value="project">Project created</option></select></label></div>
-      <div className="idea-pi-list">{matchingPitches.map(pitch => <article key={pitch.id}>
-        <button type="button" className="idea-pi-open" disabled={editorState.busy} onClick={() => openPitch(pitch.id)}>{pitch.title}</button>
-        <span>@{pitch.ownerUsername}</span><span>{pitch.projectId ? 'Project created' : pitch.outcome || 'Awaiting human decision'} · <span className="vs-mono">v{pitch.version || 0}</span></span>
-      </article>)}</div>
-      {pitches && matchingPitches.length === 0 && <p>{pitches.length ? 'No pitches match this search.' : 'No saved pitches yet.'}</p>}
+      <div className="idea-pi-head">
+        <div className="idea-pi-intro"><h2>PI / Admin overview · All pitches</h2><p>See everyone’s saved pitches. Open a pitch to review its full version history, record a decision or manage sharing.</p></div>
+        <div className="idea-export-controls"><label>Find a pitch<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Title or proposer username" /></label>
+        <label>Pitch status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All statuses</option><option value="draft">Awaiting human decision</option><option value="revise">Revise</option><option value="proceed">Proceed</option><option value="stop">Stop</option><option value="project">Project created</option></select></label></div>
+      </div>
+      {matchingPitches.length > 0 && <div className="idea-pi-list"><table className="idea-pi-table">
+        <thead><tr><th scope="col">Pitch</th><th scope="col">Proposer</th><th scope="col">Status</th><th scope="col" className="is-version">Version</th><th scope="col" className="is-updated">Updated</th></tr></thead>
+        <tbody>{matchingPitches.map(pitch => {
+          const state = pitch.projectId ? 'project' : pitch.outcome || 'draft';
+          return <tr key={pitch.id} className={pitch.id === displayed ? 'active' : undefined}>
+            <td><button type="button" className="idea-pi-open" disabled={editorState.busy} onClick={() => openPitch(pitch.id)}>{pitch.title}</button></td>
+            <td>@{pitch.ownerUsername}</td>
+            <td><span className={`idea-pi-status is-${state}`}>{statusLabels[state] || state}</span></td>
+            <td className="is-version vs-mono">v{pitch.version || 0}</td>
+            <td className="is-updated vs-mono">{formatRecordTime(pitch.updatedAt, false)}</td>
+          </tr>;
+        })}</tbody>
+      </table></div>}
+      {pitches && matchingPitches.length === 0 && <p className="idea-pi-empty">{pitches.length ? 'No pitches match this search.' : 'No saved pitches yet.'}</p>}
     </section>}
     <div className="idea-workspace">
       <aside className="idea-pitch-toolbar" aria-label="Pitch list">

@@ -64,6 +64,6 @@ export function suggestThemeMeetingSlot(project: AdviceProject, now = new Date()
   return {
     slot: 'short_update',
     evidence: `Progress was recorded on ${progressDate}, with no recorded blocker, near deadline, or milestone flag.`,
-    preparation: 'Summarize what changed, one result, and the next step. Choose a deep dive if you have a substantial result to discuss.',
+    preparation: 'Summarise what changed, one result, and the next step. Choose a deep dive if you have a substantial result to discuss.',
   };
 }

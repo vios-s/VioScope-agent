@@ -40,8 +40,9 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       if (!draft[field.key]) draft[field.key] = 'Synthetic plan for ' + field.label;
       await panel.locator('.idea-fields').getByRole('textbox', { name: field.label, exact: true }).fill(draft[field.key]);
     }
-    page.once('dialog', dialog => dialog.dismiss());
+    // Unsaved-change confirmations use the in-app dialog, not window.confirm.
     await page.getByRole('button', { name: 'New pitch', exact: true }).click();
+    await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
     assert.equal(await title.inputValue(), 'DEMO — Low-cost cell counting', 'Cancelled switching preserves unsaved title.');
     await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
     await panel.getByText('Draft saved. Human decision pending.', { exact: true }).waitFor();
@@ -91,11 +92,11 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
       assert.equal((await conflict).status(), 409, 'Sharing refresh must preserve the old draft version and reject a stale save.');
       await panel.getByText('This pitch changed. Reload before saving.', { exact: false }).waitFor();
-      page.once('dialog', dialog => dialog.dismiss());
       await panel.getByRole('button', { name: 'Reload saved version', exact: true }).click();
+      await page.getByRole('button', { name: 'Keep editing', exact: true }).click();
       assert.equal(await title.inputValue(), 'DEMO — Unsaved local title', 'Cancelled reload preserves edits.');
-      page.once('dialog', dialog => dialog.accept());
       await panel.getByRole('button', { name: 'Reload saved version', exact: true }).click();
+      await page.getByRole('button', { name: 'Discard and reload', exact: true }).click();
       await panel.getByRole('heading', { name: 'DEMO — Concurrent revision', exact: true }).waitFor();
       await sharedContext.close(); await piContext.close();
     }
@@ -178,10 +179,11 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await page.goto(base + '/?view=meeting');
     const meetingForm = page.locator('.theme-update-form');
     await meetingForm.getByRole('combobox', { name: 'Project source', exact: true }).selectOption(converted.pitch.projectId);
-    await meetingForm.getByText('Run three synthetic pilot comparisons', { exact: false }).waitFor();
-    await meetingForm.getByRole('radio', { name: 'Deep Dive 20-30 min', exact: true }).check();
+    // The project evidence sits in a collapsed Advisory details block, so wait for it to be present rather than visible.
+    await meetingForm.getByText('Run three synthetic pilot comparisons', { exact: false }).first().waitFor({ state: 'attached' });
+    await meetingForm.getByRole('combobox', { name: 'Update type', exact: true }).selectOption('deep_dive');
     await meetingForm.getByRole('textbox', { name: /^Progress/ }).fill('The approved pilot is planned. We need feedback on the comparison protocol.');
-    assert.equal(await meetingForm.getByRole('group', { name: 'Update type' }).getByRole('radio').count(), 3);
+    assert.equal(await meetingForm.getByRole('combobox', { name: 'Update type', exact: true }).locator('option').count(), 3);
     assert.equal(await meetingForm.getByRole('textbox', { name: 'Project stage', exact: true }).count(), 0);
     assert.match((await meetingForm.getByRole('textbox', { name: /^Progress/ }).getAttribute('placeholder'))!, /The Pain Point/);
     await meetingForm.scrollIntoViewIfNeeded();

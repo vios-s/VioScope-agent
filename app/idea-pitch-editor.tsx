@@ -7,6 +7,7 @@ import { checklistDraftKey, readChecklistDraft, writeChecklistDraft, removeCheck
 import { requestJson } from './client-request';
 import { ConfirmDialog } from './confirm-dialog';
 import { checkIdea, ideaDraftSchema, ideaFields, defaultPitchExportFormat, type PitchExportFormat, type IdeaCheckPayload, type IdeaDecision, type IdeaDraft, type IdeaSource } from '../src/mastra/projects/idea-check';
+import { ideaBlockStatusLabels, ideaDiscussantQuestions, ideaDiscussantStatusLabels, isLegacyIdeaReview, type SavedIdeaReview } from '../src/mastra/projects/idea-review-schema';
 
 export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, onDeleted, onStateChanged }: { userId: string; pitchId: string; onChanged: (id: string) => Promise<void>; onProjectCreated: () => Promise<void>; onDeleted: () => Promise<void>; onStateChanged: (state: { dirty: boolean; busy: boolean }) => void }) {
   const prefix = useId();
@@ -85,7 +86,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
     try {
       const target = await ensurePitch();
       const form = new FormData(); if (upload) form.set('file', upload); if (pasted.trim()) form.set('text', pasted);
-      setPreview(await requestJson<{ draft: IdeaDraft; source: IdeaSource }>(`${target}/import`, 'Could not organize the document.', { method: 'POST', body: form }));
+      setPreview(await requestJson<{ draft: IdeaDraft; source: IdeaSource }>(`${target}/import`, 'Could not organise the document.', { method: 'POST', body: form }));
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not import.'); }
     finally { setBusy(false); }
   }
@@ -228,6 +229,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
                 <label htmlFor={`${prefix}-${field.key}`}><span className="idea-block-num" aria-hidden="true" data-num={number.padStart(2, '0')} /><span className="vs-sr-only">{number}.</span> {heading}</label>
                 {!checks[index].present && <span className="idea-empty-chip">Empty</span>}
               </div>
+              {/* Wide screens show the guidance beside the textarea; assistive technology reads it from the placeholder. */}
+              <p className="idea-block-guide" aria-hidden="true">{field.hint}</p>
               <textarea id={`${prefix}-${field.key}`} readOnly={!data.canEdit} placeholder={field.hint} rows={5} maxLength={24000}
                 value={draft[field.key] || ''} onChange={event => { setDraft({ ...draft, [field.key]: event.target.value }); setConfirmed(false); setCreateConfirmed(false); }} />
             </div>;
@@ -272,15 +275,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
         </div>
         <p className="idea-advice-meta">{data.reviews[0] ? <>Latest review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span> · <span className="vs-mono">{formatRecordTime(data.reviews[0].at)}</span>. </> : 'No AI review yet. '}The agent gives suggestions on evidence and feasibility. It cannot approve, decide or change a stage.</p>
         {data.reviews.map((review) => <details key={review.id} className="idea-review" open={review === data.reviews[0]}>
-          <summary>Review of <span className="vs-mono">v{review.pitchVersion}</span> · {review.report.recommendation.replaceAll('_', ' ')}{reviewIsStale(review.pitchVersion) ? ' · Draft changed — review again' : ''}</summary>
-          <p className="idea-review-summary">{review.report.summary}</p>
-          <ul className="idea-advice-list">{review.report.checks.map((check) => <li key={check.field}>
-            <span className="idea-advice-row"><strong>{check.field.replaceAll(/([A-Z])/g, ' $1')}</strong><span className={`idea-advice-status is-${check.status}`}>{check.status.replaceAll('_', ' ')}</span></span>
-            <p>{check.assessment}</p>
-            {check.evidence.map((evidence, index) => <blockquote key={index}>{evidence.field}: {evidence.quote}</blockquote>)}
-            <p className="idea-advice-improve">Improve: {check.improvement}</p>
-          </li>)}</ul>
-          <h4>Next tests</h4><ol>{review.report.nextSteps.map((step, index) => <li key={index}>{step}</li>)}</ol>
+          <summary>Review of <span className="vs-mono">v{review.pitchVersion}</span> · {reviewHeadline(review.report)}{reviewIsStale(review.pitchVersion) ? ' · Draft changed — review again' : ''}</summary>
+          <IdeaReviewReport report={review.report} />
           <small className="idea-review-provenance">@{review.by} · <span className="vs-mono">{formatRecordTime(review.at)}</span> · {review.model} · Rules <span className="vs-mono">{review.rulesHash.slice(0, 12)}</span></small>
         </details>)}
         {data.canEdit && <button type="button" className="ops-secondary idea-advice-run" disabled={busy || dirty || !data.current} onClick={() => void runReview()}>Check pitch with AI</button>}
@@ -341,4 +337,46 @@ export function formatRecordTime(value: string | undefined, withTime = true) {
   return new Intl.DateTimeFormat('en-GB', withTime
     ? { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }
     : { day: 'numeric', month: 'short', timeZone: 'Europe/London' }).format(date);
+}
+
+type ReviewReport = SavedIdeaReview['report'];
+const sentence = (value: string) => value.charAt(0).toUpperCase() + value.slice(1).replaceAll('_', ' ').toLowerCase();
+const blockLabel = (field: string) => ideaFields.find(item => item.key === field)?.label || 'Track';
+export function reviewHeadline(report: ReviewReport) {
+  if (isLegacyIdeaReview(report)) return `Earlier eight-criteria review · ${report.recommendation.replaceAll('_', ' ')}`;
+  const open = report.blocks.filter(item => item.status === 'missing' || item.status === 'needs_work').length;
+  return open ? `${open} of ${report.blocks.length} blocks need work` : 'All blocks adequate or better';
+}
+function Quotes({ evidence, own }: { evidence: Array<{ field: string; quote: string }>; own?: string }) {
+  return evidence.map((item, index) => <blockquote key={index}>{item.field === own ? '' : `${blockLabel(item.field)}: `}{item.quote}</blockquote>);
+}
+export function IdeaReviewReport({ report }: { report: ReviewReport }) {
+  if (isLegacyIdeaReview(report)) return <>
+    <p className="idea-review-summary">{report.summary}</p>
+    <ul className="idea-advice-list">{report.checks.map((check) => <li key={check.field}>
+      <span className="idea-advice-row"><strong>{sentence(check.field.replaceAll(/([A-Z])/g, ' $1'))}</strong><span className={`idea-advice-status is-${check.status}`}>{sentence(check.status)}</span></span>
+      <p>{check.assessment}</p>
+      <Quotes evidence={check.evidence} />
+      <p className="idea-advice-improve">Improve: {check.improvement}</p>
+    </li>)}</ul>
+    <h4>Next tests</h4><ol>{report.nextSteps.map((step, index) => <li key={index}>{step}</li>)}</ol>
+  </>;
+  const order = ideaFields.map(item => item.key as string);
+  return <>
+    <p className="idea-review-summary">{report.summary}</p>
+    <ul className="idea-advice-list">{[...report.blocks].sort((a, b) => order.indexOf(a.block) - order.indexOf(b.block)).map((item) => <li key={item.block}>
+      <span className="idea-advice-row"><strong>{blockLabel(item.block)}</strong><span className={`idea-advice-status is-${item.status}`}>{ideaBlockStatusLabels[item.status]}</span></span>
+      {item.focus.length > 0 && <small className="idea-advice-focus">{item.focus.join(' · ')}</small>}
+      <p>{item.gap}</p>
+      <Quotes evidence={item.evidence} own={item.block} />
+      <p className="idea-advice-improve">Improve: {item.improvement}</p>
+    </li>)}</ul>
+    <h4>Discussant questions</h4>
+    <ul className="idea-advice-list">{(['delta', 'poc'] as const).map((key) => <li key={key}>
+      <span className="idea-advice-row"><strong>{ideaDiscussantQuestions[key]}</strong><span className={`idea-advice-status is-${report.discussant[key].status}`}>{ideaDiscussantStatusLabels[report.discussant[key].status]}</span></span>
+      <p>{report.discussant[key].answer}</p>
+      <Quotes evidence={report.discussant[key].evidence} />
+    </li>)}</ul>
+    <h4>Next steps</h4><ol>{report.nextSteps.map((step, index) => <li key={index}>{step}</li>)}</ol>
+  </>;
 }

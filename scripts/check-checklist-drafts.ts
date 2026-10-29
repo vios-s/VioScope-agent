@@ -80,6 +80,8 @@ try {
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Unsaved new idea');
   assert.equal(await page.locator('.idea-fields select').first().inputValue(),'B');
   await page.getByRole('combobox',{name:'Saved pitches',exact:true}).selectOption('pitch-demo');
+  // Switching away from unsaved changes asks for confirmation in the in-app dialog.
+  await page.getByRole('button',{name:'Discard and switch',exact:true}).click();
   await page.locator('.idea-fields textarea').first().fill('Unsaved change to existing pitch');
   await refresh();
   assert.equal(await page.getByRole('combobox',{name:'Saved pitches',exact:true}).inputValue(),'pitch-demo');
