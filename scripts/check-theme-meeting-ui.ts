@@ -185,7 +185,7 @@ async function checkMember(browser: any) {
   assert.equal(await slotSelect.locator('option[value="deep_dive"]').textContent(), 'Deep Dive (20-30 min)');
   assert.equal(await slotSelect.locator('option[value="short_update"]').textContent(), 'Update (5 min)');
   assert.equal(await slotSelect.locator('option').count(), 3);
-  assert.equal(await page.getByRole('textbox', { name: 'Project stage', exact: true }).inputValue(), 'Not linked');
+  assert.equal(await page.getByRole('textbox', { name: 'Project stage', exact: true }).count(), 0);
   assert.equal(await slotSelect.locator('option[value="nothing_to_report"]').textContent(), 'Nothing to Report (0 min)');
   await slotSelect.selectOption('nothing_to_report');
   await page.locator('.theme-update-form textarea').nth(0).fill('Finished a mock UI smoke test update for the next meeting.');

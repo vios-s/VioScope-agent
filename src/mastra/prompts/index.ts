@@ -42,6 +42,7 @@ const promptFiles = {
   'artifact-summary.yaml': new URL('./artifact-summary.yaml', import.meta.url),
   'submission-review.yaml': new URL('./submission-review.yaml', import.meta.url),
   'ui-copy.yaml': new URL('./ui-copy.yaml', import.meta.url),
+  'theme-meeting-suggestion.yaml': new URL('./theme-meeting-suggestion.yaml', import.meta.url),
 } as const;
 
 function readPromptYaml(fileName: keyof typeof promptFiles): unknown {
@@ -64,3 +65,5 @@ submissionReviewPrompt.system += `\n${englishResponsePolicy}`;
 export const uiCopyPrompts = uiCopyPromptsSchema.parse(readPromptYaml('ui-copy.yaml'));
 
 export const ideaPitchSkillFile = new URL('./idea-pitch/SKILL.md', import.meta.url);
+
+export const themeMeetingSuggestionPrompt = z.object({ system: textSchema }).parse(readPromptYaml('theme-meeting-suggestion.yaml'));

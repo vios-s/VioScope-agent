@@ -268,6 +268,10 @@ Done when: a real weekly cycle can run without developer intervention.
   project stages. Legacy snapshots without a stage remain explicitly unrecorded.
   Empty progress fields show the VIOS OS Pre-Meeting Snapshot headings for the linked project’s
   stage (1–5). Placeholders never populate the draft or overwrite user-authored content.
+  The selected project is linked on explicit submission; “No linked project” removes the link.
+  On-demand ELM advice uses the stage decision matrix and recent project progress, blockers,
+  targets and planned actions. It returns a draft with validated evidence quotes; generating
+  advice never applies or submits it. Reject results when project context or access changes.
   Missing/stale progress never implies `nothing_to_report`. Adopting advice only changes the draft;
   members submit explicitly and coordinators confirm the final agenda.
 - Keep artifact summaries as context; do not inject raw large files into agent prompts.
