@@ -49,13 +49,18 @@ The v0.1 package should be treated as the first stable internal operations build
 
 ## Project workflow release (2026-10-29)
 
-The agreed four-part project model is deployed from main commit `4a23807` (build
-`kF7HaXkL1feiGIkBr3YzR`). The public HTTPS home, authentication guards, all 16 current project
+The agreed four-part project model is deployed, including the saved-outcome display fix in
+main commit `94c27ad` (build `EInsghIRYw1_nSB2UT1Cj`). The public HTTPS home, authentication guards, all 16 current project
 workflow reads and the theme-meeting API passed post-deployment checks. Database restore and
 external meeting-state backups were verified before switching releases.
 Validation passed: TypeScript, isolated production build, project/Pitch/meeting/Skeleton regressions,
 synthetic workflow permissions and history, owner/PI browser flows, desktop/mobile layout, and the
-English-only source check. Real-cycle usage and live AI quality evaluation were not part of this slice.
+English-only source check. Real-cycle usage remains pending. A subsequent isolated, full-lifecycle demo exercised real
+Idea Pitch and Skeleton AI calls, PI-approved pitch conversion, PDRA conditional judgment and
+re-review, separate PI Skeleton confirmation, shared meeting tasks, all six checkpoint records,
+and simulated submission. AI returned needs-revision/SLIDE on the explicitly fictional evidence;
+the human approvals were test fixtures, not scientific sign-off. The demo found and fixed a stale
+submission outcome selector, with a browser regression check. No external submission was made.
 
 1. Research profile: question, contribution, validation, research type, working phase, resources,
    risks and fallback, with change reasons and previous versions. Approved Idea Pitch conversion
