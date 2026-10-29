@@ -176,7 +176,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await meetingForm.getByRole('textbox', { name: /^Progress/ }).fill('The approved pilot is planned. We need feedback on the comparison protocol.');
     assert.equal(await meetingForm.getByRole('combobox', { name: 'Slot type', exact: true }).locator('option').count(), 3);
     const stage = meetingForm.getByRole('textbox', { name: 'Project stage', exact: true });
-    assert.equal(await stage.inputValue(), 'Not linked');
+    assert.equal(await stage.inputValue(), '1: idea/proposal');
     await meetingForm.getByRole('checkbox', { name: /^Link this project/ }).check();
     assert.equal(await stage.inputValue(), '1: idea/proposal');
     assert.equal(await stage.getAttribute('readonly'), '');
