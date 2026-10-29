@@ -65,9 +65,13 @@ export async function extractPitchUpload(file: File) {
   return { name: file.name.slice(0, 200), text: checkedSource(text), method: 'upload' as const };
 }
 export function validatePitchExtraction(value: unknown, source: string): IdeaDraft {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid extracted pitch.');
+  const raw = value as Record<string, unknown>;
+  for (const [key, text] of Object.entries(raw)) {
+    if (key !== 'track' && typeof text === 'string' && text.trim() && !source.includes(text.trim())) throw new Error('The extracted block contains text not present in the document. Paste the text into the blocks instead.');
+  }
   const draft = ideaDraftSchema.parse(value);
   if (draft.track && !new RegExp(`\\btrack\\s*[:=-]\\s*(?:track\\s*)?${draft.track}\\b`, 'i').test(source)) throw new Error('The extracted track is not explicitly stated in the source.');
-  for (const field of ideaFields) if (draft[field.key] && !source.includes(draft[field.key])) throw new Error('The extracted block contains text not present in the document. Paste the text into the blocks instead.');
   return draft;
 }
 export async function organizePitchSource(source: string) {

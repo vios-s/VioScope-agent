@@ -1,12 +1,11 @@
 import { z } from 'zod';
 import { ideaReviewKeys, ideaDraftSchema, type IdeaDraft } from './idea-check';
 const fieldKey = z.enum(ideaReviewKeys);
-const evidenceFieldKey = ideaDraftSchema.keyof();
+const evidenceFieldKey = z.enum(['why', 'context', 'strategy', 'execution', 'resourcePlan', 'track']);
 const supportingFields: Record<(typeof ideaReviewKeys)[number], Array<keyof IdeaDraft>> = {
-  question: ['question'], importance: ['importance'], contribution: ['contribution', 'previousAttempts', 'coreIdea'],
-  evidence: ['evidence', 'coreIdea'], validation: ['validation', 'experiment', 'pipeline'],
-  resources: ['resources', 'dataCompute', 'dataset', 'compute', 'humanLabour'],
-  risks: ['risks', 'killSwitch', 'experiment'], milestone: ['milestone', 'timeline', 'pipeline'],
+  question: ['why'], importance: ['why'], contribution: ['context', 'strategy'],
+  evidence: ['why', 'strategy'], validation: ['execution'], resources: ['resourcePlan', 'strategy'],
+  risks: ['strategy', 'execution'], milestone: ['execution'],
 };
 const text = z.string().trim().min(1).max(4000);
 export const ideaReviewSchema = z.object({

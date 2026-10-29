@@ -69,9 +69,11 @@ try {
   const legacy = { question: 'Legacy question', importance: 'Legacy importance', contribution: 'Legacy contribution', evidence: 'Legacy evidence', validation: 'Legacy validation', resources: 'Legacy resources', risks: 'Legacy risks', milestone: 'Legacy milestone' };
   const recovered = ideaDraftSchema.parse(legacy);
   for (const [key, value] of Object.entries(legacy)) assert.equal(recovered[key as keyof typeof legacy], value);
-  assert.equal(recovered.coreIdea, '', 'New fields stay empty when restoring an old version.');
+  assert.ok(recovered.why.includes('Legacy question') && recovered.context.includes('Legacy contribution'), 'Legacy sections are retained in their matching blocks.');
+  const blanked = ideaDraftSchema.parse({ ...recovered, why: '' });
+  assert.equal(blanked.why, '', 'An intentionally emptied block is not repopulated from legacy data.');
   const draft = ideaDraftSchema.parse({ question: 'Can the baseline generalize to a new setting?' });
-  assert.equal(checkIdea(draft).filter(item => !item.present).length, 14);
+  assert.equal(checkIdea(draft).filter(item => !item.present).length, 4);
   assert.equal((await post('bob', { operation: 'save', version: 0, draft })).status, 403);
   assert.equal((await post('alice', { operation: 'save', version: 0, title: '   ', draft })).status, 400, 'A blank title cannot be saved.');
   await ok(await post('alice', { operation: 'save', version: 0, draft }));
@@ -106,14 +108,11 @@ try {
 
   const { validateIdeaReview } = await import('../src/mastra/projects/idea-review-schema');
   const currentDraft = (await ok(await get('alice'))).current.draft;
-  const report = validateIdeaReview({ recommendation: 'needs_revision', summary: 'Synthetic evidence-backed review.', checks: ideaReviewKeys.map(field => ({ field, status: 'needs_work', assessment: 'More validation detail is needed.', evidence: [{ field, quote: currentDraft[field] }], improvement: 'Define an observable next test.' })), nextSteps: ['Run a controlled pilot.'] }, currentDraft);
+  const reviewBlock = { question: 'why', importance: 'why', contribution: 'context', evidence: 'why', validation: 'execution', resources: 'resourcePlan', risks: 'strategy', milestone: 'execution' } as const;
+  const report = validateIdeaReview({ recommendation: 'needs_revision', summary: 'Synthetic evidence-backed review.', checks: ideaReviewKeys.map(field => ({ field, status: 'needs_work', assessment: 'More validation detail is needed.', evidence: [{ field: reviewBlock[field], quote: currentDraft[reviewBlock[field]] }], improvement: 'Define an observable next test.' })), nextSteps: ['Run a controlled pilot.'] }, currentDraft);
   const templateOnly = { ...currentDraft, resources: '', risks: '', milestone: '' };
-  const grouped = { ...report, checks: report.checks.map(check => {
-    const source = check.field === 'resources' ? 'dataset' : check.field === 'risks' ? 'killSwitch' : check.field === 'milestone' ? 'timeline' : check.field;
-    return { ...check, evidence: [{ field: source, quote: templateOnly[source] }] };
-  }) };
-  assert.doesNotThrow(() => validateIdeaReview(grouped, templateOnly), 'Template blocks can support review criteria without legacy extra notes.');
-  assert.throws(() => validateIdeaReview({ ...report, checks: report.checks.map((check, i) => i ? check : { ...check, evidence: [{ field: 'question', quote: 'Invented supporting evidence' }] }) }, currentDraft));
+  assert.doesNotThrow(() => validateIdeaReview(report, templateOnly), 'The five blocks support all review criteria.');
+  assert.throws(() => validateIdeaReview({ ...report, checks: report.checks.map((check, i) => i ? check : { ...check, evidence: [{ field: 'why', quote: 'Invented supporting evidence' }] }) }, currentDraft));
   await ideaDb.saveIdeaReview(pitch.id, 6, { report, rules: 'synthetic rules', rulesHash: 'synthetic-hash', model: 'synthetic-model' }, accounts.get('alice')!);
   assert.equal((await ok(await get('alice'))).current.decision.outcome, 'proceed', 'AI advice cannot change the human decision.');
   assert.equal((await ok(await get('alice'))).reviews.length, 1);
@@ -156,9 +155,9 @@ try {
   const records = await projects.listProjectsForUser(accounts.get('principal')!);
   const projectWorkflow = await import('../src/mastra/db/project-workflow');
   const inheritedProfile = (await projectWorkflow.getProjectWorkflow(conversions[0].projectId, accounts.get('alice')!)).research.profile;
-  assert.equal(inheritedProfile.question, currentDraft.question);
-  assert.equal(inheritedProfile.claim, currentDraft.coreIdea);
-  assert.equal(inheritedProfile.resourceNotes, currentDraft.resources);
+  assert.equal(inheritedProfile.question, currentDraft.why);
+  assert.equal(inheritedProfile.claim, currentDraft.strategy);
+  assert.equal(inheritedProfile.resourceNotes, currentDraft.resourcePlan);
   assert.equal(inheritedProfile.phase, 'initial_validation');
   assert.equal(records[0].target, decision.nextMilestone);
   assert.equal(records[0].todos.length, 1);
@@ -236,7 +235,7 @@ try {
   const privatePayload = { ...approvedPayload, current: { ...approvedPayload.current!, source: { name: 'private-source.txt', method: 'upload' as const, text: 'DO_NOT_EXPORT_SOURCE' } }, history: [{ ...approvedPayload.current!, title: 'DO_NOT_EXPORT_HISTORY' }] };
   const projection = JSON.stringify(approvedPitchDocument(privatePayload, 6));
   assert.ok(!projection.includes('DO_NOT_EXPORT'));
-  assert.equal(approvedPitchDocument(privatePayload, 6).sections.length, 21);
+  assert.equal(approvedPitchDocument(privatePayload, 6).sections.length, 8);
   const zip = await (await import('jszip')).default.loadAsync((await exportApprovedPitch(privatePayload, 6, 'docx')).body);
   const xml = await zip.file('word/document.xml')!.async('string');
   assert.ok(xml.includes('Human decision and evidence'));

@@ -1,7 +1,7 @@
 import JSZip from 'jszip';
 import type { Browser } from 'playwright';
 import { AuthError } from '../auth/session';
-import { ideaFields, type IdeaCheckPayload, type PitchExportFormat } from './idea-check';
+import { ideaFields, ideaDraftSchema, type IdeaCheckPayload, type PitchExportFormat } from './idea-check';
 
 // Keep this projection explicit: private source text, review reports and old versions never leave here.
 export function approvedPitchDocument(payload: IdeaCheckPayload, version: number) {
@@ -15,7 +15,7 @@ export function approvedPitchDocument(payload: IdeaCheckPayload, version: number
     introduction: `Approved idea pitch for @${payload.pitch.ownerUsername}. Human Proceed decision recorded by @${current.by} on ${recordedAt}. Version ${current.version}.`,
     sections: [
       { heading: 'Track', text: current.draft.track || 'Not recorded' },
-      ...ideaFields.map(field => ({ heading: field.label, text: current.draft[field.key] || '' })),
+      ...ideaFields.map(field => ({ heading: field.label, text: ideaDraftSchema.parse(current.draft)[field.key] || '' })),
       { heading: 'Human decision and evidence', text: current.decision.rationale },
       { heading: 'Agreed next step', text: current.decision.nextMilestone },
     ],

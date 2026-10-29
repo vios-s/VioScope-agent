@@ -114,7 +114,7 @@ export async function createProjectFromPitch(id: string, version: number, user: 
     const assignments = setup ? projectSetupSchema.parse(setup) : undefined;
     if (assignments) for (const username of assignments.collaborators) { const account=await getUserByUsername(username); if(!account||account.provisioningStatus!=='active') throw new Error('Project collaborators must be active accounts.'); }
     const project = await createProject({ ...assignments, title: pitch.title, ownerUsername: pitch.ownerUsername, stage: 1, target: current.decision.nextMilestone, todos: initialAction ? [initialProjectActionSchema.parse(initialAction)] : [] }, user);
-    await seedProjectResearch(project.id,{phase:'initial_validation',question:current.draft.question,claim:current.draft.coreIdea || current.draft.contribution,validation:current.draft.validation,resourceNotes:current.draft.resources,risks:current.draft.risks},user.username);
+    await seedProjectResearch(project.id,{phase:'initial_validation',question:current.draft.why,claim:current.draft.strategy,validation:current.draft.execution,resourceNotes:current.draft.resourcePlan,risks:current.draft.risks},user.username);
     await db.pool.query('INSERT INTO project_idea_origins(project_id,snapshot) VALUES($1,$2::jsonb)', [project.id,
       JSON.stringify({ title: pitch.title, draft: current.draft, decision: current.decision, approvedBy: current.by, approvedAt: current.at, version: current.version })]);
     await db.pool.query('UPDATE idea_pitches SET project_id=$2 WHERE id=$1', [id, project.id]);

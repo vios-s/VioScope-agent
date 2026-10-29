@@ -19,6 +19,6 @@ console.log('English policy passed: application/source/public text and shared AI
 
 const originalText = String.fromCodePoint(0x4e2d, 0x6587);
 const draft = ideaDraftSchema.parse(Object.fromEntries(ideaFields.map(field => [field.key, originalText])));
-const report = { recommendation: 'needs_revision', summary: 'Clarify the proposal.', checks: ideaReviewKeys.map(key => ({ field: key, status: 'needs_work', assessment: 'The claim needs a test.', evidence: [{ field: key, quote: originalText }], improvement: 'Define a baseline comparison.' })), nextSteps: ['Specify the comparison.'] };
+const report = { recommendation: 'needs_revision', summary: 'Clarify the proposal.', checks: ideaReviewKeys.map(key => ({ field: key, status: 'needs_work', assessment: 'The claim needs a test.', evidence: [{ field: 'why', quote: originalText }], improvement: 'Define a baseline comparison.' })), nextSteps: ['Specify the comparison.'] };
 assert.doesNotThrow(() => validateIdeaReview(report, draft), 'Original evidence remains verbatim.');
 assert.throws(() => validateIdeaReview({ ...report, summary: originalText }, draft), /must be in English/);

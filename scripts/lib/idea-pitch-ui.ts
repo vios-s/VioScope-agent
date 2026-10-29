@@ -150,7 +150,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     assert.equal((await context.request.get(base + '/api/idea-pitches/' + id)).status(), 403);
     assert.equal(await picker.locator(`option[value="${id}"]`).count(), 0);
     // A title is required before the draft can be saved.
-    await panel.locator('.idea-fields').getByRole('textbox', { name: /^The Pain Point/ }).fill('DEMO — Can a smaller model work?');
+    await panel.locator('.idea-fields').getByRole('textbox', { name: /^1\. The Why/ }).fill('DEMO — Can a smaller model work?');
     await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
     assert.equal(await title.evaluate((input: HTMLInputElement) => input.validity.valueMissing), true);
     await title.fill('DEMO — Required title');

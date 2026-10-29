@@ -46,7 +46,7 @@ if (process.env.CHECK_IDEA_ELM === 'true') {
   const draft = ideaDraftSchema.parse({ question: source, importance: 'Lower inference cost could help small research teams.', contribution: 'Compare a compressed model with its full-size baseline; novelty is not yet established.', evidence: 'The working assumption is that many model parameters are redundant. No pilot results yet.', validation: 'Compare accuracy and latency on a held-out dataset with three seeds; report variance and failure cases.', resources: 'One researcher for two weeks using an existing GPU and a public dataset; verify dataset license first.', risks: 'Compression may harm rare examples. If accuracy falls, test a less aggressive compression ratio.', milestone: 'Alice will present a baseline comparison and failure cases in two weeks.' });
   const text = Object.entries(draft).map(([key, value]) => `${key}: ${value}`).join('\n\n');
   const extracted = await organizePitchSource(text);
-  assert.ok(extracted.question);
+  assert.ok(extracted.why);
   const review = await reviewIdeaPitch('Synthetic compression pitch', extracted);
   console.log(JSON.stringify({ liveElm: true, recommendation: review.report.recommendation, criteria: review.report.checks.length, rulesHash: review.rulesHash.slice(0, 12) }));
 }

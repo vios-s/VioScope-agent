@@ -62,15 +62,18 @@ try {
   const pitchTitle = page.getByRole('textbox', { name: 'Pitch title', exact: true });
   assert.equal(await pitchTitle.getAttribute('required'), '');
   assert.equal(await page.getByText('Leave blank to use your research question.', {exact: false}).count(), 0);
-  for (const heading of ['1. The Why', '2. The Context', '3. The What', '4. The De-Risk', '5. The Resources']) {
-    await page.getByRole('heading', {name: heading, exact:true}).waitFor();
-  }
-  assert.deepEqual(await page.locator('.idea-fields h3').allTextContents(), ['1. The Why', '2. The Context', '3. The What', '4. The De-Risk', '5. The Resources', 'Additional notes']);
   const { ideaFields } = await import('../src/mastra/projects/idea-check');
+  assert.equal(await page.locator('.idea-fields textarea').count(), 5);
   for (const field of ideaFields) {
     const control = page.locator('.idea-fields textarea').nth(ideaFields.indexOf(field));
     assert.equal(await control.getAttribute('placeholder'), field.hint);
+    assert.equal(await page.getByText(field.label, { exact: true }).count(), 1);
   }
+  await mkdir(join(root, '.local/checks/idea-five-blocks'), { recursive: true });
+  await page.locator('.idea-writing-sheet').screenshot({ path: join(root, '.local/checks/idea-five-blocks/desktop.png') });
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.locator('.idea-writing-sheet').screenshot({ path: join(root, '.local/checks/idea-five-blocks/mobile.png') });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator('.idea-fields select').first().selectOption('B');
   await page.locator('.idea-fields textarea').first().fill('Unsaved new idea');
   await refresh();
@@ -84,7 +87,7 @@ try {
   savedVersion = 2;
   await refresh();
   await page.getByText('A newer saved version or changed access was found.',{exact:false}).waitFor();
-  assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Server version 2');
+  assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Pain point: Server version 2');
   await page.getByRole('button',{name:'Restore local draft',exact:true}).click();
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Unsaved change to existing pitch');
   console.log('PASS: Skeleton project/blocks/paste and new/existing Idea drafts survive refresh; stale Idea version is not restored');

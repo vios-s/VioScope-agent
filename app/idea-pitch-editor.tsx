@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { IdeaPitchSharing } from './idea-pitch-sharing';
 import { checklistDraftKey, readChecklistDraft, writeChecklistDraft, removeChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
@@ -196,14 +196,10 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
               <option value="">Select a track</option><option value="A">Track A</option><option value="B">Track B</option>
             </select>
           </label>
-          {ideaFields.map((field, index) => <Fragment key={field.key}>
-            {(index === 0 || ideaFields[index - 1].section !== field.section) && <h3 className="idea-section-title">{field.section}</h3>}
-            <label htmlFor={`${prefix}-${field.key}`}>{field.label}
-              <span id={`${prefix}-${field.key}-hint`}>{field.hint}</span>
-              <textarea id={`${prefix}-${field.key}`} readOnly={!data.canEdit} aria-describedby={`${prefix}-${field.key}-hint`} placeholder={field.hint} rows={3} maxLength={4000}
-                value={draft[field.key] || ''} onChange={(event) => { setDraft({ ...draft, [field.key]: event.target.value }); setConfirmed(false); setCreateConfirmed(false); }} />
-            </label>
-          </Fragment>)}
+          {ideaFields.map(field => <label key={field.key} className="idea-pitch-block" htmlFor={`${prefix}-${field.key}`}>{field.label}
+            <textarea id={`${prefix}-${field.key}`} readOnly={!data.canEdit} placeholder={field.hint} rows={10} maxLength={24000}
+              value={draft[field.key] || ''} onChange={event => { setDraft({ ...draft, [field.key]: event.target.value }); setConfirmed(false); setCreateConfirmed(false); }} />
+          </label>)}
 
           {data.canEdit && <button className="ops-primary" type="submit">Save pitch draft</button>}
         </fieldset>
@@ -243,7 +239,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
         {data.reviews.map((review) => <details key={review.id} open={review === data.reviews[0]}>
           <summary>Review of v{review.pitchVersion} · {review.report.recommendation.replaceAll('_', ' ')}{JSON.stringify(data.history.find((revision) => revision.version === review.pitchVersion)?.draft) !== JSON.stringify(data.current?.draft) ? ' · Draft changed — review again' : ''}</summary>
           <p>{review.report.summary}</p>
-          <ul>{review.report.checks.map((check) => <li key={check.field}><strong>{ideaFields.find((field) => field.key === check.field)?.label}: {check.status.replaceAll('_', ' ')}</strong>
+          <ul>{review.report.checks.map((check) => <li key={check.field}><strong>{check.field.replaceAll(/([A-Z])/g, ' $1')}: {check.status.replaceAll('_', ' ')}</strong>
             <p>{check.assessment}</p>
             {check.evidence.map((evidence, index) => <blockquote key={index}>{evidence.field}: {evidence.quote}</blockquote>)}
             <p>Improve: {check.improvement}</p>
