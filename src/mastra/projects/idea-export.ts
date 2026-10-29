@@ -14,7 +14,8 @@ export function approvedPitchDocument(payload: IdeaCheckPayload, version: number
     title: payload.pitch.title,
     introduction: `Approved idea pitch for @${payload.pitch.ownerUsername}. Human Proceed decision recorded by @${current.by} on ${recordedAt}. Version ${current.version}.`,
     sections: [
-      ...ideaFields.map(field => ({ heading: field.label, text: current.draft[field.key] })),
+      { heading: 'Track', text: current.draft.track || 'Not recorded' },
+      ...ideaFields.map(field => ({ heading: field.label, text: current.draft[field.key] || '' })),
       { heading: 'Human decision and evidence', text: current.decision.rationale },
       { heading: 'Agreed next step', text: current.decision.nextMilestone },
     ],

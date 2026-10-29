@@ -35,7 +35,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     };
     await title.fill('DEMO — Low-cost cell counting');
     const { ideaFields } = await import('../../src/mastra/projects/idea-check');
-    for (const field of ideaFields) await panel.locator('.idea-fields').getByRole('textbox', { name: new RegExp('^' + field.label) }).fill(draft[field.key]);
+    for (const field of ideaFields) await panel.locator('.idea-fields').getByRole('textbox', { name: new RegExp('^' + field.label) }).fill(draft[field.key as keyof typeof draft] || 'Synthetic plan for ' + field.label);
     page.once('dialog', dialog => dialog.dismiss());
     await page.getByRole('button', { name: 'New pitch', exact: true }).click();
     assert.equal(await title.inputValue(), 'DEMO — Low-cost cell counting', 'Cancelled switching preserves unsaved title.');
@@ -145,11 +145,14 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     assert.equal(await title.inputValue(), '');
     assert.equal((await context.request.get(base + '/api/idea-pitches/' + id)).status(), 403);
     assert.equal(await picker.locator(`option[value="${id}"]`).count(), 0);
-    // Blank-title flow remains available, including deleting the resulting pitch.
-    await panel.locator('.idea-fields').getByRole('textbox', { name: /^Research question/ }).fill('DEMO — Can a smaller model work?');
+    // A title is required before the draft can be saved.
+    await panel.locator('.idea-fields').getByRole('textbox', { name: /^The Pain Point/ }).fill('DEMO — Can a smaller model work?');
     await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
-    await panel.getByRole('heading', { name: 'DEMO — Can a smaller model work?', exact: true }).waitFor();
-    assert.equal(await title.inputValue(), 'DEMO — Can a smaller model work?');
+    assert.equal(await title.evaluate((input: HTMLInputElement) => input.validity.valueMissing), true);
+    await title.fill('DEMO — Required title');
+    await panel.getByRole('button', { name: 'Save pitch draft', exact: true }).click();
+    await panel.getByRole('heading', { name: 'DEMO — Required title', exact: true }).waitFor();
+    assert.equal(await title.inputValue(), 'DEMO — Required title');
     await panel.getByRole('button', { name: 'Delete pitch', exact: true }).click();
     await panel.getByLabel('I understand this pitch and its history will be deleted.', { exact: true }).check();
     await panel.getByRole('button', { name: 'Permanently delete pitch', exact: true }).click();

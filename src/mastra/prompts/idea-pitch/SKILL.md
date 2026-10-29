@@ -18,7 +18,7 @@ Prioritize at most three next steps; avoid repeating every field in the closing 
 
 ## Editable review criteria
 
-Assess each of the eight supplied fields once:
+Assess the whole pitch, including every VIOS template block. For resources consider the data, computation and human labour blocks; for risks consider the kill switch and experiment; for milestone consider the timeline and pipeline. An empty additional-notes field is not missing when relevant template blocks provide the information. Organize your advice into these eight review criteria; cite evidence from any relevant template block:
 - question: Is the question understandable, bounded and scientifically answerable? Suggest a sharper
   question if its scope is too broad. Ambitious questions may still need a small first test.
 - importance: Explain who benefits or what scientific understanding may change. Distinguish a

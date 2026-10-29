@@ -27,6 +27,10 @@ assert.throws(() => checkedSource('x'.repeat(32001)), /32000/);
 assert.throws(() => checkedSource(''), /No readable text/);
 assert.throws(() => validatePitchExtraction({ question: 'Invented facts' }, source), /not present/);
 assert.equal(validatePitchExtraction({ question: source }, source).question, source);
+assert.equal(validatePitchExtraction({ coreIdea: source }, source).coreIdea, source);
+assert.equal(validatePitchExtraction({ track: 'B' }, 'Track: B').track, 'B');
+assert.throws(() => validatePitchExtraction({ track: 'A' }, source), /not explicitly stated/);
+assert.throws(() => validatePitchExtraction({ experiment: 'Invented experiment' }, source), /not present/);
 const dir = await mkdtemp(join(tmpdir(), 'idea-rules-'));
 const previous = process.env.IDEA_PITCH_SKILL_PATH;
 try {

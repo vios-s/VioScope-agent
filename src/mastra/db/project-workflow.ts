@@ -20,7 +20,7 @@ export async function getProjectWorkflow(projectId:string,user:AuthUser) {
  const db=createPostgresClient();
  if(!(await db.pool.query('SELECT 1 FROM project_research WHERE project_id=$1',[project.id])).rowCount && (await db.pool.query("SELECT to_regclass('project_idea_origins') AS existing")).rows[0].existing){
   const origin=(await db.pool.query('SELECT snapshot FROM project_idea_origins WHERE project_id=$1',[project.id])).rows[0]?.snapshot;
-  if(origin)await seedProjectResearch(project.id,{question:origin.draft.question,claim:origin.draft.contribution,validation:origin.draft.validation,resourceNotes:origin.draft.resources,risks:origin.draft.risks},origin.approvedBy);
+  if(origin)await seedProjectResearch(project.id,{question:origin.draft.question,claim:origin.draft.coreIdea || origin.draft.contribution,validation:origin.draft.validation,resourceNotes:origin.draft.resources,risks:origin.draft.risks},origin.approvedBy);
  }
  const research=(await db.pool.query('SELECT revision,profile,history FROM project_research WHERE project_id=$1',[project.id])).rows[0]||{revision:0,profile:researchSchema.parse({}),history:[]};
  const submissions=(await db.pool.query(`SELECT id::text,revision,is_current AS "isCurrent",plan,result,history,created_at AS "createdAt" FROM project_submissions WHERE project_id=$1 ORDER BY created_at DESC,id DESC`,[project.id])).rows;

@@ -5,7 +5,7 @@ import { AuthError, canSeeAll } from '../auth/session';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { createProject, getProjectForUser } from './projects';
 import { ensureUsersTable, getUserByUsername, type AuthUser } from './users';
-import { checkIdea, ideaCommandSchema, initialProjectActionSchema, type IdeaCommand, type IdeaRevision, type IdeaPitch } from '../projects/idea-check';
+import { checkIdea, ideaDraftSchema, ideaCommandSchema, initialProjectActionSchema, type IdeaCommand, type IdeaRevision, type IdeaPitch } from '../projects/idea-check';
 
 function canManage(pitch: IdeaPitch, user: AuthUser) {
   return user.provisioningStatus === 'active' && (pitch.ownerUsername === user.username || canSeeAll(user));
@@ -65,7 +65,7 @@ async function pitchForUser(id: string, user: AuthUser, allowShared = false): Pr
 async function revisions(id: string, latestOnly = false): Promise<IdeaRevision[]> {
   const result = await createPostgresClient().pool.query<{ version: number; payload: Pick<IdeaRevision, 'title' | 'draft' | 'source' | 'decision' | 'operation'>; by_username: string; at: string }>(
     'SELECT version,payload,by_username,created_at::text AS at FROM idea_pitch_revisions WHERE pitch_id=$1 ORDER BY version DESC LIMIT $2', [id, latestOnly ? 1 : null]);
-  return result.rows.map((row) => ({ ...row.payload, version: row.version, by: row.by_username, at: row.at }));
+  return result.rows.map((row) => ({ ...row.payload, draft: ideaDraftSchema.parse(row.payload.draft), version: row.version, by: row.by_username, at: row.at }));
 }
 export async function getIdeaCheck(id: string, user: AuthUser) {
   await ensureTable();
@@ -93,7 +93,7 @@ export async function writeIdeaCheck(id: string, input: IdeaCommand, user: AuthU
       throw new Error('Fill the missing sections before confirming Proceed. Completed fields still require human review.');
     }
     const title = command.operation === 'save' && command.title !== undefined
-      ? command.title || draft.question.trim().slice(0, 200) || pitch.title : pitch.title;
+      ? command.title : pitch.title;
     await db.pool.query('UPDATE idea_pitches SET title=$2 WHERE id=$1', [id, title]);
     const payload = { title, draft, source: command.operation === 'save' ? command.source : current?.source || null, decision: command.operation === 'decide' ? command.decision : null, operation: command.operation };
     await db.pool.query('INSERT INTO idea_pitch_revisions(pitch_id,version,payload,by_username) VALUES($1,$2,$3::jsonb,$4)',
@@ -114,7 +114,7 @@ export async function createProjectFromPitch(id: string, version: number, user: 
     const assignments = setup ? projectSetupSchema.parse(setup) : undefined;
     if (assignments) for (const username of assignments.collaborators) { const account=await getUserByUsername(username); if(!account||account.provisioningStatus!=='active') throw new Error('Project collaborators must be active accounts.'); }
     const project = await createProject({ ...assignments, title: pitch.title, ownerUsername: pitch.ownerUsername, stage: 1, target: current.decision.nextMilestone, todos: initialAction ? [initialProjectActionSchema.parse(initialAction)] : [] }, user);
-    await seedProjectResearch(project.id,{phase:'initial_validation',question:current.draft.question,claim:current.draft.contribution,validation:current.draft.validation,resourceNotes:current.draft.resources,risks:current.draft.risks},user.username);
+    await seedProjectResearch(project.id,{phase:'initial_validation',question:current.draft.question,claim:current.draft.coreIdea || current.draft.contribution,validation:current.draft.validation,resourceNotes:current.draft.resources,risks:current.draft.risks},user.username);
     await db.pool.query('INSERT INTO project_idea_origins(project_id,snapshot) VALUES($1,$2::jsonb)', [project.id,
       JSON.stringify({ title: pitch.title, draft: current.draft, decision: current.decision, approvedBy: current.by, approvedAt: current.at, version: current.version })]);
     await db.pool.query('UPDATE idea_pitches SET project_id=$2 WHERE id=$1', [id, project.id]);

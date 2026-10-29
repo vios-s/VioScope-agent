@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useRef, useState } from 'react';
 import { IdeaPitchSharing } from './idea-pitch-sharing';
 import { checklistDraftKey, readChecklistDraft, writeChecklistDraft, removeChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
@@ -38,7 +38,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   const url = `/api/idea-pitches/${encodeURIComponent(resolvedId.current)}`;
   async function ensurePitch() {
     if (!resolvedId.current) {
-      const result = await requestJson<{ id: string }>('/api/idea-pitches', 'Could not create pitch.', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: (title.trim() || draft.question.trim() || upload?.name || pasted.trim() || 'Untitled idea').slice(0, 200) }) });
+      if (!title.trim()) throw new Error('Enter a pitch title before importing or saving.');
+      const result = await requestJson<{ id: string }>('/api/idea-pitches', 'Could not create pitch.', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title.trim() }) });
       resolvedId.current = result.id;
     }
     return `/api/idea-pitches/${encodeURIComponent(resolvedId.current)}`;
@@ -49,7 +50,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
     setData(null); setError(''); setStatus('');
     void requestJson<IdeaCheckPayload>(url, 'Could not load idea check.').then((payload) => {
       if (!active) return;
-      setData(payload); setExportFormat(defaultPitchExportFormat(payload.current?.source?.name)); setTitle(payload.pitch.title); setDraft(payload.current?.draft || ideaDraftSchema.parse({})); setSource(payload.current?.source || null); setPreview(null);
+      setData(payload); setExportFormat(defaultPitchExportFormat(payload.current?.source?.name)); setTitle(payload.pitch.title); setDraft(ideaDraftSchema.parse(payload.current?.draft || {}));
+      if (payload.current?.draft.track) setSetup(current => ({ ...current, track: payload.current!.draft.track })); setSource(payload.current?.source || null); setPreview(null);
       const cached = restored.current;
       if (cached && payload.canEdit && cached.version === (payload.current?.version || 0)) {
         setTitle(cached.title); setDraft(ideaDraftSchema.parse(cached.draft)); setSource(cached.source); setPasted(cached.pasted);
@@ -130,6 +132,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   const missing = checks.filter((item) => !item.present);
   async function save(operation: 'save' | 'decide' | 'create_project') {
     if (!data || conflictingDraft) return;
+    if (operation === 'save' && !title.trim()) { setError('Enter a pitch title before saving.'); return; }
     setBusy(true); setError(''); setStatus('');
     try {
       const target = await ensurePitch();
@@ -138,7 +141,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
           ...(operation === 'save' ? { title, draft, source } : operation === 'decide' ? { decision, confirmed } : { confirmed: createConfirmed, initialAction: { text: initialAction, dueDate: actionDueDate }, setup: {...setup,piUsername:setup.piUsername||null,pdraUsername:setup.pdraUsername||null,collaborators:setup.collaborators.split(',').map(value=>value.trim()).filter(Boolean)} }) }) });
       removeChecklistDraft(storageKey); restored.current = null;
       const payload = await requestJson<IdeaCheckPayload>(target, 'Saved, but could not refresh. Reload to see the saved record.');
-      setData(payload); setExportFormat(defaultPitchExportFormat(payload.current?.source?.name)); setTitle(payload.pitch.title); setDraft(payload.current!.draft); setConfirmed(false); setCreateConfirmed(false);
+      setData(payload); setExportFormat(defaultPitchExportFormat(payload.current?.source?.name)); setTitle(payload.pitch.title); setDraft(ideaDraftSchema.parse(payload.current!.draft)); if (payload.current!.draft.track) setSetup(current => ({ ...current, track: payload.current!.draft.track })); setConfirmed(false); setCreateConfirmed(false);
       await onChanged(resolvedId.current);
       if (operation === 'create_project') await onProjectCreated();
       setStatus(operation === 'save' ? 'Draft saved. Human decision pending.' : operation === 'decide' ? 'Human decision saved. No project created.' : 'Project created. The original pitch is retained.');
@@ -169,7 +172,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       {data.current?.decision && <><p>Reason / evidence: {data.current.decision.rationale}</p><p>Next milestone or closure: {data.current.decision.nextMilestone}</p></>}
       {data.canManage && data.current?.decision?.outcome === 'proceed' && <section className="idea-export" aria-label="Download approved pitch">
         <h4>Approved pitch document</h4>
-        <p>Download the confirmed title, eight sections and human decision. Old drafts, source text and AI review history are excluded.</p>
+        <p>Download the confirmed title, pitch sections and human decision. Old drafts, source text and AI review history are excluded.</p>
         {data.current?.decision?.outcome === 'proceed' && !dirty ? <div className="idea-export-controls">
           <label>Download format <select value={exportFormat} disabled={busy || Boolean(conflictingDraft)} onChange={(event) => setExportFormat(event.target.value as PitchExportFormat)}>
             <option value="docx">Word (.docx)</option><option value="pdf">PDF (.pdf)</option><option value="md">Markdown (.md)</option><option value="txt">Plain text (.txt)</option>
@@ -183,15 +186,24 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       {source && <details><summary>Source text: {source.name}</summary><pre className="idea-source-text">{source.text}</pre></details>}
       <form onSubmit={(event) => { event.preventDefault(); void save('save'); }}>
         <fieldset disabled={busy || Boolean(conflictingDraft)} className="idea-fields"><legend>Idea and validation plan</legend>
-          <label className="idea-optional-title" htmlFor={`${prefix}-title`}>Pitch title (optional)
-            <input id={`${prefix}-title`} readOnly={!data.canEdit} maxLength={200} value={title} onChange={(event) => { setTitle(event.target.value); setConfirmed(false); setCreateConfirmed(false); }} placeholder="e.g. Smaller models for low-cost research" aria-describedby={`${prefix}-title-hint`} />
-            <span id={`${prefix}-title-hint`}>{data.canEdit ? 'Leave blank to use your research question. Save the draft to keep title changes.' : 'Saved title · Read only'}</span>
+          <label className="idea-optional-title" htmlFor={`${prefix}-title`}>Pitch title
+            <input id={`${prefix}-title`} readOnly={!data.canEdit} required={data.canEdit} maxLength={200} value={title} onChange={(event) => { setTitle(event.target.value); setConfirmed(false); setCreateConfirmed(false); }} placeholder="e.g. Smaller models for low-cost research" />
           </label>
-          {ideaFields.map((field) => <label key={field.key} htmlFor={`${prefix}-${field.key}`}>{field.label}
-            <span id={`${prefix}-${field.key}-hint`}>{field.hint}</span>
-            <textarea id={`${prefix}-${field.key}`} readOnly={!data.canEdit} aria-describedby={`${prefix}-${field.key}-hint`} rows={3} maxLength={4000}
-              value={draft[field.key]} onChange={(event) => { setDraft({ ...draft, [field.key]: event.target.value }); setConfirmed(false); setCreateConfirmed(false); }} />
-          </label>)}
+          <p className="idea-section-title">Lead: {data.pitch.ownerUsername ? `@${data.pitch.ownerUsername}` : 'You'}</p>
+          <label>Track
+            <span>Choose the intended project track.</span>
+            <select value={draft.track} disabled={!data.canEdit} onChange={event => { setDraft({ ...draft, track: event.target.value as '' | 'A' | 'B' }); setConfirmed(false); setCreateConfirmed(false); }}>
+              <option value="">Select a track</option><option value="A">Track A</option><option value="B">Track B</option>
+            </select>
+          </label>
+          {ideaFields.map((field, index) => <Fragment key={field.key}>
+            {(index === 0 || ideaFields[index - 1].section !== field.section) && <h3 className="idea-section-title">{field.section}</h3>}
+            <label htmlFor={`${prefix}-${field.key}`}>{field.label}
+              <span id={`${prefix}-${field.key}-hint`}>{field.hint}</span>
+              <textarea id={`${prefix}-${field.key}`} readOnly={!data.canEdit} aria-describedby={`${prefix}-${field.key}-hint`} placeholder={field.hint} rows={3} maxLength={4000}
+                value={draft[field.key] || ''} onChange={(event) => { setDraft({ ...draft, [field.key]: event.target.value }); setConfirmed(false); setCreateConfirmed(false); }} />
+            </label>
+          </Fragment>)}
 
           {data.canEdit && <button className="ops-primary" type="submit">Save pitch draft</button>}
         </fieldset>
@@ -213,7 +225,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
         {preview && <div><h4>Review extracted blocks before applying</h4>
           <p>Only exact excerpts are placed into blocks. Missing information stays empty. Applying replaces the current blocks but does not save them.</p>
           <details><summary>Extracted source: {preview.source.name}</summary><pre className="idea-source-text">{preview.source.text}</pre></details>
-          <dl>{ideaFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{preview.draft[field.key] || 'Missing — fill in yourself'}</dd></div>)}</dl>
+          <dl><div><dt>Track</dt><dd>{preview.draft.track || 'Missing — fill in yourself'}</dd></div>{ideaFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{preview.draft[field.key] || 'Missing — fill in yourself'}</dd></div>)}</dl>
           <button type="button" className="ops-secondary" disabled={busy || Boolean(conflictingDraft)} onClick={() => { setDraft(preview.draft); setSource(preview.source); setPreview(null); setConfirmed(false); setCreateConfirmed(false); setStatus('Preview applied to unsaved blocks. Review and save the draft.'); }}>Replace blocks with this preview</button>
         </div>}
       </section>}

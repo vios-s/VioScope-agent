@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ideaDraftSchema, ideaFields } from '../src/mastra/projects/idea-check';
+import { ideaDraftSchema, ideaFields, ideaReviewKeys } from '../src/mastra/projects/idea-check';
 import { validateIdeaReview } from '../src/mastra/projects/idea-review-schema';
 import { agentPrompt, artifactSummaryPrompt, submissionReviewPrompt, englishResponsePolicy } from '../src/mastra/prompts';
 for (const prompt of [agentPrompt.instructions, artifactSummaryPrompt.system, submissionReviewPrompt.system]) assert.ok(prompt.includes(englishResponsePolicy));
@@ -19,6 +19,6 @@ console.log('English policy passed: application/source/public text and shared AI
 
 const originalText = String.fromCodePoint(0x4e2d, 0x6587);
 const draft = ideaDraftSchema.parse(Object.fromEntries(ideaFields.map(field => [field.key, originalText])));
-const report = { recommendation: 'needs_revision', summary: 'Clarify the proposal.', checks: ideaFields.map(field => ({ field: field.key, status: 'needs_work', assessment: 'The claim needs a test.', evidence: [{ field: field.key, quote: originalText }], improvement: 'Define a baseline comparison.' })), nextSteps: ['Specify the comparison.'] };
+const report = { recommendation: 'needs_revision', summary: 'Clarify the proposal.', checks: ideaReviewKeys.map(key => ({ field: key, status: 'needs_work', assessment: 'The claim needs a test.', evidence: [{ field: key, quote: originalText }], improvement: 'Define a baseline comparison.' })), nextSteps: ['Specify the comparison.'] };
 assert.doesNotThrow(() => validateIdeaReview(report, draft), 'Original evidence remains verbatim.');
 assert.throws(() => validateIdeaReview({ ...report, summary: originalText }, draft), /must be in English/);

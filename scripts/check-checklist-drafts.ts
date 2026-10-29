@@ -59,9 +59,23 @@ try {
   await refresh();
   assert.equal(await page.locator('.skeleton-lock textarea').inputValue(),'Unsaved outline');
   await tab('Idea Pitch').click();
+  const pitchTitle = page.getByRole('textbox', { name: 'Pitch title', exact: true });
+  assert.equal(await pitchTitle.getAttribute('required'), '');
+  assert.equal(await page.getByText('Leave blank to use your research question.', {exact: false}).count(), 0);
+  for (const heading of ['1. The Why', '2. The Context', '3. The What', '4. The De-Risk', '5. The Resources']) {
+    await page.getByRole('heading', {name: heading, exact:true}).waitFor();
+  }
+  assert.deepEqual(await page.locator('.idea-fields h3').allTextContents(), ['1. The Why', '2. The Context', '3. The What', '4. The De-Risk', '5. The Resources', 'Additional notes']);
+  const { ideaFields } = await import('../src/mastra/projects/idea-check');
+  for (const field of ideaFields) {
+    const control = page.locator('.idea-fields textarea').nth(ideaFields.indexOf(field));
+    assert.equal(await control.getAttribute('placeholder'), field.hint);
+  }
+  await page.locator('.idea-fields select').first().selectOption('B');
   await page.locator('.idea-fields textarea').first().fill('Unsaved new idea');
   await refresh();
   assert.equal(await page.locator('.idea-fields textarea').first().inputValue(),'Unsaved new idea');
+  assert.equal(await page.locator('.idea-fields select').first().inputValue(),'B');
   await page.getByRole('combobox',{name:'Saved pitches',exact:true}).selectOption('pitch-demo');
   await page.locator('.idea-fields textarea').first().fill('Unsaved change to existing pitch');
   await refresh();
