@@ -119,7 +119,8 @@ async function checkMember(browser: any) {
     assert.equal((await saveResponse).ok(), true);
     assert.equal(await detailsForm.getByLabel('Venue').inputValue(), 'AIED UX');
 
-    await page.getByRole('button', { name: 'TODO', exact: true }).click();
+    await page.getByRole('button', { name: 'Research workflow', exact: true }).click();
+    await page.getByRole('region', { name: 'Project research workflow' }).getByRole('button', { name: 'Tasks', exact: true }).click();
     const todoPanel = page.getByRole('region', { name: 'Project research workflow' });
     await todoPanel.getByText('Add a task', { exact: true }).click();
     const taskForm = todoPanel.locator('form').filter({ has: page.getByRole('button', { name: 'Create project task' }) });
@@ -138,7 +139,8 @@ async function checkMember(browser: any) {
     await todoPanel.getByRole('heading', { name: 'Draft evaluation checklist v2' }).waitFor();
     await page.getByLabel('Close project details').click();
 
-    await page.getByLabel(`TODO list for ${title}`).click();
+    await page.getByLabel(`Research workflow for ${title}`).click();
+    await page.getByRole('region', { name: 'Project research workflow' }).getByRole('button', { name: 'Tasks', exact: true }).click();
     await page.getByRole('heading', { name: 'Project tasks' }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByLabel('Close project details').click();
 

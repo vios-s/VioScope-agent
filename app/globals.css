@@ -4524,9 +4524,10 @@ html[data-theme="dark"] .briefing-hero::after {
 }
 
 .project-modal-tabs {
-  width: fit-content;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: min(100%, 600px);
   max-width: 100%;
-  flex-wrap: wrap;
 }
 
 .project-modal-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; }
@@ -6825,8 +6826,8 @@ html[data-theme="dark"] .briefing-hero::after {
 .skeleton-project-option:focus-visible { outline-offset: -2px; }
 .skeleton-project-options > p:last-child:not(.skeleton-project-count) { padding: 16px 10px; margin: 0; color: var(--ink-3); font-size: 14px; }
 
-.project-workflow { color: var(--ink); font-size: 14px; line-height: 1.5; }
-.project-workflow h2 { font-size: 22px; }
+.project-workflow { padding: 14px; border: 1px solid var(--border-2); border-radius: 8px; background: var(--surface-2); color: var(--ink); font-size: 14px; line-height: 1.5; }
+.project-workflow h2 { margin: 0; font-size: 17px; }
 .project-workflow h3 { font-size: 17px; margin-top: 24px; }
 .project-workflow h4 { font-size: 15px; margin: 0 0 8px; }
 .workflow-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-block: 16px 24px; }
