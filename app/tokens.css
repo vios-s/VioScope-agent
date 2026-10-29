@@ -1,0 +1,83 @@
+/*
+ * VioScope redesign — "Quiet Instrument" design tokens.
+ * Source of truth: design-source/Foundations.dc.html and screenshots/Foundations.png.
+ * Light theme only (dark mode removed, decision D9).
+ */
+:root {
+  /* Typography */
+  --vs-font-sans: var(--font-plex-sans), "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --vs-font-serif: var(--font-newsreader), "Newsreader", Georgia, "Times New Roman", serif; /* page titles only */
+  --vs-font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace; /* timestamps, IDs, versions */
+
+  --vs-text-page-title: 400 34px/1.15 var(--vs-font-serif);
+  --vs-text-record-title: 400 32px/1.2 var(--vs-font-serif);
+  --vs-text-section: 600 18px/1.4 var(--vs-font-sans);
+  --vs-text-heading: 600 16px/1.4 var(--vs-font-sans);
+  --vs-text-body: 400 14px/1.5 var(--vs-font-sans);
+  --vs-text-secondary: 400 13px/1.5 var(--vs-font-sans);
+  --vs-text-meta-mono: 400 12px/1.5 var(--vs-font-mono);
+  --vs-text-label-caps: 500 11px/1.4 var(--vs-font-sans); /* + letter-spacing .06em, uppercase */
+  --vs-measure: 68ch;
+
+  /* Aegean accent (user-approved palette) */
+  --vs-accent: #00678D;          /* primary action, focus ring, selected tab underline */
+  --vs-accent-strong: #00567A;   /* accent text on light fills (7:1) */
+  --vs-accent-hover: #004E6B;
+  --vs-accent-2: #3385A4;        /* meters, minor emphasis */
+  --vs-accent-3: #66A4BB;        /* charts only */
+  --vs-accent-line: #99C2D1;     /* selected borders, row-action outline */
+  --vs-accent-soft: #CCE1E8;     /* avatars, soft fills */
+  --vs-accent-selected: #E3EEF2; /* selected nav/list item background, focus halo */
+  --vs-accent-wash: #F2F8FA;     /* selected radio/option background */
+
+  /* Neutrals */
+  --vs-ink: #14202A;             /* primary text */
+  --vs-ink-2: #3A4753;           /* secondary body text */
+  --vs-ink-3: #5F6B77;           /* metadata, captions (5.3:1 on white) */
+  --vs-ink-disabled: #7A8691;
+  --vs-border-control: #D5DDE3;  /* inputs, secondary buttons */
+  --vs-line: #E4E9ED;            /* section rules, panel borders */
+  --vs-line-soft: #EEF2F4;       /* row separators */
+  --vs-surface: #FFFFFF;         /* page */
+  --vs-surface-2: #F6F8F9;       /* sidebar, quiet callouts */
+  --vs-surface-3: #F1F4F6;       /* segmented-control track */
+  --vs-surface-table-head: #FAFBFC;
+  --vs-row-hover: #F8FAFB;
+  --vs-meter-track: #DCE4E9;
+
+  /* Status — always paired with a dot and a word, never colour alone */
+  --vs-ok-fg: #23683F;     --vs-ok-bg: #E7F3EC;     --vs-ok-dot: #2E8B57;
+  --vs-warn-fg: #8A5300;   --vs-warn-bg: #FCF1DE;   --vs-warn-dot: #D08A1A;  --vs-warn-border: #EBCF97;
+  --vs-danger-fg: #A8281F; --vs-danger-bg: #FCE9E7; --vs-danger-dot: #D0453A; --vs-danger-border: #F1C7C2;
+  --vs-muted-fg: #4A5866;  --vs-muted-bg: #EEF1F3;  --vs-muted-dot: #8A96A1;
+  --vs-destructive: #B3261E; /* destructive buttons */
+
+  /* Spacing (4px base) */
+  --vs-space-1: 4px;  --vs-space-2: 8px;  --vs-space-3: 12px; --vs-space-4: 16px;
+  --vs-space-6: 24px; --vs-space-8: 32px; --vs-space-10: 40px; --vs-space-12: 48px;
+  --vs-page-gutter: 40px;
+  --vs-sidebar-width: 232px;
+  --vs-content-max: 1280px;  /* Briefing/Feedback use 1200px, Checklists 1320px */
+
+  /* Control sizes */
+  --vs-control-sm: 32px; --vs-control-md: 36px; --vs-control-lg: 38px; /* inputs */
+
+  /* Radii */
+  --vs-radius-row-btn: 7px;
+  --vs-radius-control: 8px;
+  --vs-radius-panel: 12px;
+  --vs-radius-dialog: 14px;
+  --vs-radius-pill: 999px;
+
+  /* Elevation — only overlays cast shadows; the page is flat */
+  --vs-shadow-segment: 0 1px 2px rgba(20, 32, 42, 0.08);
+  --vs-shadow-toast: 0 8px 24px -10px rgba(20, 32, 42, 0.2);
+  --vs-shadow-popover: 0 12px 32px -12px rgba(20, 32, 42, 0.18);
+  --vs-shadow-dialog: 0 24px 48px -12px rgba(20, 32, 42, 0.28);
+  --vs-scrim: rgba(20, 32, 42, 0.32);
+
+  /* Focus */
+  --vs-focus-ring: 2px solid var(--vs-accent);
+  --vs-focus-offset: 2px;
+  --vs-focus-halo: 0 0 0 3px var(--vs-accent-selected); /* focused inputs */
+}

@@ -1,0 +1,1006 @@
+/*
+ * Quiet Instrument redesign layer. Loaded after globals.css; values come from tokens.css.
+ * Shell and shared primitives live here; screen-specific rules live in app/redesign/*.css.
+ */
+@import "./redesign/projects.css";
+@import "./redesign/briefing.css";
+@import "./redesign/meetings.css";
+@import "./redesign/checklists.css";
+@import "./redesign/chat.css";
+@import "./redesign/settings.css";
+@import "./redesign/feedback.css";
+@import "./redesign/dialogs.css";
+
+body {
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  font: var(--vs-text-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible,
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: var(--vs-focus-ring);
+  outline-offset: var(--vs-focus-offset);
+}
+
+.vs-caps {
+  font: var(--vs-text-label-caps);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vs-ink-3);
+}
+
+.vs-mono,
+.mono-cell {
+  font-family: var(--vs-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.vs-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---------- Shell ---------- */
+
+.console-app.vs-shell {
+  height: 100dvh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  background: var(--vs-surface);
+}
+
+.vs-sidebar.console-rail {
+  width: var(--vs-sidebar-width);
+  flex: 0 0 var(--vs-sidebar-width);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 18px 14px 24px;
+  overflow-y: auto;
+  border-right: 1px solid var(--vs-line);
+  background: var(--vs-surface-2);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.vs-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  padding: 2px 8px;
+}
+
+.vs-wordmark {
+  height: 16px;
+  width: 49px;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+}
+
+.vs-brand-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--vs-border-control);
+}
+
+.vs-brand-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.005em;
+  color: var(--vs-ink);
+}
+
+.vs-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vs-nav-heading {
+  padding: 0 10px 6px;
+  font: var(--vs-text-label-caps);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vs-ink-3);
+}
+
+.vs-sidebar.console-rail button[data-view] {
+  position: static;
+  min-height: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--vs-radius-control);
+  background: transparent;
+  color: var(--vs-ink-2);
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+}
+
+.vs-sidebar.console-rail button[data-view]:hover {
+  background: var(--vs-surface-3);
+  color: var(--vs-ink);
+}
+
+.vs-sidebar.console-rail button[data-view].active {
+  background: var(--vs-accent-selected);
+  color: var(--vs-accent-strong);
+  font-weight: 600;
+}
+
+.vs-sidebar.console-rail button[data-view].active::before {
+  content: none;
+}
+
+.vs-sidebar.console-rail svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  stroke-width: 1.75;
+}
+
+.vs-nav-label {
+  flex: 1;
+}
+
+.vs-nav-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--vs-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.vs-nav-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-accent);
+}
+
+.vs-sidebar .vs-next-meetings {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid var(--vs-line);
+  border-radius: 10px;
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  text-align: left;
+}
+
+.vs-next-meetings:hover {
+  border-color: var(--vs-accent-line);
+}
+
+.vs-next-meetings strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.vs-next-meetings > span:last-child {
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.vs-sidebar .vs-nav-close,
+.vs-topbar .vs-menu-button {
+  display: none;
+}
+
+.vs-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.console-topbar.vs-topbar {
+  position: relative;
+  z-index: var(--z-topbar);
+  height: auto;
+  min-height: 56px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--vs-line-soft);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+}
+
+.vs-breadcrumb {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.vs-breadcrumb svg {
+  width: 14px;
+  height: 14px;
+}
+
+.vs-breadcrumb [aria-current="page"] {
+  color: var(--vs-ink);
+  font-weight: 500;
+}
+
+.vs-topbar .account-block {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--vs-ink);
+}
+
+.topbar-notification-button {
+  position: relative;
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--vs-radius-control);
+  background: transparent;
+  color: var(--vs-ink-2);
+}
+
+.topbar-notification-button:hover {
+  background: var(--vs-surface-2);
+}
+
+.topbar-notification-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.topbar-notification-button strong {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.vs-topbar .account-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 4px 4px;
+  border: 0;
+  border-radius: var(--vs-radius-control);
+  background: transparent;
+  color: var(--vs-ink);
+  text-align: left;
+}
+
+.vs-topbar .account-summary:hover {
+  background: var(--vs-surface-2);
+}
+
+.account-summary-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.25;
+}
+
+.account-summary-text strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vs-ink);
+}
+
+.account-summary-text small {
+  font-size: 12px;
+  color: var(--vs-ink-3);
+}
+
+.account-menu-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--vs-ink-3);
+}
+
+.user-avatar {
+  width: 30px;
+  height: 30px;
+  background: var(--vs-accent-soft);
+  color: var(--vs-accent-hover);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.account-menu {
+  top: calc(100% + 6px);
+  right: 0;
+  width: 200px;
+  padding: 4px;
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-panel);
+  background: var(--vs-surface);
+  box-shadow: var(--vs-shadow-popover);
+}
+
+.account-menu button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--vs-ink-2);
+  font-size: 14px;
+}
+
+.account-menu button:hover {
+  background: var(--vs-surface-2);
+  color: var(--vs-ink);
+}
+
+/* Notification popover */
+.notification-popover {
+  width: min(400px, calc(100vw - 32px));
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-panel);
+  background: var(--vs-surface);
+  box-shadow: var(--vs-shadow-popover);
+}
+
+.notification-popover header {
+  padding: 16px 20px 8px;
+}
+
+.notification-popover header strong {
+  font: var(--vs-text-heading);
+  color: var(--vs-ink);
+}
+
+.notification-popover header button {
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--vs-accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.notification-popover header button:hover {
+  background: transparent;
+  color: var(--vs-accent-hover);
+  text-decoration: underline;
+}
+
+.notification-tabs {
+  display: flex;
+  gap: 20px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--vs-line);
+}
+
+.notification-tabs button {
+  min-height: 38px;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--vs-ink-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.notification-tabs button:hover {
+  background: transparent;
+  color: var(--vs-ink);
+}
+
+.notification-tabs button.active {
+  border-bottom-color: var(--vs-accent);
+  background: transparent;
+  color: var(--vs-accent-strong);
+}
+
+.vs-tab-count {
+  margin-left: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.notification-list {
+  padding: 0;
+}
+
+.notification-row {
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--vs-line-soft);
+}
+
+.notification-row.unread {
+  background: var(--vs-surface-2);
+}
+
+.notification-row strong,
+.notification-row.unread strong {
+  color: var(--vs-ink);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.notification-row small {
+  color: var(--vs-ink-3);
+  font-size: 12px;
+}
+
+.notification-row em {
+  color: var(--vs-ink-3);
+  font-size: 12px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.notification-row .user-avatar,
+.notification-glyph {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--vs-radius-pill);
+}
+
+.notification-glyph {
+  background: var(--vs-surface-3);
+  color: var(--vs-ink-2);
+}
+
+.notification-glyph svg {
+  width: 16px;
+  height: 16px;
+}
+
+.notification-empty {
+  padding: 24px 20px;
+  color: var(--vs-ink-3);
+}
+
+/* ---------- Content column and page header ---------- */
+
+.console-content {
+  margin-top: 0;
+  border-radius: 0;
+  background: var(--vs-surface);
+  box-shadow: none;
+}
+
+.console-page-scroll {
+  background: var(--vs-surface);
+}
+
+.console-page-inner,
+.console-page-inner.wide {
+  width: 100%;
+  max-width: var(--vs-content-max);
+  margin: 0;
+  padding: var(--vs-page-gutter) var(--vs-page-gutter) 72px;
+}
+
+.console-subheader.vs-page-header {
+  min-height: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 28px;
+  padding: 0;
+}
+
+.vs-page-header .console-subtitle-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 720px;
+}
+
+.vs-page-eyebrow {
+  margin: 0 0 2px;
+  font: var(--vs-text-meta-mono);
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.vs-page-header .console-page-title {
+  margin: 0;
+  font: var(--vs-text-page-title);
+  letter-spacing: -0.01em;
+  color: var(--vs-ink);
+  white-space: normal;
+}
+
+.vs-page-header .console-page-subtitle {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--vs-ink-2);
+}
+
+.console-subheader-actions {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Underline page tabs */
+.console-page-tabs {
+  display: flex;
+  gap: 28px;
+  margin: -8px 0 28px;
+  padding: 0;
+  border-bottom: 1px solid var(--vs-line);
+  overflow-x: auto;
+}
+
+.console-page-tabs button {
+  min-height: 40px;
+  padding: 0 0 2px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--vs-ink-2);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.console-page-tabs button:hover {
+  color: var(--vs-ink);
+  border-bottom-color: transparent;
+}
+
+.console-page-tabs button.active {
+  border-bottom-color: var(--vs-accent);
+  color: var(--vs-accent-strong);
+}
+
+/* ---------- Buttons ---------- */
+
+.ops-primary,
+.ops-secondary {
+  min-height: var(--vs-control-md);
+  height: auto;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: var(--vs-radius-control);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.ops-primary,
+.idea-pitches-panel .ops-primary {
+  border: 1px solid var(--vs-accent);
+  background: var(--vs-accent);
+  color: #fff;
+}
+
+.ops-primary:hover:not(:disabled) {
+  border-color: var(--vs-accent-hover);
+  background: var(--vs-accent-hover);
+}
+
+.ops-secondary,
+.idea-pitches-panel .ops-secondary {
+  border: 1px solid var(--vs-border-control);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+}
+
+.ops-secondary:hover:not(:disabled) {
+  border-color: var(--vs-border-control);
+  background: var(--vs-surface-2);
+  color: var(--vs-ink);
+}
+
+.ops-primary:disabled,
+.ops-secondary:disabled {
+  border-color: var(--vs-line);
+  background: var(--vs-surface-3);
+  color: var(--vs-ink-disabled);
+  opacity: 1;
+}
+
+.ops-primary svg,
+.ops-secondary svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+
+.ops-danger,
+.ops-primary.danger,
+.ops-secondary.danger {
+  border-color: var(--vs-destructive);
+  background: var(--vs-destructive);
+  color: #fff;
+}
+
+.icon-only-button {
+  width: var(--vs-control-md);
+  min-width: var(--vs-control-md);
+  padding: 0;
+}
+
+/* ---------- Panels, notices, empty states ---------- */
+
+.ops-panel {
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-panel);
+  background: var(--vs-surface);
+  box-shadow: none;
+}
+
+.ops-panel-head {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--vs-line-soft);
+}
+
+.ops-panel-head h2 {
+  margin: 0;
+  font: var(--vs-text-heading);
+  color: var(--vs-ink);
+}
+
+.ops-panel-head p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--vs-ink-3);
+}
+
+.ops-eyebrow {
+  margin-bottom: 4px;
+  font: var(--vs-text-label-caps);
+  letter-spacing: 0.06em;
+  color: var(--vs-ink-3);
+}
+
+.ops-notice {
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--vs-warn-border);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-warn-bg);
+  color: var(--vs-warn-fg);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.ops-notice.error,
+.form-message.error {
+  border-color: var(--vs-danger-border);
+  background: var(--vs-danger-bg);
+  color: var(--vs-danger-fg);
+}
+
+.console-content > .ops-notice {
+  margin: 16px var(--vs-page-gutter) 0;
+}
+
+.form-message {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--vs-ok-dot) 30%, white);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-ok-bg);
+  color: var(--vs-ok-fg);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.ops-empty {
+  min-height: 160px;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-panel);
+  background: var(--vs-surface);
+  color: var(--vs-ink-3);
+  font-weight: 400;
+  text-align: center;
+}
+
+.ops-muted-line {
+  color: var(--vs-ink-3);
+  font-size: 13px;
+}
+
+/* ---------- Status, stage, track ---------- */
+
+.status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--vs-radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--vs-muted-bg);
+  color: var(--vs-muted-fg);
+}
+
+.status-text::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-muted-dot);
+}
+
+.status-text.status-on_track { background: var(--vs-ok-bg); color: var(--vs-ok-fg); }
+.status-text.status-on_track::before { background: var(--vs-ok-dot); }
+.status-text.status-needs_input { background: var(--vs-warn-bg); color: var(--vs-warn-fg); }
+.status-text.status-needs_input::before { background: var(--vs-warn-dot); }
+.status-text.status-blocked { background: var(--vs-danger-bg); color: var(--vs-danger-fg); }
+.status-text.status-blocked::before { background: var(--vs-danger-dot); }
+
+.stage-bar {
+  display: inline-grid;
+  grid-template-columns: repeat(5, 16px);
+  gap: 4px;
+  min-width: 0;
+  align-items: center;
+}
+
+.stage-bar span {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--vs-meter-track);
+}
+
+.stage-bar .stage-filled {
+  background: var(--vs-accent);
+}
+
+.track-chip {
+  border-radius: var(--vs-radius-pill);
+  background: var(--vs-muted-bg);
+  color: var(--vs-muted-fg);
+}
+
+/* ---------- Segmented control ---------- */
+
+.ops-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--vs-surface-3);
+}
+
+.ops-segmented button {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--vs-radius-row-btn);
+  background: transparent;
+  color: var(--vs-ink-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ops-segmented button.selected,
+.ops-segmented button.active,
+.ops-segmented button[aria-selected="true"] {
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  box-shadow: var(--vs-shadow-segment);
+}
+
+/* ---------- Fields ---------- */
+
+.console-page input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]),
+.console-page select,
+.console-page textarea,
+.users-modal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.users-modal select,
+.users-modal textarea {
+  border: 1px solid var(--vs-border-control);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-surface);
+  color: var(--vs-ink);
+  font-size: 14px;
+}
+
+.console-page input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]),
+.console-page select,
+.users-modal input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.users-modal select {
+  min-height: var(--vs-control-lg);
+}
+
+.console-page input:focus-visible,
+.console-page select:focus-visible,
+.console-page textarea:focus-visible,
+.users-modal input:focus-visible,
+.users-modal select:focus-visible,
+.users-modal textarea:focus-visible {
+  border-color: var(--vs-accent);
+  outline: none;
+  box-shadow: var(--vs-focus-halo);
+}
+
+.console-page input::placeholder,
+.console-page textarea::placeholder {
+  color: var(--vs-ink-3);
+}
+
+.ops-search {
+  border: 1px solid var(--vs-border-control);
+  border-radius: var(--vs-radius-control);
+  background: var(--vs-surface);
+  color: var(--vs-ink-3);
+}
+
+.ops-search:focus-within {
+  border-color: var(--vs-accent);
+  box-shadow: var(--vs-focus-halo);
+}
+
+.console-page .ops-search input,
+.console-page .ops-search input:focus-visible {
+  border: 0;
+  box-shadow: none;
+  min-height: 34px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--vs-accent);
+}
+
+/* ---------- Tables ---------- */
+
+.ops-table-wrap {
+  overflow-x: auto;
+  border-top: 1px solid var(--vs-line);
+}
+
+.ops-table {
+  font-size: 14px;
+}
+
+.ops-table th,
+.ops-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--vs-line-soft);
+  vertical-align: top;
+}
+
+.ops-table th {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  border-bottom-color: var(--vs-line);
+  background: var(--vs-surface-table-head);
+  color: var(--vs-ink-3);
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.ops-table tbody tr:hover td {
+  background: var(--vs-row-hover);
+}
+
+/* ---------- Narrow screens (D10: drawer navigation below 768px) ---------- */
+
+@media (max-width: 767px) {
+  .vs-sidebar.console-rail {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: calc(var(--z-menu) + 10);
+    width: min(280px, 86vw);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 160ms ease, visibility 0s linear 160ms;
+  }
+
+  .vs-sidebar.console-rail[data-open] {
+    transform: none;
+    visibility: visible;
+    transition: transform 160ms ease;
+    box-shadow: var(--vs-shadow-dialog);
+  }
+
+  .vs-nav-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: calc(var(--z-menu) + 9);
+    background: var(--vs-scrim);
+  }
+
+  .vs-sidebar .vs-nav-close,
+  .vs-topbar .vs-menu-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--vs-radius-control);
+    background: transparent;
+    color: var(--vs-ink-2);
+  }
+
+  .vs-nav-close svg,
+  .vs-menu-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .console-topbar.vs-topbar {
+    padding: 0 12px 0 8px;
+    gap: 6px;
+  }
+
+  .account-summary-text,
+  .account-menu-chevron {
+    display: none;
+  }
+
+  .console-page-inner,
+  .console-page-inner.wide {
+    padding: 24px 16px 56px;
+  }
+
+  .vs-page-header .console-page-title {
+    font-size: 28px;
+  }
+
+  .console-content > .ops-notice {
+    margin: 12px 16px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vs-sidebar.console-rail,
+  .vs-sidebar.console-rail[data-open] {
+    transition: none;
+  }
+}

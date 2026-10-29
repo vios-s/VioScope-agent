@@ -8,6 +8,12 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronRight,
+  ClipboardCheck,
+  Folder,
+  Menu,
+  MessagesSquare,
+  SlidersHorizontal,
   Copy,
   ClipboardList,
   Download,
@@ -19,10 +25,7 @@ import {
   LogIn,
   LogOut,
   MessageCircle,
-  Moon,
   MoreVertical,
-  PanelLeftClose,
-  PanelLeftOpen,
   Pencil,
   Plus,
   Power,
@@ -33,7 +36,6 @@ import {
   Send,
   ShieldCheck,
   Settings,
-  Sun,
   Upload,
   Workflow,
   X,
@@ -536,14 +538,6 @@ type AdminConfigPayload = {
   error?: string;
 };
 
-type ConsoleTheme = 'light' | 'dark' | 'system';
-type ConsoleAccentTheme = 'cyan' | 'aegean' | 'blue' | 'green' | 'indigo' | 'orange' | 'red';
-type ConsoleFontTheme = 'public' | 'serif' | 'quicksand';
-type ConsoleThemeSettings = {
-  mode: ConsoleTheme;
-  accent: ConsoleAccentTheme;
-  font: ConsoleFontTheme;
-};
 type SettingsTab =
   | 'general'
   | 'memory'
@@ -689,20 +683,6 @@ const checklistTemplates: Array<{ id: ChecklistTemplateId; label: string }> = [
 const userPermissionOptions: CurrentUser['role'][] = ['administrator', 'pi', 'organizer', 'member'];
 const userPositionOptions: UserPosition[] = ['pi', 'student', 'postdoc', 'software_engineer', 'visitor'];
 const provisioningStatusOptions = ['profile_only', 'active', 'disabled'];
-const consoleAccentOptions: Array<{ id: ConsoleAccentTheme; label: string; color: string }> = [
-  { id: 'cyan', label: 'Cyan', color: '#219f94' },
-  { id: 'aegean', label: 'Aegean', color: '#00678d' },
-  { id: 'blue', label: 'Blue', color: '#1363df' },
-  { id: 'green', label: 'Green', color: '#8cba51' },
-  { id: 'indigo', label: 'Indigo', color: '#655d8a' },
-  { id: 'orange', label: 'Orange', color: '#f59f00' },
-  { id: 'red', label: 'Red', color: '#f73859' },
-];
-const consoleFontOptions: Array<{ id: ConsoleFontTheme; label: string; fontFamily: string }> = [
-  { id: 'public', label: 'Public Sans', fontFamily: '"Public Sans", sans-serif' },
-  { id: 'serif', label: 'Source Serif', fontFamily: '"Source Serif 4", serif' },
-  { id: 'quicksand', label: 'Quicksand', fontFamily: 'Quicksand, sans-serif' },
-];
 const rowMenuWidth = 190;
 const rowMenuHeight = 88;
 const rowMenuGutter = 10;
@@ -1721,6 +1701,7 @@ function PromptCopyButton({ prompt, label }: { prompt: string; label: string }) 
 function ConsolePageFrame({
   title,
   subtitle,
+  eyebrow,
   actions,
   tabs,
   children,
@@ -1728,7 +1709,8 @@ function ConsolePageFrame({
   wide = false,
 }: {
   title: string;
-  subtitle?: string;
+  subtitle?: ReactNode;
+  eyebrow?: ReactNode;
   actions?: ReactNode;
   tabs?: ReactNode;
   children: ReactNode;
@@ -1737,16 +1719,19 @@ function ConsolePageFrame({
 }) {
   return (
     <section className={`console-page ${className}`}>
-      <header className="console-subheader">
-        <div className="console-subtitle-row">
-          <h1 className="console-page-title">{title}</h1>
-          {subtitle && <span className="console-page-subtitle">{subtitle}</span>}
-        </div>
-        {actions && <div className="console-subheader-actions">{actions}</div>}
-      </header>
-      {tabs}
       <div className="console-page-scroll">
-        <div className={`console-page-inner ${wide ? 'wide' : ''}`}>{children}</div>
+        <div className={`console-page-inner ${wide ? 'wide' : ''}`}>
+          <header className="console-subheader vs-page-header">
+            <div className="console-subtitle-row">
+              {eyebrow && <p className="vs-page-eyebrow">{eyebrow}</p>}
+              <h1 className="console-page-title">{title}</h1>
+              {subtitle && <p className="console-page-subtitle">{subtitle}</p>}
+            </div>
+            {actions && <div className="console-subheader-actions">{actions}</div>}
+          </header>
+          {tabs}
+          {children}
+        </div>
       </div>
     </section>
   );
@@ -1773,62 +1758,6 @@ function AuthFrame({ children }: { children: ReactNode }) {
       </div>
     </main>
   );
-}
-
-function resolveConsoleTheme(theme: ConsoleTheme): 'light' | 'dark' {
-  if (theme === 'system') {
-    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-  return theme;
-}
-
-function applyConsoleTheme(theme: ConsoleTheme) {
-  if (typeof document === 'undefined') return;
-  if (resolveConsoleTheme(theme) === 'dark') {
-    document.documentElement.dataset.theme = 'dark';
-  } else {
-    document.documentElement.removeAttribute('data-theme');
-  }
-}
-
-function normalizeConsoleThemeSettings(input: Partial<ConsoleThemeSettings> | null | undefined): ConsoleThemeSettings {
-  return {
-    mode: input?.mode === 'dark' || input?.mode === 'light' || input?.mode === 'system' ? input.mode : 'system',
-    accent: consoleAccentOptions.some((option) => option.id === input?.accent) ? input!.accent! : 'aegean',
-    font: consoleFontOptions.some((option) => option.id === input?.font) ? input!.font! : 'public',
-  };
-}
-
-function themeSettingsStorageKey(userId?: string) {
-  return `vios-theme-settings:${userId || 'default'}`;
-}
-
-function applyConsoleAppearance(settings: ConsoleThemeSettings) {
-  if (typeof document === 'undefined') return;
-  applyConsoleTheme(settings.mode);
-  document.documentElement.dataset.accentTheme = settings.accent;
-  document.documentElement.dataset.consoleFont = settings.font;
-}
-
-function readStoredThemeSettings(userId?: string): ConsoleThemeSettings {
-  if (typeof window === 'undefined') return normalizeConsoleThemeSettings(null);
-  const stored = window.localStorage.getItem(themeSettingsStorageKey(userId));
-  if (stored) {
-    try {
-      return normalizeConsoleThemeSettings(JSON.parse(stored) as Partial<ConsoleThemeSettings>);
-    } catch {
-      return normalizeConsoleThemeSettings(null);
-    }
-  }
-  const legacyTheme = window.localStorage.getItem('vios-theme');
-  return normalizeConsoleThemeSettings({
-    mode: legacyTheme === 'dark' || legacyTheme === 'light' || legacyTheme === 'system' ? legacyTheme : 'system',
-  });
-}
-
-function saveStoredThemeSettings(userId: string, settings: ConsoleThemeSettings) {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(themeSettingsStorageKey(userId), JSON.stringify(settings));
 }
 
 function AuthLoading() {
@@ -5510,8 +5439,7 @@ function TopbarNotificationCenter({
         aria-haspopup="dialog"
       >
         <Bell aria-hidden="true" />
-        <span>Notifications</span>
-        {activeCount > 0 && <strong>{activeCount}</strong>}
+        {activeCount > 0 && <strong aria-hidden="true">{activeCount}</strong>}
       </button>
       {open && (
         <section className="notification-popover" aria-label="Notifications Center">
@@ -5520,10 +5448,9 @@ function TopbarNotificationCenter({
             <div>
               {((tab === 'messages' && unreadMessages.length > 0) || (tab === 'events' && unreadEvents.length > 0)) && (
                 <button type="button" onClick={tab === 'events' ? onMarkAllEventsRead : onMarkAllMessagesRead}>
-                  Mark read
+                  Mark all as read
                 </button>
               )}
-              {activeCount > 0 && <span>{activeCount}</span>}
             </div>
           </header>
           <div className="notification-tabs" role="tablist" aria-label="Notification categories">
@@ -5534,7 +5461,7 @@ function TopbarNotificationCenter({
               aria-selected={tab === 'messages'}
               onClick={() => setTab('messages')}
             >
-              Messages
+              Messages{unreadMessages.length > 0 && <span className="vs-tab-count">{unreadMessages.length}</span>}
             </button>
             <button
               className={tab === 'events' ? 'active' : ''}
@@ -5543,7 +5470,7 @@ function TopbarNotificationCenter({
               aria-selected={tab === 'events'}
               onClick={() => setTab('events')}
             >
-              Events
+              Events{unreadEvents.length > 0 && <span className="vs-tab-count">{unreadEvents.length}</span>}
             </button>
             <button
               className={tab === 'logs' ? 'active' : ''}
@@ -6665,26 +6592,12 @@ function UsersView({
   user,
   onUserChanged,
   personalDetailsSignal,
-  theme,
-  setTheme,
-  accentTheme,
-  setAccentTheme,
-  fontTheme,
-  setFontTheme,
-  onSaveThemeSettings,
   canManageUsers,
   canManageThemeSettings,
 }: {
   user: CurrentUser;
   onUserChanged: (user: CurrentUser) => void;
   personalDetailsSignal: number;
-  theme: ConsoleTheme;
-  setTheme: (theme: ConsoleTheme) => void;
-  accentTheme: ConsoleAccentTheme;
-  setAccentTheme: (theme: ConsoleAccentTheme) => void;
-  fontTheme: ConsoleFontTheme;
-  setFontTheme: (font: ConsoleFontTheme) => void;
-  onSaveThemeSettings: () => void;
   canManageUsers: boolean;
   canManageThemeSettings: boolean;
 }) {
@@ -6700,7 +6613,6 @@ function UsersView({
   const [busyNotifications, setBusyNotifications] = useState(false);
   const [notificationMessage, setNotificationMessage] = useState<string | null>(null);
   const [notificationError, setNotificationError] = useState<string | null>(null);
-  const [themeMessage, setThemeMessage] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [actionUserId, setActionUserId] = useState<string | null>(null);
@@ -6989,10 +6901,6 @@ function UsersView({
     }
   }
 
-  function saveThemeSettings() {
-    onSaveThemeSettings();
-    setThemeMessage('Theme settings saved for this account on this browser.');
-  }
 
   const userActions = (
     <div className="users-toolbar">
@@ -7101,98 +7009,6 @@ function UsersView({
                 <p>Your profile and how VioScope behaves for you.</p>
               </div>
               <AccountDetailsPanel user={user} onUserChanged={onUserChanged} />
-              <section className="ops-panel settings-panel">
-                <div className="ops-panel-head">
-                  <div>
-                    <h2>Theme Setting</h2>
-                    <p>Personal Swift-style appearance settings for this account on this browser.</p>
-                  </div>
-                </div>
-                <div className="theme-setting-panel">
-                  <div className="theme-setting-row">
-                    <div>
-                      <strong>Mode</strong>
-                      <p>Choose how VioScope appears on this device.</p>
-                    </div>
-                    <div className="ops-segmented" role="group" aria-label="Theme mode">
-                      <button className={theme === 'light' ? 'selected' : ''} type="button" onClick={() => { setTheme('light'); setThemeMessage(null); }}>
-                        Light
-                      </button>
-                      <button className={theme === 'dark' ? 'selected' : ''} type="button" onClick={() => { setTheme('dark'); setThemeMessage(null); }}>
-                        Dark
-                      </button>
-                      <button className={theme === 'system' ? 'selected' : ''} type="button" onClick={() => { setTheme('system'); setThemeMessage(null); }}>
-                        System
-                      </button>
-                    </div>
-                  </div>
-                  <div className="theme-setting-row">
-                    <div>
-                      <strong>Color scheme</strong>
-                      <p>Accent palette used for navigation, buttons, chat bubbles, and states.</p>
-                    </div>
-                    <div className="theme-swatch-grid" role="radiogroup" aria-label="Color scheme">
-                      {consoleAccentOptions.map((option) => (
-                        <button
-                          key={option.id}
-                          className={accentTheme === option.id ? 'active' : ''}
-                          type="button"
-                          role="radio"
-                          aria-checked={accentTheme === option.id}
-                          onClick={() => {
-                            setAccentTheme(option.id);
-                            setThemeMessage(null);
-                          }}
-                        >
-                          <span style={{ background: option.color }} aria-hidden="true" />
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="theme-setting-row">
-                    <div>
-                      <strong>Font</strong>
-                      <p>Pick the console typeface family.</p>
-                    </div>
-                    <div className="theme-font-grid" role="radiogroup" aria-label="Font family">
-                      {consoleFontOptions.map((option) => (
-                        <button
-                          key={option.id}
-                          className={fontTheme === option.id ? 'active' : ''}
-                          type="button"
-                          role="radio"
-                          aria-checked={fontTheme === option.id}
-                          style={{ fontFamily: option.fontFamily }}
-                          onClick={() => {
-                            setFontTheme(option.id);
-                            setThemeMessage(null);
-                          }}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="theme-preview-card">
-                    <span className="theme-preview-sidebar" aria-hidden="true" />
-                    <div>
-                      <strong>VioScope preview</strong>
-                      <p>Cards, notifications, and chat bubbles follow this palette.</p>
-                    </div>
-                    <button className="ops-primary" type="button">
-                      Action
-                    </button>
-                  </div>
-                  {themeMessage && <div className="form-message">{themeMessage}</div>}
-                  <div className="button-row">
-                    <button className="ops-primary" type="button" onClick={saveThemeSettings}>
-                      <Save aria-hidden="true" />
-                      Save theme settings
-                    </button>
-                  </div>
-                </div>
-              </section>
             </div>
           ) : settingsTab === 'memory' ? (
             <UserMemorySettingsPanel />
@@ -7958,13 +7774,26 @@ function FeedbackView() {
   );
 }
 
+function londonZoneLabel(date: string) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', timeZoneName: 'short' }).formatToParts(new Date(`${date}T12:00:00Z`));
+  return parts.find((part) => part.type === 'timeZoneName')?.value || 'Europe/London';
+}
+
+function nextThemeMeetingsSummary(payload: ThemeMeetingPayload | null) {
+  const plan = payload?.overviewPlan || payload?.plan;
+  const meetings = plan?.meetings.filter((meeting) => !meeting.cancelled) || [];
+  if (!plan || !meetings.length) return null;
+  const day = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(`${plan.meeting_date}T12:00:00Z`));
+  const times = meetings.map((meeting) => meeting.time);
+  return {
+    when: `${day} · ${times.length > 1 ? `${times.slice(0, -1).join(', ')} and ${times[times.length - 1]}` : times[0]}`,
+    detail: `${meetings.map((meeting) => meeting.title).join(' · ')} · ${londonZoneLabel(plan.meeting_date)}`,
+  };
+}
+
 export function OperationsConsole() {
   const [activeView, setActiveView] = useState<ActiveView>('briefing');
-  const [railHidden, setRailHidden] = useState(false);
-  const [theme, setTheme] = useState<ConsoleTheme>('light');
-  const [accentTheme, setAccentTheme] = useState<ConsoleAccentTheme>('aegean');
-  const [fontTheme, setFontTheme] = useState<ConsoleFontTheme>('public');
-  const [themeReady, setThemeReady] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -7994,6 +7823,7 @@ export function OperationsConsole() {
   const welcomedUserIdRef = useRef<string | null>(null);
 
   const selectView = useCallback((view: ActiveView, replace = false) => {
+    setNavOpen(false);
     setAccountMenuOpen(false);
     setNotificationsOpen(false);
     setActiveView(view);
@@ -8008,42 +7838,13 @@ export function OperationsConsole() {
   }, []);
 
   useEffect(() => {
-    document
-      .querySelector<HTMLButtonElement>(`.console-rail button[data-view="${activeView}"]`)
-      ?.scrollIntoView({ block: 'nearest', inline: 'center' });
-  }, [activeView]);
-
-  useEffect(() => {
-    const storedTheme = readStoredThemeSettings();
-    setTheme(storedTheme.mode);
-    setAccentTheme(storedTheme.accent);
-    setFontTheme(storedTheme.font);
-    applyConsoleAppearance(storedTheme);
-    setThemeReady(true);
-  }, []);
-
-  useEffect(() => {
-    if (!themeReady) return;
-    applyConsoleAppearance({ mode: theme, accent: accentTheme, font: fontTheme });
-  }, [accentTheme, fontTheme, theme, themeReady]);
-
-  useEffect(() => {
-    if (!themeReady || !user) return;
-    const storedTheme = readStoredThemeSettings(user.id);
-    setTheme(storedTheme.mode);
-    setAccentTheme(storedTheme.accent);
-    setFontTheme(storedTheme.font);
-    applyConsoleAppearance(storedTheme);
-  }, [themeReady, user?.id]);
-
-  useEffect(() => {
-    if (!themeReady || theme !== 'system' || typeof window === 'undefined') return undefined;
-    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
-    if (!media) return undefined;
-    const syncSystemTheme = () => applyConsoleAppearance({ mode: 'system', accent: accentTheme, font: fontTheme });
-    media.addEventListener('change', syncSystemTheme);
-    return () => media.removeEventListener('change', syncSystemTheme);
-  }, [accentTheme, fontTheme, theme, themeReady]);
+    if (!navOpen) return undefined;
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setNavOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [navOpen]);
 
   useEffect(() => {
     if (!accountMenuOpen) return undefined;
@@ -8233,11 +8034,10 @@ export function OperationsConsole() {
   const topNavItems = useMemo(
     () => [
       { id: 'briefing' as const, label: 'Briefing', icon: LayoutDashboard },
-      { id: 'projects' as const, label: 'Projects', icon: FileText },
-      { id: 'chat' as const, label: 'Chat', icon: MessageCircle },
-      { id: 'meeting' as const, label: 'Meeting', icon: CalendarDays },
-      { id: 'checklists' as const, label: 'Checklists', icon: ClipboardList },
-      { id: 'feedback' as const, label: 'Feedback', icon: LifeBuoy },
+      { id: 'projects' as const, label: 'Projects', icon: Folder },
+      { id: 'chat' as const, label: 'Chat', icon: MessagesSquare },
+      { id: 'meeting' as const, label: 'Meetings', icon: CalendarDays },
+      { id: 'checklists' as const, label: 'Checklists', icon: ClipboardCheck },
     ],
     [],
   );
@@ -8250,10 +8050,18 @@ export function OperationsConsole() {
     ? canSeeAllRole(user.role) || user.role === 'organizer' || Boolean(themePayload?.access?.canManageThemeIds?.length)
     : false;
 
-  const bottomNavItems = useMemo(
-    () => [{ id: 'users' as const, label: 'Settings', icon: Settings }],
+  const labNavItems = useMemo(
+    () => [
+      { id: 'feedback' as const, label: 'Feedback', icon: LifeBuoy },
+      { id: 'users' as const, label: 'Settings', icon: SlidersHorizontal },
+    ],
     [],
   );
+  const activeProjectCount = projectsPayload?.projects?.filter((project) => project.lifecycle !== 'archived').length;
+  const viewLabels: Record<ActiveView, string> = {
+    briefing: 'Briefing', projects: 'Projects', chat: 'Chat', meeting: 'Meetings', checklists: 'Checklists', feedback: 'Feedback', users: 'Settings',
+  };
+  const nextMeetings = nextThemeMeetingsSummary(themePayload);
 
   function closeWelcome() {
     if (user && welcomeDontShowAgain) {
@@ -8284,7 +8092,7 @@ export function OperationsConsole() {
     selectView('briefing', true);
   }
 
-  if (!authChecked || !themeReady) {
+  if (!authChecked) {
     return <AuthLoading />;
   }
 
@@ -8297,140 +8105,155 @@ export function OperationsConsole() {
   }
 
   return (
-    <main className="console-app" lang="en-GB">
-      <header className="console-topbar">
-        <div className="brand-block">
-          <img className="brand-mark" src="/art/VIOS_icon.jpg" alt="" aria-hidden="true" />
-          <div>
-            <strong>VioScope</strong>
-            <small>VIOS Lab</small>
-          </div>
-          <button
-            className="rail-toggle"
-            type="button"
-            aria-label={railHidden ? 'Show primary navigation' : 'Hide primary navigation'}
-            aria-controls="primary-navigation"
-            aria-expanded={!railHidden}
-            title={railHidden ? 'Show navigation' : 'Hide navigation'}
-            onClick={() => setRailHidden((current) => !current)}
-          >
-            {railHidden ? <PanelLeftOpen aria-hidden="true" /> : <PanelLeftClose aria-hidden="true" />}
+    <main className="console-app vs-shell" lang="en-GB">
+      <nav id="primary-navigation" className="console-rail vs-sidebar" aria-label="Primary" data-open={navOpen || undefined}>
+        <div className="vs-brand">
+          <img className="vs-wordmark" src="/art/vios-wordmark.png" alt="VIOS Lab" />
+          <span className="vs-brand-divider" aria-hidden="true" />
+          <span className="vs-brand-name">VioScope</span>
+          <button className="vs-nav-close" type="button" aria-label="Close navigation" onClick={() => setNavOpen(false)}>
+            <X aria-hidden="true" />
           </button>
         </div>
-        <div className="account-block" ref={accountBlockRef}>
-          <TopbarNotificationCenter
-            open={notificationsOpen}
-            activeCount={unreadChatNotificationCount + unreadMeetingNotificationCount}
-            chatNotifications={chatNotifications}
-            themeNotifications={themePayload?.notifications || []}
-            onOpenMeetingNotification={openMeetingFromNotification}
-            onMarkAllEventsRead={() => { void markMeetingNotificationsRead().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not mark meeting notifications read.')); }}
-            attentionProjects={attentionProjectNotifications}
-            onToggle={() => {
-              setAccountMenuOpen(false);
-              setNotificationsOpen((current) => !current);
-            }}
-            onOpenChatSession={openChatSessionFromNotification}
-            onMarkAllMessagesRead={() => {
-              void markAllChatNotificationsRead().catch((caught) => {
-                setError(caught instanceof Error ? caught.message : 'Could not mark notifications as read.');
-              });
-            }}
-          />
-          <button
-            className="theme-toggle"
-            type="button"
-            onClick={() => setTheme((current) => (resolveConsoleTheme(current) === 'dark' ? 'light' : 'dark'))}
-            aria-label="Toggle light or dark theme"
-            title="Toggle theme"
-          >
-            {resolveConsoleTheme(theme) === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
-          </button>
-          <button
-            className="account-summary"
-            type="button"
-            onClick={() => {
-              setNotificationsOpen(false);
-              setAccountMenuOpen((current) => !current);
-            }}
-            aria-expanded={accountMenuOpen}
-            aria-haspopup="menu"
-          >
-            <div>
-              <strong>{user.displayName}</strong>
-              <small>{roleLabel(user.role)}</small>
-            </div>
-            <AvatarCircle user={user} />
-            <ChevronDown className="account-menu-chevron" aria-hidden="true" />
-          </button>
-          {accountMenuOpen && (
-            <div className="account-menu" role="menu">
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setAccountMenuOpen(false);
-                  setPersonalDetailsSignal((current) => current + 1);
-                  selectView('users');
-                }}
-              >
-                <Settings aria-hidden="true" />
-                Settings
-              </button>
-              <button type="button" role="menuitem" onClick={logout}>
-                <LogOut aria-hidden="true" />
-                Log out
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <WelcomeDialog
-        open={welcomeOpen}
-        user={user}
-        dontShowAgain={welcomeDontShowAgain}
-        onDontShowAgainChange={setWelcomeDontShowAgain}
-        onClose={closeWelcome}
-        onOpenSettings={openWelcomeSettings}
-      />
-
-      <div className="console-body">
-        <nav id="primary-navigation" className="console-rail" aria-label="Primary" hidden={railHidden}>
+        <div className="vs-nav-group">
           {topNavItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button
-                key={item.id}
-                className={activeView === item.id ? 'active' : ''}
-                data-view={item.id}
-                type="button"
-                onClick={() => selectView(item.id)}
-              >
-                <Icon aria-hidden="true" />
-                <span>{item.label}</span>
-              </button>
+                <button
+                  key={item.id}
+                  className={activeView === item.id ? 'active' : ''}
+                  aria-current={activeView === item.id ? 'page' : undefined}
+                  data-view={item.id}
+                  type="button"
+                  onClick={() => selectView(item.id)}
+                >
+                  <Icon aria-hidden="true" />
+                  <span className="vs-nav-label">{item.label}</span>
+                  {item.id === 'projects' && activeProjectCount !== undefined && (
+                    <span className="vs-nav-count" aria-hidden="true">{activeProjectCount}</span>
+                  )}
+                  {item.id === 'chat' && unreadChatNotificationCount > 0 && (
+                    <span className="vs-nav-dot" role="img" aria-label={`${unreadChatNotificationCount} unread`} />
+                  )}
+                </button>
             );
           })}
-          <div className="rail-spacer" />
-          {bottomNavItems.map((item) => {
+        </div>
+        <div className="vs-nav-group">
+          <span className="vs-nav-heading">Lab</span>
+          {labNavItems.map((item) => {
             const Icon = item.icon;
             return (
-              <button
-                key={item.id}
-                className={activeView === item.id ? 'active' : ''}
-                data-view={item.id}
-                type="button"
-                onClick={() => selectView(item.id)}
-              >
-                <span className="rail-icon-wrap">
+                <button
+                  key={item.id}
+                  className={activeView === item.id ? 'active' : ''}
+                  aria-current={activeView === item.id ? 'page' : undefined}
+                  data-view={item.id}
+                  type="button"
+                  onClick={() => selectView(item.id)}
+                >
                   <Icon aria-hidden="true" />
-                </span>
-                <span>{item.label}</span>
-              </button>
+                  <span className="vs-nav-label">{item.label}</span>
+                </button>
             );
           })}
-        </nav>
+        </div>
+        {nextMeetings && (
+          <button className="vs-next-meetings" type="button" onClick={() => selectView('meeting')}>
+            <span className="vs-caps">Next theme meetings</span>
+            <strong>{nextMeetings.when}</strong>
+            <span>{nextMeetings.detail}</span>
+          </button>
+        )}
+      </nav>
+      {navOpen && <div className="vs-nav-scrim" aria-hidden="true" onClick={() => setNavOpen(false)} />}
+
+      <div className="vs-main">
+        <header className="console-topbar vs-topbar">
+          <button
+            className="vs-menu-button"
+            type="button"
+            aria-label="Open navigation"
+            aria-controls="primary-navigation"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen(true)}
+          >
+            <Menu aria-hidden="true" />
+          </button>
+          <nav className="vs-breadcrumb" aria-label="Breadcrumb">
+            <span>VIOS Lab</span>
+            <ChevronRight aria-hidden="true" />
+            <span aria-current="page">{viewLabels[activeView]}</span>
+          </nav>
+          <div className="account-block" ref={accountBlockRef}>
+            <TopbarNotificationCenter
+              open={notificationsOpen}
+              activeCount={unreadChatNotificationCount + unreadMeetingNotificationCount}
+              chatNotifications={chatNotifications}
+              themeNotifications={themePayload?.notifications || []}
+              onOpenMeetingNotification={openMeetingFromNotification}
+              onMarkAllEventsRead={() => { void markMeetingNotificationsRead().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not mark meeting notifications read.')); }}
+              attentionProjects={attentionProjectNotifications}
+              onToggle={() => {
+                setAccountMenuOpen(false);
+                setNotificationsOpen((current) => !current);
+              }}
+              onOpenChatSession={openChatSessionFromNotification}
+              onMarkAllMessagesRead={() => {
+                void markAllChatNotificationsRead().catch((caught) => {
+                  setError(caught instanceof Error ? caught.message : 'Could not mark notifications as read.');
+                });
+              }}
+            />
+            <button
+              className="account-summary"
+              type="button"
+              aria-label={`Account menu, ${user.displayName}, ${roleLabel(user.role)}`}
+              onClick={() => {
+                setNotificationsOpen(false);
+                setAccountMenuOpen((current) => !current);
+              }}
+              aria-expanded={accountMenuOpen}
+              aria-haspopup="menu"
+            >
+              <AvatarCircle user={user} />
+              <span className="account-summary-text">
+                <strong>{user.displayName}</strong>
+                <small>{roleLabel(user.role)}</small>
+              </span>
+              <ChevronDown className="account-menu-chevron" aria-hidden="true" />
+            </button>
+            {accountMenuOpen && (
+              <div className="account-menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setAccountMenuOpen(false);
+                    setPersonalDetailsSignal((current) => current + 1);
+                    selectView('users');
+                  }}
+                >
+                  <Settings aria-hidden="true" />
+                  Settings
+                </button>
+                <button type="button" role="menuitem" onClick={logout}>
+                  <LogOut aria-hidden="true" />
+                  Log out
+                </button>
+              </div>
+            )}
+          </div>
+        </header>
+
+        <WelcomeDialog
+          open={welcomeOpen}
+          user={user}
+          dontShowAgain={welcomeDontShowAgain}
+          onDontShowAgainChange={setWelcomeDontShowAgain}
+          onClose={closeWelcome}
+          onOpenSettings={openWelcomeSettings}
+        />
 
         <div className="console-content">
           {error && (
@@ -8501,13 +8324,6 @@ export function OperationsConsole() {
               user={user}
               onUserChanged={setUser}
               personalDetailsSignal={personalDetailsSignal}
-              theme={theme}
-              setTheme={setTheme}
-              accentTheme={accentTheme}
-              setAccentTheme={setAccentTheme}
-              fontTheme={fontTheme}
-              setFontTheme={setFontTheme}
-              onSaveThemeSettings={() => saveStoredThemeSettings(user.id, { mode: theme, accent: accentTheme, font: fontTheme })}
               canManageUsers={user.role === 'administrator' || user.role === 'pi'}
               canManageThemeSettings={canManageThemeSettings}
             />
