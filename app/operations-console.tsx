@@ -34,6 +34,7 @@ import {
   Settings,
   Sun,
   Upload,
+  Workflow,
   X,
   Trash2,
   Users,
@@ -767,7 +768,7 @@ const userPositionOptions: UserPosition[] = ['pi', 'student', 'postdoc', 'softwa
 const provisioningStatusOptions = ['profile_only', 'active', 'disabled'];
 const consoleAccentOptions: Array<{ id: ConsoleAccentTheme; label: string; color: string }> = [
   { id: 'cyan', label: 'Cyan', color: '#219f94' },
-  { id: 'aegean', label: 'Aegean', color: '#387478' },
+  { id: 'aegean', label: 'Aegean', color: '#00678d' },
   { id: 'blue', label: 'Blue', color: '#1363df' },
   { id: 'green', label: 'Green', color: '#8cba51' },
   { id: 'indigo', label: 'Indigo', color: '#655d8a' },
@@ -2716,7 +2717,7 @@ function ProjectEditorModal({
               {generatedWatchPath(draft.ownerUsername, slugifyProjectName(draft.project || draft.title)) || 'Generated after naming'}
             </output>
           </div>
-          <label>
+          <label className="full">
             <span>Notes</span>
             <textarea
               rows={4}
@@ -4225,7 +4226,7 @@ function BriefingView({
           </picture>
           <div className="briefing-hero-copy">
             <span>Morning table</span>
-            <h1>Projects, meetings, and evidence in one calm place.</h1>
+            <h1>Your research at a glance.</h1>
             <p>
               {focusLine}
               {' '}
@@ -4407,6 +4408,7 @@ function ProjectsView({
   const canSeeAll = canSeeAllRole(viewer.role);
   const mode: ProjectsMode = canSeeAll ? 'pi' : 'member';
   const [agendaState, setAgendaState] = useState<Record<string, 'added' | 'dismissed'>>({});
+  const [projectQuery, setProjectQuery] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailProject, setDetailProject] = useState<ManagedProject | null>(null);
   const [detailMode, setDetailMode] = useState<ProjectDetailMode>('details');
@@ -4417,6 +4419,7 @@ function ProjectsView({
   const [archiveBusy, setArchiveBusy] = useState(false);
 
   const projects = projectsPayload?.projects || [];
+  const matchingProjects = projects.filter((project) => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(projectQuery.trim().toLowerCase()));
   const activeProjects = projects.filter((project) => project.lifecycle !== 'archived');
   const archivedProjects = projects.filter((project) => project.lifecycle === 'archived');
   const attentionProjects = activeProjects.filter(projectNeedsAttention);
@@ -4635,6 +4638,92 @@ function ProjectsView({
             <strong>{archivedProjects.length} archived</strong>
           </div>
 
+          <section className="ops-panel project-directory">
+            <div className="ops-panel-head">
+              <div>
+                <h2>All projects</h2>
+                <p>Status, stage, deadlines, and linked materials.</p>
+              </div>
+              <label className="ops-search project-directory-search">
+                <Search aria-hidden="true" />
+                <input type="search" aria-label="Search projects" placeholder="Search projects or owners" value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} />
+              </label>
+            </div>
+            <div className="ops-table-wrap">
+              <table className="ops-table">
+                <thead>
+                  <tr>
+                    <th>Project</th>
+                    <th>Owner</th>
+                    <th>Track</th>
+                    <th>Stage</th>
+                    <th>Status</th>
+                    <th>Target</th>
+                    <th>Materials</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matchingProjects.map((project) => (
+                    <tr key={project.id} className={project.lifecycle === 'archived' ? 'archived-project-row' : undefined}>
+                      <td><button className="project-title-link" type="button" onClick={() => openProject(project, 'details')}>{project.title}</button></td>
+                      <td>{project.ownerUsername}</td>
+                      <td>{project.track}</td>
+                      <td>
+                        <div className="table-stage">
+                          <StageBar stage={project.stage} />
+                          <span>{project.stage}/5 · {project.stageProgress}%</span>
+                        </div>
+                      </td>
+                      <td>
+                        <StatusChip status={project.status} />
+                      </td>
+                      <td><span className="project-target-summary" title={project.target || undefined}>{project.target || 'Not set'}</span></td>
+                      <td>{currentProjectArtifacts(project).length}</td>
+                      <td>
+                        <div className="project-table-actions">
+                          <button
+                            className="ops-secondary icon-only-button"
+                            type="button"
+                            onClick={() => openProject(project, 'details')}
+                            aria-label={`Project details for ${project.title}`}
+                            title="Project details"
+                          >
+                            <FileText aria-hidden="true" />
+                          </button>
+
+                          <button
+                            className="ops-secondary icon-only-button"
+                            type="button"
+                            onClick={() => openProject(project, 'workflow')}
+                            aria-label={`Research workflow for ${project.title}`}
+                            title="Research workflow"
+                          >
+                            <Workflow aria-hidden="true" />
+                          </button>
+                          {project.access.canAddUpdate && project.lifecycle !== 'archived' && (
+                            <button
+                              className="ops-primary icon-only-button"
+                              type="button"
+                              onClick={() => openProject(project, 'progress')}
+                              aria-label={`Update ${project.title}`}
+                              title="Update"
+                            >
+                              <Plus aria-hidden="true" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                {!matchingProjects.length && (
+                    <tr><td colSpan={8}>No projects match your search.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
           <section className="ops-panel project-planning-panel">
             <div className="ops-panel-head">
               <div>
@@ -4755,84 +4844,7 @@ function ProjectsView({
             </div>
           </section>
 
-          <section className="ops-panel">
-            <div className="ops-panel-head">
-              <div>
-                <h2>All projects</h2>
-                <p>Status, stage, deadlines, and linked materials.</p>
-              </div>
-              <Search aria-hidden="true" />
-            </div>
-            <div className="ops-table-wrap">
-              <table className="ops-table">
-                <thead>
-                  <tr>
-                    <th>Owner</th>
-                    <th>Project</th>
-                    <th>Track</th>
-                    <th>Stage</th>
-                    <th>Status</th>
-                    <th>Target</th>
-                    <th>Materials</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {projects.map((project) => (
-                    <tr key={project.id} className={project.lifecycle === 'archived' ? 'archived-project-row' : undefined}>
-                      <td>{project.ownerUsername}</td>
-                      <td>{project.title}</td>
-                      <td>{project.track}</td>
-                      <td>
-                        <div className="table-stage">
-                          <StageBar stage={project.stage} />
-                          <span>{project.stage}/5 · {project.stageProgress}%</span>
-                        </div>
-                      </td>
-                      <td>
-                        <StatusChip status={project.status} />
-                      </td>
-                      <td>{project.target || 'Not set'}</td>
-                      <td>{currentProjectArtifacts(project).length}</td>
-                      <td>
-                        <div className="project-table-actions">
-                          <button
-                            className="ops-secondary icon-only-button"
-                            type="button"
-                            onClick={() => openProject(project, 'details')}
-                            aria-label={`Project details for ${project.title}`}
-                            title="Project details"
-                          >
-                            <FileText aria-hidden="true" />
-                          </button>
-                          {project.access.canAddUpdate && project.lifecycle !== 'archived' && (
-                            <button
-                              className="ops-primary icon-only-button"
-                              type="button"
-                              onClick={() => openProject(project, 'progress')}
-                              aria-label={`Update ${project.title}`}
-                              title="Update"
-                            >
-                              <Plus aria-hidden="true" />
-                            </button>
-                          )}
-                          <button
-                            className="ops-secondary icon-only-button"
-                            type="button"
-                            onClick={() => openProject(project, 'todos')}
-                            aria-label={`TODO list for ${project.title}`}
-                            title="TODO list"
-                          >
-                            <ClipboardList aria-hidden="true" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
+
         </div>
       )}
       {editorOpen && (
@@ -5225,7 +5237,7 @@ function ChatView({
           <div className="chat-session-search">
             {sessionsLoaded ? (
               <>
-                <Search aria-hidden="true" />
+                <History aria-hidden="true" />
                 <span>{visibleSessions.length} {historyMode === 'owned' ? 'history sessions' : 'shared sessions'}</span>
               </>
             ) : (
@@ -5421,6 +5433,7 @@ function ChatView({
               <span>{viewer.displayName || 'VioScope'}</span>
               <input
                 ref={inputRef}
+                aria-label="Message VioScope"
                 value={draft}
                 onChange={(event) => {
                   setDraft(event.target.value);
@@ -5458,12 +5471,7 @@ function ChatView({
 }
 function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean; onProjectCreated: () => Promise<void> }) {
   const [activeChecklistId, setActiveChecklistId] = useState<ChecklistTemplateId>('idea');
-  const workbenchRef = useRef<HTMLDivElement | null>(null);
   const activeChecklist = checklistTemplates.find((template) => template.id === activeChecklistId) || checklistTemplates[0];
-
-  function openWorkbench() {
-    workbenchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
 
   const checklistTabs = (
     <div className="console-page-tabs checklist-tabs" role="tablist" aria-label="Review checklist templates">
@@ -5491,6 +5499,8 @@ function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean;
     >
 
       {activeChecklistId === 'idea' ? <IdeaPitches onProjectCreated={onProjectCreated} /> : activeChecklistId === 'skeleton' ? <SkeletonLock /> : <>
+      <details className="checklist-reference">
+        <summary>Review criteria · {activeChecklist.label}</summary>
       <div className="checklist-layout">
         <section className="checklist-template-card" aria-label={`${activeChecklist.label} checklist`}>
           <header>
@@ -5514,53 +5524,9 @@ function ChecklistsView({ canSignOff, onProjectCreated }: { canSignOff: boolean;
           </div>
         </section>
 
-        <div className="checklist-side">
-          <section className="checklist-run-card">
-            <div className="checklist-run-icon" aria-hidden="true">
-              {activeChecklist.status === 'available' ? <Check /> : <FileText />}
-            </div>
-            <h2>{activeChecklist.status === 'available' ? 'Ready in the workbench' : 'Template preview'}</h2>
-            <p>
-              {activeChecklist.status === 'available'
-                ? `Run ${activeChecklist.shortLabel} with the live B2 review workbench below. Results include verdicts, evidence, and optional sign-off.`
-                : 'Idea Pitch is available as an advisory checklist view; the automated B2 runner remains backlog.'}
-            </p>
-            <div className="checklist-upload-note">
-              <FileText aria-hidden="true" />
-              <span>Live uploads support .md, .txt, .tex, .rst, and .pptx drafts or decks.</span>
-            </div>
-            <button className="ops-primary" type="button" onClick={openWorkbench}>
-              <ClipboardList aria-hidden="true" />
-              {activeChecklist.status === 'available' ? 'Open workbench' : 'Browse wired checks'}
-            </button>
-          </section>
-
-          <section className="checklist-history-card">
-            <header>
-              <h2>Past runs</h2>
-              <History aria-hidden="true" />
-            </header>
-            <p>Review history is loaded live in the workbench so saved results stay tied to real run records.</p>
-            <div className="history-preview-row">
-              <span className="status-dot conditional" />
-              <span>Conditional</span>
-              <small>Example verdict style</small>
-            </div>
-            <div className="history-preview-row">
-              <span className="status-dot cleared" />
-              <span>Cleared</span>
-              <small>Sign-off ready</small>
-            </div>
-          </section>
-        </div>
       </div>
-
-      <div className="review-workbench-heading" ref={workbenchRef}>
-        <p className="ops-eyebrow">Live runner</p>
-        <h2>B2 review workbench</h2>
-        <p>Use the actual review runner for Skeleton Lock, PDRA Meta Review, Internal Red Team, and Revision Lock.</p>
-      </div>
-      <ReviewForm embedded canSignOff={canSignOff} />
+      </details>
+      <ReviewForm embedded canSignOff={canSignOff} selectedSkillId={activeChecklistId === 'pdra' ? 'vios-pdra-meta-review' : 'vios-internal-red-team'} />
       </>}
     </ConsolePageFrame>
   );
@@ -5646,7 +5612,7 @@ function TopbarNotificationCenter({
                   Mark read
                 </button>
               )}
-              <span>{activeCount}</span>
+              {activeCount > 0 && <span>{activeCount}</span>}
             </div>
           </header>
           <div className="notification-tabs" role="tablist" aria-label="Notification categories">

@@ -26,7 +26,7 @@
   margin-bottom: 4px;
   color: var(--accent);
   font-size: 0.8rem;
-  font-weight: 800;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
@@ -101,19 +101,18 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
-  box-shadow: var(--shadow);
+  box-shadow: none;
 }
 
 .input-panel {
   display: grid;
   gap: 16px;
   padding: 18px;
-  position: sticky;
-  top: 18px;
+  position: static;
 }
 
 .result-panel {
-  min-height: 640px;
+  min-height: 420px;
   padding: 18px;
 }
 
@@ -135,7 +134,7 @@
   border-radius: 8px;
   background: var(--panel-muted);
   color: var(--text);
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .file-drop input {
@@ -160,7 +159,7 @@
 .field span {
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .field input,
@@ -223,7 +222,7 @@
   min-height: 40px;
   border-radius: 8px;
   border: 1px solid transparent;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .primary-button {
@@ -234,7 +233,7 @@
 }
 
 .primary-button:hover:not(:disabled) {
-  background: var(--accent-strong);
+  background: var(--action-hover, var(--accent-strong));
 }
 
 .ghost-button,
@@ -288,7 +287,7 @@
   background: var(--panel-muted);
   color: var(--muted);
   font-size: 0.86rem;
-  font-weight: 750;
+  font-weight: 500;
 }
 
 .compact-notice {
@@ -298,12 +297,12 @@
 }
 
 .empty-state {
-  min-height: 520px;
+  min-height: 280px;
   justify-content: center;
   border: 1px dashed var(--line);
   background: var(--panel-muted);
   color: var(--muted);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .result-stack {
@@ -324,7 +323,7 @@
 
 .check-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 16px;
   padding: 6px;
@@ -346,7 +345,7 @@
   color: var(--muted);
   text-align: left;
   font-size: 0.86rem;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .tab-button > span:first-child {
@@ -375,7 +374,7 @@
   padding: 0 7px;
   border-radius: 8px;
   font-size: 0.68rem;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .tab-cleared {
@@ -410,7 +409,7 @@
   min-height: 44px;
   padding: 0 14px;
   border-radius: 8px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0;
 }
 
@@ -497,7 +496,7 @@
   padding: 0 8px;
   border-radius: 8px;
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .status-pass {
@@ -547,7 +546,7 @@
 }
 
 .mitigation-item span {
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .mitigation-item p {
@@ -602,7 +601,7 @@
   background: var(--surface);
   color: var(--muted);
   font-size: 0.78rem;
-  font-weight: 850;
+  font-weight: 600;
 }
 
 .tiny-button:hover:not(:disabled) {
@@ -698,3 +697,11 @@
     min-height: 280px;
   }
 }
+
+.field { min-width: 0; align-content: start; }
+.field input, .field select, .field textarea { font: inherit; font-size: 0.875rem; }
+.file-drop:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+.review-embedded .topbar { margin-block: 20px 16px; }
+.signoff-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.signoff-note { grid-column: 1 / -1; }
+@media (max-width: 640px) { .signoff-controls { grid-template-columns: 1fr; } }

@@ -129,8 +129,10 @@ function checkedSkillIds(results: Partial<Record<SkillId, ReviewResult>>): Skill
   return reviewSkills.map((skill) => skill.id).filter((skillId) => Boolean(results[skillId]));
 }
 
-export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?: boolean; canSignOff?: boolean } = {}) {
-  const [activeSkillId, setActiveSkillId] = useState<SkillId>('vios-skeleton-lock');
+export function ReviewForm({ embedded = false, canSignOff = true, selectedSkillId = 'vios-skeleton-lock' }: { embedded?: boolean; canSignOff?: boolean; selectedSkillId?: SkillId } = {}) {
+  const [activeSkillId, setActiveSkillId] = useState<SkillId>(selectedSkillId);
+  // Keep the surrounding checklist selection in sync without discarding the draft or results.
+  useEffect(() => setActiveSkillId(selectedSkillId), [selectedSkillId]);
   const [results, setResults] = useState<Partial<Record<SkillId, ReviewResult>>>({});
   const [signoffs, setSignoffs] = useState<Partial<Record<SkillId, SignoffState>>>({});
   const [errors, setErrors] = useState<Partial<Record<SkillId, string>>>({});
@@ -241,7 +243,7 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
     setErrors({});
     setRunMeta(emptyRunMeta);
     setCurrentRunId(null);
-    setActiveSkillId('vios-skeleton-lock');
+    setActiveSkillId(selectedSkillId);
     setBusySkillId(null);
     setStatusMessage(null);
   }
@@ -436,12 +438,12 @@ export function ReviewForm({ embedded = false, canSignOff = true }: { embedded?:
     <>
       <header className={cx('topbar')}>
         <div>
-          <div className={cx('eyebrow')}>VioScope</div>
-          <h1>B2 Review Workbench</h1>
+          {!embedded && <div className={cx('eyebrow')}>VioScope</div>}
+          {embedded ? <h2>Review workbench</h2> : <h1>B2 Review Workbench</h1>}
         </div>
         <div className={cx('status-pill')}>
           <ClipboardList aria-hidden="true" />
-          {completion.completed}/{completion.total}
+          {completion.completed} of {completion.total} checks complete
         </div>
       </header>
 
