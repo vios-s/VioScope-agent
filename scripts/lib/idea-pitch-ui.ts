@@ -23,7 +23,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await title.waitFor();
     assert.equal(await title.inputValue(), '');
     assert.equal(await panel.getByRole('button', { name: 'Delete pitch', exact: true }).count(), 0);
-    const draft = {
+    const legacyDraft = {
       question: 'Can a smaller segmentation model count cells as accurately as our full-size baseline?',
       importance: 'Reducing inference cost could let small laboratories analyse microscopy images on one GPU.',
       contribution: 'Compare a compressed model against the full-size baseline on the same held-out images. Novelty remains unverified.',
@@ -34,8 +34,12 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       milestone: 'The student presents baseline results and failure examples at the next PI discussion in two weeks.'
     };
     await title.fill('DEMO — Low-cost cell counting');
-    const { ideaFields } = await import('../../src/mastra/projects/idea-check');
-    for (const field of ideaFields) await panel.locator('.idea-fields').getByRole('textbox', { name: new RegExp('^' + field.label) }).fill(draft[field.key as keyof typeof draft] || 'Synthetic plan for ' + field.label);
+    const { ideaFields, ideaDraftSchema } = await import('../../src/mastra/projects/idea-check');
+    const draft = ideaDraftSchema.parse(legacyDraft);
+    for (const field of ideaFields) {
+      if (!draft[field.key]) draft[field.key] = 'Synthetic plan for ' + field.label;
+      await panel.locator('.idea-fields').getByRole('textbox', { name: new RegExp('^' + field.label) }).fill(draft[field.key]);
+    }
     page.once('dialog', dialog => dialog.dismiss());
     await page.getByRole('button', { name: 'New pitch', exact: true }).click();
     assert.equal(await title.inputValue(), 'DEMO — Low-cost cell counting', 'Cancelled switching preserves unsaved title.');
@@ -207,6 +211,6 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     const unlinked = await (await context.request.get(base + '/api/theme-meetings?date=2099-11-04')).json();
     assert.equal(unlinked.submissionPlan.meetings[0].agenda_items[0].project_context, undefined);
     assert.deepEqual(errors, []);
-    console.log('Synthetic UI passed: complete pitch, title rename/history/reload, unsaved-switch protection, delete cancel/confirm, optional title, desktop/tablet/mobile. Screenshots: ' + output);
+    console.log('Synthetic UI passed: complete pitch, title rename/history/reload, unsaved-switch protection, delete cancel/confirm, required title, desktop/tablet/mobile. Screenshots: ' + output);
   } finally { await browser?.close(); await stopServer(server); }
 }
