@@ -190,7 +190,7 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
       </section>}
       <section className="idea-completeness"><h4>Ready for discussion?</h4>
       <p>{missing.length ? `${missing.length} sections still need information. You can save an incomplete draft.` : 'All sections contain text. A person must still judge the evidence and feasibility.'}</p>
-      <ul className="idea-check-list">{checks.map((item) => <li key={item.key}>{item.present ? 'Recorded' : 'Missing'}: {item.label}</li>)}</ul></section>
+      <ul className="idea-check-list">{checks.map((item) => <li key={item.key}><span className={item.present ? 'is-recorded' : 'is-missing'}>{item.present ? 'Recorded' : 'Missing'}</span>: {item.label}</li>)}</ul></section>
       </aside></div>
       <section className="idea-followup" aria-label="AI feedback and next steps">
       {data.canManage && <section className="idea-review-results">

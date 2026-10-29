@@ -6673,6 +6673,8 @@ html[data-theme="dark"] .briefing-hero::after {
 .idea-source-inputs legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .idea-source-inputs button { justify-self: start; }
 .idea-check-list { padding: 0; margin: 16px 0 0; list-style: none; display: grid; gap: 8px; font-size: 14px; }
+.idea-check-list .is-recorded { color: var(--cleared); font-weight: 600; }
+.idea-check-list .is-missing { color: var(--slide); font-weight: 600; }
 .project-idea-check .idea-confirm { display: flex; align-items: flex-start; gap: 8px; font-weight: 400; line-height: 1.5; }
 .idea-confirm input { margin-top: 4px; flex-shrink: 0; }
 .project-idea-check summary { cursor: pointer; font-size: 14px; font-weight: 600; padding-block: 10px; }
