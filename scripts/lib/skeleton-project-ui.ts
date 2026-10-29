@@ -40,7 +40,7 @@ export async function checkSkeletonProjectUi(cookieName:string,tokens:{owner:str
     await pdra.getByRole('status').filter({hasText:'PDRA judgment recorded.'}).waitFor();
     assert.equal(await pdra.getByRole('button',{name:'Record PI confirmation',exact:true}).count(),0);
     const pi=await pageFor(tokens.pi);await pi.getByRole('button',{name:'PI / Admin overview',exact:true}).click();await pi.locator('.skeleton-review-list button').first().click();
-    const final=pi.getByRole('group',{name:'Final PI confirmation',exact:true});await final.waitFor();
+    const final=pi.getByRole('group',{name:'PI skeleton checkpoint confirmation',exact:true});await final.waitFor();
     await final.getByRole('combobox',{name:'Judgment',exact:true}).selectOption('needs_revision');
     await final.getByRole('textbox',{name:'Reason, evidence and required actions',exact:true}).fill('Synthetic PI: baseline evidence is still required.');await final.getByRole('checkbox').check();
     await final.getByRole('button',{name:'Record PI confirmation',exact:true}).click();await pi.getByRole('status').filter({hasText:'PI confirmation recorded.'}).waitFor();

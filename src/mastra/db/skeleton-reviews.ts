@@ -25,6 +25,11 @@ export async function listSkeletonReviews(user: AuthUser) {
     WHERE project_id = ANY($1::uuid[]) ORDER BY created_at DESC LIMIT 200`, [ids]);
   return { projects, reviews: result.rows, viewer: { username: user.username, manager: canSeeAll(user), administrator: user.role === 'administrator' } };
 }
+export async function projectSkeletonReviewChoices(projectId: string, user: AuthUser) {
+  await ensureTable();
+  await getProjectForUser(projectId,user);
+  return (await createPostgresClient().pool.query(`SELECT id::text,created_at AS "createdAt",created_by AS "createdBy",revision FROM skeleton_reviews WHERE project_id=$1 ORDER BY created_at DESC,id DESC`,[projectId])).rows;
+}
 export async function getSkeletonReview(id: string, user: AuthUser): Promise<SkeletonRecord> {
   await ensureTable();
   const row = (await createPostgresClient().pool.query(`SELECT ${columns} FROM skeleton_reviews WHERE id=$1`, [id])).rows[0];
@@ -67,8 +72,8 @@ export async function decideSkeletonReview(id: string, input: unknown, user: Aut
     } else {
       if (!canSeeAll(user)) throw new AuthError('Only a PI or administrator can record final confirmation.', 403, 'forbidden');
       const pdra = latestSkeletonDecisions(record.decisions).pdra;
-      if (!pdra) throw new Error('Record the PDRA judgment before final PI confirmation.');
-      if (command.outcome === 'approved' && pdra.outcome === 'revise') throw new Error('The PDRA requested revision. Resolve it before final approval.');
+      if (!pdra) throw new Error('Record the PDRA judgment before PI skeleton checkpoint confirmation.');
+      if (command.outcome === 'approved' && pdra.outcome === 'revise') throw new Error('The PDRA requested revision. Resolve it before skeleton approval.');
     }
     const decision = { kind: command.kind, outcome: command.outcome, note: command.note, by: user.username, at: new Date().toISOString() };
     const saved = await db.pool.query(`UPDATE skeleton_reviews SET decisions=decisions || $2::jsonb,revision=revision+1 WHERE id=$1 RETURNING ${columns}`, [id,JSON.stringify([decision])]);

@@ -6764,3 +6764,26 @@ html[data-theme="dark"] .briefing-hero::after {
 .skeleton-project-option[aria-pressed="true"] > svg { color: var(--accent-strong); }
 .skeleton-project-option:focus-visible { outline-offset: -2px; }
 .skeleton-project-options > p:last-child:not(.skeleton-project-count) { padding: 16px 10px; margin: 0; color: var(--ink-3); font-size: 14px; }
+
+.project-workflow { color: var(--ink); font-size: 14px; line-height: 1.5; }
+.project-workflow h2 { font-size: 22px; }
+.project-workflow h3 { font-size: 17px; margin-top: 24px; }
+.project-workflow h4 { font-size: 15px; margin: 0 0 8px; }
+.workflow-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-block: 16px 24px; }
+.workflow-tabs [aria-pressed="true"] { background: var(--surface-3); border-color: var(--border-strong); }
+.project-workflow fieldset { display: grid; gap: 14px; min-width: 0; margin: 16px 0; border: 1px solid var(--border-soft); border-radius: 8px; padding: 16px; }
+.project-workflow label { display: grid; gap: 6px; font-weight: 600; }
+.project-workflow input:not([type="checkbox"]), .project-workflow textarea, .project-workflow select { width: 100%; min-width: 0; padding: 10px; border: 1px solid var(--field-border); border-radius: 6px; background: var(--field); color: var(--ink); font: inherit; font-weight: 400; }
+.project-workflow textarea { min-height: 80px; resize: vertical; }
+.project-workflow .workflow-confirm { display: flex; align-items: flex-start; gap: 8px; font-weight: 400; }
+.workflow-record { border-bottom: 1px solid var(--border-soft); padding: 18px 0; }
+.project-workflow details { margin-block: 12px; }
+.project-workflow summary { cursor: pointer; font-weight: 600; }
+.project-workflow pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.project-workflow p, .project-workflow a { overflow-wrap: anywhere; }
+.project-workflow button { min-height: 40px; }
+
+.project-workflow > header { display: block; padding: 0; margin-bottom: 20px; }
+.project-workflow > header p { margin-top: 8px; }
+
+.project-workflow .workflow-confirm input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; padding: 0; margin: 2px 0 0; }

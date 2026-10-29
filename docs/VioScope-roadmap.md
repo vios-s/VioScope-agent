@@ -47,12 +47,48 @@ The v0.1 package should be treated as the first stable internal operations build
 - B2 submission-review harness and B3 GitBook/wiki retrieval remain available, but are not the main
   development priority unless explicitly resumed.
 
+## Project workflow candidate (2026-10-29)
+
+The agreed four-part project model is implemented on main; it has not been deployed.
+Validation passed: TypeScript, isolated production build, project/Pitch/meeting/Skeleton regressions,
+synthetic workflow permissions and history, owner/PI browser flows, desktop/mobile layout, and the
+English-only source check. Real-cycle usage and live AI quality evaluation were not part of this slice.
+
+1. Research profile: question, contribution, validation, research type, working phase, resources,
+   risks and fallback, with change reasons and previous versions. Approved Idea Pitch conversion
+   seeds the profile and retains the final source snapshot. Track, PI, PDRA and collaborators are
+   explicit project assignments; pitch sharing does not grant project access. Existing converted
+   projects lazily inherit their source; existing stages are never guessed or auto-approved.
+2. Submission attempts: immutable target/deadline plans, derived T-42/T-35/T-28/T-14/T-2/T-1 day
+   checkpoints, timezone-aware display and retained outcome history. Enter exact deadlines in UTC.
+   Stage decisions record the reviewer, rules version, research version, attempt and evidence.
+   Skeleton checkpoint confirmation and final PI/admin submission clearance are distinct.
+3. Unified tasks and evidence: project TODOs and meeting actions migrate to `project_tasks`;
+   review follow-ups refer to a saved Skeleton review. Project and meeting pages edit the same
+   task. Completed evidence links a project artifact version or source URL. Planned evidence
+   cannot support a Proceed decision. Completion notes and task history are retained.
+4. Resources and outcomes: record compute, data, people and approval needs, owners, availability,
+   dates and approval references. Submission results record reviewer feedback, lessons and the
+   next plan; retargeting creates a new attempt rather than overwriting the old one.
+
+The legacy 1–5 stage remains compatible; the research work phase is descriptive. Final clearance
+requires a current-version internal-review Proceed decision and no unfinished high-priority tasks;
+other checkpoint assessments remain explicit human records, not an automatic approval engine.
+Resources are declared status/reference records, not an integration with an external approval service.
+AI remains advisory. This slice does not add scheduled submission reminders or rerun the AI engines.
+
+Release precautions: back up both PostgreSQL and the external theme workflow sidecar before first
+use. Meeting actions migrate once per sidecar path into PostgreSQL; subsequent sidecar writes retain
+agenda confirmations only. A rollback to older code requires restoring the matching database and
+sidecar backup together. Never roll back only the application after new task writes. Validate on an
+isolated candidate; do not build inside the live release directory.
+
 ## Next Development Phases
 
 ### Agreed Function Order (2026-10-28)
 
 Implement these functions incrementally, reusing the existing project, meeting and review features.
-Steps 1–3 are deployed. Development now uses main. At the user's request, the next slice reworks Skeleton Lock before the full submission timeline in step 4; later steps remain planned work.
+Steps 1–3 and project-bound Skeleton Lock are deployed. Development uses main. The four-part project workflow implementation below is the current candidate; deployment and a real-cycle pilot are separate release steps.
 This order takes precedence over the older phase numbering below. Keep B3 maintenance-only.
 
 | Order | Function | User outcome | Status |
@@ -60,8 +96,8 @@ This order takes precedence over the older phase numbering below. Keep B3 mainte
 | 1 | Confirm theme meeting agendas | The coordinator adjusts order and time, defers items when needed, and confirms a saved agenda version. | Deployed 2026-10-28; real-cycle pilot pending |
 | 2 | Follow up meeting actions | Record the decision, responsible person, due date and completion evidence; review unfinished actions at the next meeting. | Deployed 2026-10-28; real-cycle pilot pending |
 | 3 | Review private idea pitches | Upload or fill a pitch; get configurable AI advice; humans decide; explicitly create a project inheriting only the final approved version. | Deployed 2026-10-28; synthetic tests passed |
-| 4 | Build submission timelines | Count backwards from the submission date to the six-, five- and four-week checks and final two weeks. | Planned |
-| 5 | Confirm stage readiness | Require evidence and a named reviewer at each checkpoint, beyond a progress percentage. | Planned |
+| 4 | Build submission timelines | Count backwards from the submission date to the six-, five- and four-week checks and final two weeks. | Implemented in candidate: versioned attempts and checkpoint dates |
+| 5 | Confirm stage readiness | Require evidence and a named reviewer at each checkpoint, beyond a progress percentage. | Implemented in candidate: evidence-backed decisions tied to research version and attempt |
 | 6 | Complete internal review | Assign a PDRA, track feedback and required revisions, then obtain final PI clearance. Reuse the B2 harness. | Planned |
 | 7 | Learn after submission | Record outcomes, reviews, lessons and the revision or resubmission plan. | Planned |
 | 8 | Review the group portfolio | Extend the existing overview with submission risks, blockers, support needs and resource gaps. | Planned |

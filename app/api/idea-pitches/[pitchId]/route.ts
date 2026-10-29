@@ -1,3 +1,4 @@
+import { projectSetupSchema } from '../../../../src/mastra/projects/workflow';
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -9,7 +10,7 @@ import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { withDatabaseTransaction } from '../../../../src/mastra/db/postgres';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-const commandSchema = z.union([ideaCommandSchema, z.object({ operation: z.literal('create_project'), version: z.number().int().positive(), confirmed: z.literal(true), initialAction: initialProjectActionSchema.optional() }).strict()]);
+const commandSchema = z.union([ideaCommandSchema, z.object({ operation: z.literal('create_project'), version: z.number().int().positive(), confirmed: z.literal(true), initialAction: initialProjectActionSchema.optional(), setup: projectSetupSchema.optional() }).strict()]);
 export async function GET(request: Request, context: { params: Promise<{ pitchId: string }> }) {
   try {
     const user = await requireSessionUser(request);
@@ -24,7 +25,7 @@ export async function POST(request: Request, context: { params: Promise<{ pitchI
     z.string().uuid().parse(pitchId);
     const command = commandSchema.parse(await request.json());
     const result = await withDatabaseTransaction(async () => {
-      const saved = command.operation === 'create_project' ? await createProjectFromPitch(pitchId, command.version, actor, command.initialAction) : await writeIdeaCheck(pitchId, command, actor);
+      const saved = command.operation === 'create_project' ? await createProjectFromPitch(pitchId, command.version, actor, command.initialAction, command.setup) : await writeIdeaCheck(pitchId, command, actor);
       await recordAuditLog({ actor, action: `idea_pitch.${command.operation}`, targetType: 'idea_pitch', targetId: pitchId,
         summary: 'User updated an idea pitch.', metadata: { ...saved, operation: command.operation } });
       return saved;

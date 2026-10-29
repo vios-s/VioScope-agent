@@ -1,3 +1,5 @@
+import { seedProjectResearch } from './project-workflow';
+import { projectSetupSchema } from '../projects/workflow';
 import { validateIdeaReview, type SavedIdeaReview, type IdeaReview } from '../projects/idea-review-schema';
 import { AuthError, canSeeAll } from '../auth/session';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
@@ -99,7 +101,7 @@ export async function writeIdeaCheck(id: string, input: IdeaCommand, user: AuthU
     return { version: command.version + 1 };
   });
 }
-export async function createProjectFromPitch(id: string, version: number, user: AuthUser, initialAction?: { text: string; dueDate: string }) {
+export async function createProjectFromPitch(id: string, version: number, user: AuthUser, initialAction?: { text: string; dueDate: string }, setup?: unknown) {
   await ensureTable();
   return withDatabaseTransaction(async () => {
     const db = createPostgresClient();
@@ -109,7 +111,10 @@ export async function createProjectFromPitch(id: string, version: number, user: 
     const current = (await revisions(id, true))[0];
     if (current?.version !== version) throw new AuthError('This pitch changed. Reload before creating the project.', 409, 'conflict');
     if (current.decision?.outcome !== 'proceed') throw new Error('A confirmed Proceed decision is required before creating a project.');
-    const project = await createProject({ title: pitch.title, ownerUsername: pitch.ownerUsername, stage: 1, target: current.decision.nextMilestone, todos: initialAction ? [initialProjectActionSchema.parse(initialAction)] : [] }, user);
+    const assignments = setup ? projectSetupSchema.parse(setup) : undefined;
+    if (assignments) for (const username of assignments.collaborators) { const account=await getUserByUsername(username); if(!account||account.provisioningStatus!=='active') throw new Error('Project collaborators must be active accounts.'); }
+    const project = await createProject({ ...assignments, title: pitch.title, ownerUsername: pitch.ownerUsername, stage: 1, target: current.decision.nextMilestone, todos: initialAction ? [initialProjectActionSchema.parse(initialAction)] : [] }, user);
+    await seedProjectResearch(project.id,{phase:'initial_validation',question:current.draft.question,claim:current.draft.contribution,validation:current.draft.validation,resourceNotes:current.draft.resources,risks:current.draft.risks},user.username);
     await db.pool.query('INSERT INTO project_idea_origins(project_id,snapshot) VALUES($1,$2::jsonb)', [project.id,
       JSON.stringify({ title: pitch.title, draft: current.draft, decision: current.decision, approvedBy: current.by, approvedAt: current.at, version: current.version })]);
     await db.pool.query('UPDATE idea_pitches SET project_id=$2 WHERE id=$1', [id, project.id]);

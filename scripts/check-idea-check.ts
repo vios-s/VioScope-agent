@@ -143,6 +143,12 @@ try {
   assert.equal(conversions[0].projectId, conversions[1].projectId, 'Concurrent conversion creates one project.');
   assert.deepEqual(conversions.map(item => item.created).sort(), [false, true]);
   const records = await projects.listProjectsForUser(accounts.get('principal')!);
+  const projectWorkflow = await import('../src/mastra/db/project-workflow');
+  const inheritedProfile = (await projectWorkflow.getProjectWorkflow(conversions[0].projectId, accounts.get('alice')!)).research.profile;
+  assert.equal(inheritedProfile.question, currentDraft.question);
+  assert.equal(inheritedProfile.claim, currentDraft.contribution);
+  assert.equal(inheritedProfile.resourceNotes, currentDraft.resources);
+  assert.equal(inheritedProfile.phase, 'initial_validation');
   assert.equal(records[0].target, decision.nextMilestone);
   assert.equal(records[0].todos.length, 1);
   assert.equal(records[0].todos[0].dueDate, '2026-11-06');
@@ -169,7 +175,8 @@ try {
   const state = { confirmations: [], actions: [] };
   const confirmation = workflow.confirmAgenda(state, agenda, '2099-11-04', [{ username: 'alice', deferred: false, minutes: 10 }], 'chair');
   assert.deepEqual(confirmation.entries[0].project_context, snapshot, 'Confirmed agendas retain the shared project snapshot.');
-  await projects.updateProject(records[0].id, { todos: [{ ...records[0].todos[0], done: true }] }, accounts.get('alice')!);
+  const {changeProjectWorkflow}=await import('../src/mastra/db/project-workflow');
+  await changeProjectWorkflow(records[0].id,{operation:'task_update',confirmed:true,id:records[0].todos[0].id,revision:0,status:'done',note:'Completed the synthetic pilot.',evidenceIds:[]},accounts.get('alice')!);
   const { buildThemeMeetingPlan } = await import('../src/mastra/theme-meetings/planner');
   const historical = await buildThemeMeetingPlan({ meetingDate: '2099-11-04' });
   assert.deepEqual(historical.plan.meetings[0].agenda_items[0].project_context, snapshot, 'Editing live tasks does not rewrite a submitted snapshot.');

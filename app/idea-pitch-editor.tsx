@@ -21,6 +21,7 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
   const [confirmed, setConfirmed] = useState(false);
   const [createConfirmed, setCreateConfirmed] = useState(false);
   const [initialAction, setInitialAction] = useState('');
+  const [setup, setSetup] = useState({track:'A',piUsername:'',pdraUsername:'',collaborators:''});
   const [actionDueDate, setActionDueDate] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
@@ -111,7 +112,7 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
       const target = await ensurePitch();
       await requestJson(target, 'Could not save idea check.', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ operation, version: data.current?.version || 0,
-          ...(operation === 'save' ? { title, draft, source } : operation === 'decide' ? { decision, confirmed } : { confirmed: createConfirmed, initialAction: { text: initialAction, dueDate: actionDueDate } }) }) });
+          ...(operation === 'save' ? { title, draft, source } : operation === 'decide' ? { decision, confirmed } : { confirmed: createConfirmed, initialAction: { text: initialAction, dueDate: actionDueDate }, setup: {...setup,piUsername:setup.piUsername||null,pdraUsername:setup.pdraUsername||null,collaborators:setup.collaborators.split(',').map(value=>value.trim()).filter(Boolean)} }) }) });
       const payload = await requestJson<IdeaCheckPayload>(target, 'Saved, but could not refresh. Reload to see the saved record.');
       setData(payload); setExportFormat(defaultPitchExportFormat(payload.current?.source?.name)); setTitle(payload.pitch.title); setDraft(payload.current!.draft); setConfirmed(false); setCreateConfirmed(false);
       await onChanged(resolvedId.current);
@@ -225,8 +226,14 @@ export function IdeaPitchEditor({ pitchId, onChanged, onProjectCreated, onDelete
       {data.canManage && !data.canEdit && <p>This pitch has become a project. Its original approval record is read only and cannot be deleted.</p>}
       {data.canManage && (data.pitch.projectId ? <p role="status">Created project: {data.pitch.title}. Find it under Projects.</p> : data.current?.decision?.outcome === 'proceed' && !dirty && <form onSubmit={(event) => { event.preventDefault(); void save('create_project'); }}>
         <fieldset disabled={busy}><legend>Create a project from this pitch</legend>
-          <p>This creates a Stage 1 project owned by @{data.pitch.ownerUsername}, using the pitch title. You can set its track and other details in the project.</p>
+          <p>The approved question, contribution, validation plan and risks become the initial project research profile. The original approved pitch remains unchanged.</p>
           <p>Approved next milestone: {data.current.decision.nextMilestone}</p>
+          <label>Project track<select value={setup.track} onChange={event=>{setSetup({...setup,track:event.target.value});setCreateConfirmed(false);}}><option value="A">Track A — Flagship</option><option value="B">Track B — Momentum</option></select></label>
+          <label>Project PI username<input value={setup.piUsername} onChange={event=>{setSetup({...setup,piUsername:event.target.value});setCreateConfirmed(false);}} placeholder="Optional active PI account" /></label>
+          <label>PDRA reviewer username<input value={setup.pdraUsername} onChange={event=>{setSetup({...setup,pdraUsername:event.target.value});setCreateConfirmed(false);}} placeholder="Optional active reviewer account" /></label>
+          <label>Project collaborator usernames<input value={setup.collaborators} onChange={event=>{setSetup({...setup,collaborators:event.target.value});setCreateConfirmed(false);}} placeholder="Comma-separated account usernames" /></label>
+          <p>Confirm project access separately. Pitch viewers and the approving PI are not assigned automatically.</p>
+
           <label>First next action <textarea required maxLength={240} rows={2} value={initialAction} onChange={(event) => { setInitialAction(event.target.value); setCreateConfirmed(false); }} /></label>
           <label>Action deadline <input required type="date" value={actionDueDate} onChange={(event) => { setActionDueDate(event.target.value); setCreateConfirmed(false); }} /></label>
           <p>@{data.pitch.ownerUsername} is responsible for this action. Manage further tasks in Projects. Attach the project when submitting a theme meeting update.</p>

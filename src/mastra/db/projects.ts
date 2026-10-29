@@ -1,3 +1,6 @@
+import type { ProjectTask } from '../projects/workflow';
+import { ensureProjectWorkflowTables } from './project-workflow-schema';
+import { importProjectTodos, taskColumns, replaceLegacyProjectTodos, taskAsTodo } from './project-tasks';
 import { randomUUID } from 'node:crypto';
 import { canSeeAll } from '../auth/session';
 import { canManageTheme } from '../theme-meetings/access';
@@ -648,6 +651,7 @@ async function ensureProjectTablesOnce(): Promise<void> {
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS project_records_lifecycle_idx ON project_records (lifecycle)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS project_updates_project_idx ON project_updates (project_id, update_date DESC)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS project_artifacts_project_idx ON project_artifacts (project_id, is_current)');
+    await ensureProjectWorkflowTables();
   } finally {
     await postgres.disconnect();
   }
@@ -720,6 +724,15 @@ async function hydrateProjects(rows: ProjectRow[], user: AuthUser): Promise<Proj
       updatesByProject.set(row.project_id, updates);
     }
 
+    for (const row of rows) if (parseProjectTodos(row.todos).length) await importProjectTodos(row.id);
+    const tasks = (await postgres.pool.query(`SELECT ${taskColumns} FROM project_tasks WHERE project_id=ANY($1::uuid[]) ORDER BY created_at,id`,[rows.map(row=>row.id)])).rows as ProjectTask[];
+    const tasksByProject = new Map<string, ProjectTodoRecord[]>();
+    for (const task of tasks) {
+      if (!task.projectId || task.data.status === 'cancelled') continue;
+      const list = tasksByProject.get(task.projectId) || [];
+      list.push(taskAsTodo(task)); tasksByProject.set(task.projectId,list);
+    }
+    for (const row of rows) row.todos = tasksByProject.get(row.id) || [];
     return rows
       .map((row) =>
         toProject(
@@ -928,7 +941,13 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
 }
 
 export async function updateProject(projectId: string, input: ProjectUpdateInput, actor: AuthUser): Promise<ProjectRecord> {
-  const current = await getProjectForUser(projectId, actor);
+  await ensureProjectTables();
+  return withDatabaseTransaction(() => updateProjectInTransaction(projectId,input,actor));
+}
+async function updateProjectInTransaction(projectId: string, input: ProjectUpdateInput, actor: AuthUser): Promise<ProjectRecord> {
+  const resolved = await getProjectForUser(projectId, actor);
+  await createPostgresClient().pool.query('SELECT id FROM project_records WHERE id=$1 FOR UPDATE',[resolved.id]);
+  const current = await getProjectForUser(resolved.id, actor);
   if (!current.access.canEdit) {
     throw new Error('You do not have permission to edit this project.');
   }
@@ -959,7 +978,12 @@ export async function updateProject(projectId: string, input: ProjectUpdateInput
   const nextStatus = input.status || current.status;
   if (!isProjectLifecycle(nextLifecycle)) throw new Error('Unsupported project lifecycle.');
   if (!isProjectStatus(nextStatus)) throw new Error('Unsupported project status.');
-  const nextTodos = cleanProjectTodos(input.todos, current.todos);
+  if (input.venue !== undefined || input.submissionDeadline !== undefined) {
+    const active = await createPostgresClient().pool.query('SELECT 1 FROM project_submissions WHERE project_id=$1 AND is_current',[current.id]);
+    if(active.rowCount && ((input.venue !== undefined && input.venue !== current.venue) || (input.submissionDeadline !== undefined && input.submissionDeadline !== current.submissionDeadline))) throw new Error('Manage the current venue and deadline in Submission plans.');
+  }
+  if (input.todos !== undefined) await replaceLegacyProjectTodos(current.id,cleanProjectTodos(input.todos,current.todos),actor.username);
+  const nextTodos: ProjectTodoRecord[] = [];
   const currentDefaultWatchPath = defaultWatchPath(current.ownerUsername, current.project);
   const nextDefaultWatchPath = defaultWatchPath(nextOwnerUsername, nextSlug);
   const nextWatchPath =

@@ -77,7 +77,7 @@ export function SkeletonLock() {
     setBusy(true); setError(''); setMessage('');
     try {
       const result = await requestJson<{ review: SkeletonRecord }>(`/api/skeleton-lock/${selected.id}`, 'Could not record judgment.', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind, outcome, note, revision: selected.revision, confirmed: true }) });
-      setSelected(result.review); await refresh(); setMessage(kind === 'pdra' ? 'PDRA judgment recorded. Final PI confirmation remains separate.' : 'PI confirmation recorded. Project stage is unchanged.');
+      setSelected(result.review); await refresh(); setMessage(kind === 'pdra' ? 'PDRA judgment recorded. PI skeleton checkpoint confirmation remains separate.' : 'PI confirmation recorded. Project stage is unchanged.');
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not record judgment.'); }
     finally { setBusy(false); }
   }
@@ -127,6 +127,7 @@ export function SkeletonLock() {
         <p>PDRA: {latestSkeletonDecisions(selected.decisions).pdra?.outcome || 'pending'} · PI: {latestSkeletonDecisions(selected.decisions).pi?.outcome || 'pending'}</p>
         {(selectedProject.pdraUsername === data.viewer.username || data.viewer.administrator) && <JudgmentForm key={`pdra-${selected.id}-${selected.revision}`} kind="pdra" busy={busy} onSave={judge} />}
         {data.viewer.manager && <JudgmentForm key={`pi-${selected.id}-${selected.revision}`} kind="pi" busy={busy} onSave={judge} />}
+        {selectedProject.access.canEdit && <SkeletonFollowUp key={selected.id} review={selected} owner={selectedProject.ownerUsername} />}
         <h4>Judgment history</h4>{!selected.decisions.length && <p>No human judgment recorded.</p>}
         <ol>{selected.decisions.map((decision,index) => <li key={index}><strong>{decision.kind.toUpperCase()}: {decision.outcome}</strong> · @{decision.by} · {decision.at}<p>{decision.note}</p></li>)}</ol>
       </section>}
@@ -136,7 +137,7 @@ export function SkeletonLock() {
 function JudgmentForm({ kind, busy, onSave }: { kind: 'pdra' | 'pi'; busy: boolean; onSave: (kind: 'pdra' | 'pi', outcome: string, note: string) => Promise<void> }) {
   const [outcome, setOutcome] = useState(kind === 'pdra' ? 'revise' : 'needs_revision'); const [note, setNote] = useState(''); const [confirmed, setConfirmed] = useState(false);
   return <form onSubmit={event => { event.preventDefault(); void onSave(kind, outcome, note); }}><fieldset disabled={busy}>
-    <legend>{kind === 'pdra' ? 'PDRA judgment' : 'Final PI confirmation'}</legend>
+    <legend>{kind === 'pdra' ? 'PDRA judgment' : 'PI skeleton checkpoint confirmation'}</legend>
     <label>Judgment <select value={outcome} onChange={event => { setOutcome(event.target.value); setConfirmed(false); }}>{(kind === 'pdra' ? [['revise','Revise before locking'],['conditional','Conditional — actions required'],['locked','Ready to lock']] : [['needs_revision','Needs revision'],['approved','Approve skeleton lock']]).map(([value,label]) => <option value={value} key={value}>{label}</option>)}</select></label>
     <label>Reason, evidence and required actions <textarea required rows={4} maxLength={4000} value={note} onChange={event => { setNote(event.target.value); setConfirmed(false); }} /></label>
     <label className="skeleton-confirm"><input type="checkbox" required checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I have reviewed the source evidence and AI advice and confirm this is my human judgment.</label>
@@ -165,4 +166,16 @@ function ProjectPicker({ projects, value, onSelect }: { projects: ProjectRecord[
       {!matches.length && <p>No matching projects.</p>}
     </div>}
   </div>;
+}
+
+function SkeletonFollowUp({review,owner}:{review:SkeletonRecord;owner:string}) {
+ const [busy,setBusy]=useState(false),[status,setStatus]=useState(''),[error,setError]=useState('');
+ async function submit(event:FormEvent<HTMLFormElement>){event.preventDefault();const form=event.currentTarget;const data=new FormData(form);setBusy(true);setError('');setStatus('');try{
+  await requestJson(`/api/projects/${review.projectId}/workflow`,'Could not create follow-up task.',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'task',confirmed:true,task:String(data.get('task')),owner:String(data.get('owner')),dueDate:data.get('dueDate')||null,priority:data.get('priority'),sourceKind:'review',sourceId:review.id})});setStatus('Follow-up task added to the project.');form.reset();
+ }catch(error){setError(error instanceof Error?error.message:'Could not create task.');}finally{setBusy(false);}}
+ return <details><summary>Create a project follow-up task</summary><p>This task links to this saved AI review. Review the suggested action before creating it.</p><form onSubmit={submit}><fieldset disabled={busy}>
+  <label>Follow-up action<textarea name="task" required defaultValue={review.result.structured.findings.find(item=>item.requiredAction)?.requiredAction||''}/></label>
+  <label>Assignee username<input name="owner" defaultValue={owner} required/></label><label>Due date<input name="dueDate" type="date"/></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High — required before submission clearance</option></select></label>
+  <label className="skeleton-confirm"><input type="checkbox" required/>I confirm this action should be added to the project.</label><button type="submit" className="ops-primary">Create follow-up task</button>{status&&<p role="status">{status}</p>}{error&&<p role="alert">{error}</p>}
+ </fieldset></form></details>;
 }

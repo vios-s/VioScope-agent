@@ -1,0 +1,95 @@
+import 'dotenv/config';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createPostgresClient, closePostgresPools } from '../src/mastra/db/postgres';
+const original = process.env.DATABASE_URL!;
+const source = createPostgresClient('skeleton-project-isolation');
+const database = `workflow_${randomUUID().replaceAll('-','')}`;
+const directory = await mkdtemp(join(tmpdir(), 'skeleton-project-')); let created = false;
+try {
+  await source.pool.query(`CREATE DATABASE "${database}"`); created = true;
+  const url = new URL(original); url.pathname = '/'+database;
+  Object.assign(process.env, { DATABASE_URL: url.toString(), DATASTORE_DIR: directory, AUTH_SECRET: 'synthetic-skeleton-session', VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH: join(directory,'runtime.json'), THEME_MEETING_CONFIG_PATH: join(directory,'themes.yaml') });
+  await writeFile(join(directory,'themes.yaml'), 'timezone: Europe/London\ncycle:\n  rotation: [AB]\n  anchor_date: 2026-10-28\nthemes:\n  - theme_id: A\n    title: Synthetic theme\n    cycle_group: AB\n    time: "10:00"\n    coordinator: principal\n    coordinator_user: principal\n    members: [alice, bob]\n    member_users: [alice, bob]\n');
+  const users = await import('../src/mastra/db/users'); await users.ensureUsersTable();
+  const db = createPostgresClient();
+  for (const [name,role] of [['alice','member'],['bob','member'],['carol','member'],['outsider','member'],['principal','pi'],['admincheck','administrator']]) {
+    await db.pool.query(`INSERT INTO users(id,username,display_name,email,role,provisioning_status,password_reset_required) VALUES($1,$2,$3,$4,$5,'active',false)`, [randomUUID(),name,name==='outsider'?'bob':name,`${name}@example.test`,role]);
+  }
+  const accounts = new Map(await Promise.all(['alice','bob','carol','outsider','principal','admincheck'].map(async name => [name,(await users.getUserByUsername(name))!] as const)));
+  const projectDb = await import('../src/mastra/db/projects');
+  await assert.rejects(projectDb.createProject({title:'Invalid PI', piUsername:'bob'},accounts.get('alice')!),/PI must/);
+  await assert.rejects(projectDb.createProject({title:'Self review', pdraUsername:'alice'},accounts.get('alice')!),/own PDRA/);
+  let project = await projectDb.createProject({title:'Synthetic bound skeleton', piUsername:'principal', pdraUsername:'bob',collaborators:['carol'],venue:'Fictional venue',submissionDeadline:'2026-12-15'},accounts.get('alice')!);
+  assert.equal(project.piUsername,'principal');assert.equal(project.pdraUsername,'bob');
+  assert.equal((await projectDb.getProjectForUser(project.id,accounts.get('bob')!)).access.canEdit,false);
+  await assert.rejects(projectDb.getProjectForUser(project.id,accounts.get('outsider')!),/access denied/);
+
+  const {getProjectWorkflow,changeProjectWorkflow}=await import('../src/mastra/db/project-workflow');
+  const {researchSchema,submissionTimeline}=await import('../src/mastra/projects/workflow');
+  const {changeMeetingWorkflow,addMeetingAction,readMeetingWorkflow}=await import('../src/mastra/theme-meetings/workflow');
+  const owner=accounts.get('alice')!,pdra=accounts.get('bob')!,pi=accounts.get('principal')!;
+  const change=(command:unknown,actor=owner)=>changeProjectWorkflow(project.id,command,actor);
+  let data=await getProjectWorkflow(project.id,owner);assert.equal(data.research.revision,0);
+  const profile=researchSchema.parse({question:'Can the method improve robustness?',claim:'A new module improves held-out performance.',validation:'Compare with and without the module on held-out data.',phase:'initial_validation',researchType:'empirical',risks:'The gain may not generalize.',fallback:'Study failure cases.'});
+  await change({operation:'research',revision:0,confirmed:true,profile,reason:'Initial project question.'});
+  await assert.rejects(change({operation:'research',revision:0,confirmed:true,profile,reason:'Stale edit.'}),/changed/);
+  await assert.rejects(change({operation:'research',revision:1,confirmed:true,profile,reason:'Not authorized.'},pdra),/permission/);
+  await assert.rejects(change({operation:'research',revision:1,confirmed:true,profile:{...profile,resources:[{id:randomUUID(),kind:'approval',need:'Data access',status:'available',owner:'alice',evidence:'',dueDate:null}]},reason:'Approval lacks evidence.'}),/approval reference/);
+  const plan={venue:'Fictional review venue',cycle:'2027 Cycle 2',deadline:'2027-03-31T22:59:00Z',timezone:'Europe/London'};
+  const dates=submissionTimeline(plan);assert.equal(dates[0].at,'2027-02-17T22:59:00.000Z');assert.equal(dates[4].checkpoint,'submission_clearance');
+  await change({operation:'submission',confirmed:true,currentId:null,plan,reason:'First target.'});
+  data=await getProjectWorkflow(project.id,owner);const attempt=data.submissions[0];assert.equal(data.project.venue,plan.venue);assert.equal(data.project.submissionDeadline,'2027-03-31');
+  await assert.rejects(projectDb.updateProject(project.id,{venue:'Overwrite'},owner),/Submission plans/);
+  await assert.rejects(change({operation:'submission',confirmed:true,currentId:null,plan,reason:'Stale plan.'}),/changed/);
+  await change({operation:'evidence',confirmed:true,title:'Baseline result',claim:profile.claim,kind:'experiment',state:'completed',summary:'Synthetic held-out comparison result.',artifactId:null,url:'https://example.org/synthetic-results'});
+  data=await getProjectWorkflow(project.id,owner);const evidenceId=data.evidence[0].id;
+  const decision={operation:'decision',confirmed:true,checkpoint:'internal_review',submissionId:attempt.id,outcome:'proceed',reason:'The supplied synthetic evidence meets this checkpoint.',conditions:'',reviewDue:null,evidenceIds:[evidenceId],profileRevision:1,skeletonReviewId:null,rulesVersion:'synthetic-checklist-v1'};
+  await assert.rejects(change(decision),/permission/);
+  await assert.rejects(change({...decision,evidenceIds:[randomUUID()]},pdra),/evidence/);
+  await assert.rejects(change({...decision,outcome:'conditional'},pdra),/review date/);
+  await change(decision,pdra);
+  await change({operation:'task',confirmed:true,task:'Resolve a review weakness',owner:'alice',dueDate:'2027-03-20',priority:'high',sourceKind:'project',sourceId:null});
+  data=await getProjectWorkflow(project.id,owner);const task=data.tasks[0];
+  await assert.rejects(change({...decision,checkpoint:'submission_clearance'},pdra),/PI\/admin/);
+  await assert.rejects(change({...decision,checkpoint:'submission_clearance'},pi),/high-priority/);
+  await change({operation:'task_update',confirmed:true,id:task.id,revision:0,status:'done',note:'Completed against the linked synthetic comparison.',evidenceIds:[evidenceId]});
+  await assert.rejects(change({operation:'task_update',confirmed:true,id:task.id,revision:0,status:'open',note:'Stale task update.',evidenceIds:[]}),/changed/);
+  await change({...decision,checkpoint:'submission_clearance'},pi);
+  await change({operation:'research',revision:1,confirmed:true,profile:{...profile,claim:'Changed scientific claim.'},reason:'New evidence changes scope.'});
+  await assert.rejects(change({...decision,checkpoint:'submission_clearance',profileRevision:2},pi),/Internal review/);
+  const oldDecisions=(await getProjectWorkflow(project.id,owner)).decisions;assert.equal(oldDecisions.length,2);assert.equal(oldDecisions[0].data.profileRevision,1);
+  const action=await changeMeetingWorkflow({},async state=>addMeetingAction(state,'A','2026-10-28',{projectId:project.id,decision:'Proceed with the synthetic comparison.',task:'Check the shared meeting action',owner:'alice',dueDate:'2026-11-06'},'principal'));
+  data=await getProjectWorkflow(project.id,owner);const meetingTask=data.tasks.find(item=>item.id===action.id)!;assert.equal(meetingTask.sourceKind,'meeting');
+  await change({operation:'task_update',confirmed:true,id:action.id,revision:0,status:'done',note:'Completed from the project view.',evidenceIds:[evidenceId]});
+  assert.equal((await readMeetingWorkflow()).actions.find(item=>item.id===action.id)!.status,'done');
+  const {updateMeetingAction}=await import('../src/mastra/theme-meetings/workflow');
+  await changeMeetingWorkflow({},async state=>updateMeetingAction(state.actions.find(item=>item.id===action.id)!,'open','Reopened from meeting.','principal',true));
+  const reopened=(await getProjectWorkflow(project.id,owner)).tasks.find(item=>item.id===action.id)!;
+  assert.equal(reopened.data.status,'open');assert.deepEqual((reopened.data.history[1] as any).evidenceIds,[evidenceId],'Meeting edits preserve project completion evidence history.');
+  await change({operation:'submission_result',confirmed:true,id:attempt.id,revision:0,outcome:'rejected',submittedAt:'2027-03-30T12:00:00Z',reviews:'Synthetic reviewer asks for broader validation.',lessons:'Broaden the validation set.',nextPlan:'Retarget the next cycle.',reason:'Recorded synthetic outcome.'});
+  await change({operation:'submission',confirmed:true,currentId:attempt.id,plan:{...plan,cycle:'2027 Cycle 3',deadline:'2027-06-30T22:59:00Z'},reason:'Resubmission after revision.'});
+  data=await getProjectWorkflow(project.id,owner);assert.equal(data.submissions.length,2);assert.equal(data.submissions.find(item=>item.id===attempt.id)!.result.outcome,'rejected');assert.equal(data.submissions.filter(item=>item.isCurrent).length,1);
+  await assert.rejects(change({...decision,profileRevision:2},pi),/current submission/);
+  await assert.rejects(getProjectWorkflow(project.id,accounts.get('outsider')!),/access denied/);
+  const otherPath={updatesPath:join(directory,'other-updates.json')};
+  assert.equal((await readMeetingWorkflow(otherPath)).actions.length,0,'Meeting actions are scoped to their configured store.');
+  const legacy=await projectDb.createProject({title:'Legacy task migration',todos:[{id:'old-id',text:'Existing task',done:false,dueDate:null}]},owner);
+  const migrated=(await getProjectWorkflow(legacy.id,owner)).tasks;assert.equal(migrated.length,1);
+  assert.equal((await getProjectWorkflow(legacy.id,owner)).tasks[0].id,migrated[0].id,'Migration is idempotent.');
+  await assert.rejects(change({operation:'task_update',confirmed:true,id:task.id,revision:1,status:'done',note:'Wrong project evidence.',evidenceIds:[randomUUID()]}),/evidence/);
+  // Approved pitch inheritance is checked separately by check:idea-check.
+  if(process.env.CHECK_PROJECT_WORKFLOW_UI==='true'){
+   const {createSessionToken,sessionCookieName}=await import('../src/mastra/auth/session');
+   const {checkProjectWorkflowUi}=await import('./lib/project-workflow-ui');
+   await checkProjectWorkflowUi(sessionCookieName,createSessionToken(owner),project.id,createSessionToken(pi));
+  }
+  console.log('Project workflow passed: versioned research, submission history and timing, permissioned decisions, evidence references, unified meeting tasks and submission reflections.');
+}finally {
+  await closePostgresPools(process.env.DATABASE_URL);
+  if(created)await source.pool.query(`DROP DATABASE "${database}" WITH (FORCE)`);
+  await closePostgresPools(original);await rm(directory,{recursive:true,force:true});
+}

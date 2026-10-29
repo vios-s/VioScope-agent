@@ -29,6 +29,7 @@
     "check:theme-meeting-ui": "npm run web:build && tsx scripts/check-theme-meeting-ui.ts",
     "check:account-management": "tsx scripts/check-account-management.ts",
     "check:memory": "tsx scripts/check-memory.ts",
+    "check:project-workflow": "node --import tsx scripts/check-project-workflow.ts",
     "check:projects": "tsx scripts/check-project-manager.ts",
     "check:project-ui": "npm run web:build && tsx scripts/check-project-ui.ts",
     "check:project-artifacts": "tsx scripts/check-project-artifacts.ts",

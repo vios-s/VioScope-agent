@@ -1,3 +1,5 @@
+import { ensureProjectTables } from '../db/projects';
+import { importMeetingTasks, readMeetingTasks, saveMeetingTaskChanges } from '../db/project-tasks';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
@@ -35,18 +37,26 @@ export const newActionSchema = z.object({ projectId: z.string().uuid().nullable(
 export function workflowPath(options: ThemeMeetingStoreOptions = {}) {
   return `${resolveThemeMeetingUpdatesPath(options.updatesPath)}.workflow.json`;
 }
-export async function readMeetingWorkflow(options: ThemeMeetingStoreOptions = {}): Promise<MeetingWorkflow> {
+async function readLegacyWorkflow(options: ThemeMeetingStoreOptions): Promise<MeetingWorkflow> {
   try { return workflowSchema.parse(JSON.parse(await readFile(workflowPath(options), 'utf8'))); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { confirmations: [], actions: [] };
     throw error;
   }
 }
+export async function readMeetingWorkflow(options: ThemeMeetingStoreOptions = {}): Promise<MeetingWorkflow> {
+  await ensureProjectTables();
+  const legacy = await readLegacyWorkflow(options);
+  await importMeetingTasks(workflowPath(options), legacy.actions);
+  return { confirmations: legacy.confirmations, actions: await readMeetingTasks(workflowPath(options)) };
+}
 export async function changeMeetingWorkflow<T>(options: ThemeMeetingStoreOptions, change: (state: MeetingWorkflow) => Promise<T>): Promise<T> {
   return withFileLock(workflowPath(options), async () => {
     const state = await readMeetingWorkflow(options);
+    const before = structuredClone(state.actions);
     const result = await change(state);
-    await atomicWrite(workflowPath(options), JSON.stringify(workflowSchema.parse(state), null, 2) + '\n');
+    await saveMeetingTaskChanges(before, state.actions, workflowPath(options));
+    await atomicWrite(workflowPath(options), JSON.stringify(workflowSchema.parse({ confirmations: state.confirmations, actions: [] }), null, 2) + '\n');
     return result;
   });
 }

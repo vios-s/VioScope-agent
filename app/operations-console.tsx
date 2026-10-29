@@ -43,7 +43,7 @@ import { ReviewForm } from './review-form';
 import { SkeletonLock } from './skeleton-lock';
 import { IdeaPitches } from './idea-pitches';
 import { ProjectIdeaOrigin } from './project-idea-origin';
-import { ProjectMeetingActions } from './project-meeting-actions';
+import { ProjectWorkflow } from './project-workflow';
 import { MeetingProjectSummary } from './meeting-project-summary';
 import { meetingProjectContext } from '../src/mastra/theme-meetings/project-context';
 import { ThemeMeetingWorkflow } from './theme-meeting-workflow';
@@ -62,7 +62,7 @@ import { vioscopeChatUiConfig } from '../src/mastra/agents/vioscope.chat-ui.conf
 
 type ActiveView = 'briefing' | 'projects' | 'chat' | 'meeting' | 'checklists' | 'feedback' | 'users';
 type ProjectsMode = 'member' | 'pi';
-type ProjectDetailMode = 'details' | 'progress' | 'todos';
+type ProjectDetailMode = 'details' | 'progress' | 'todos' | 'workflow';
 type ChatMessageStatus = 'thinking' | 'answer' | 'refusal';
 
 type ChatMessage = {
@@ -2389,7 +2389,7 @@ function ProjectCard({
         <StageBar stage={project.stage} />
       </div>
       <div className="project-meta-row">
-        <span>Target</span>
+        <span>Next milestone</span>
         <strong>{project.target || 'Not set'}</strong>
       </div>
       <div className="project-meta-row">
@@ -2770,15 +2770,12 @@ function ProjectDetailModal({
   const [mode, setMode] = useState<ProjectDetailMode>(initialMode);
   const [draft, setDraft] = useState(() => defaultTimelineDraft(project));
   const [editDraft, setEditDraft] = useState(() => projectDraftFromProject(project, viewer));
-  const [todoDrafts, setTodoDrafts] = useState<ManagedProjectTodo[]>(() => project.todos || []);
-  const [newTodo, setNewTodo] = useState({ text: '', dueDate: '' });
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [artifactToRemove, setArtifactToRemove] = useState<ManagedProjectArtifact | null>(null);
-  const [todoToRemove, setTodoToRemove] = useState<ManagedProjectTodo | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const titleId = 'project-detail-title';
   const currentArtifacts = currentProjectArtifacts(project);
@@ -2791,8 +2788,6 @@ function ProjectDetailModal({
 
   useEffect(() => {
     setEditDraft(projectDraftFromProject(project, viewer));
-    setTodoDrafts(project.todos || []);
-    setNewTodo({ text: '', dueDate: '' });
     setDraft(defaultTimelineDraft(project));
     setEditingUpdateId(null);
     setError(null);
@@ -2804,7 +2799,6 @@ function ProjectDetailModal({
 
   useEffect(() => {
     setArtifactToRemove(null);
-    setTodoToRemove(null);
   }, [project.id]);
 
   function postUpdateWithProgress(formData: FormData, method: 'POST' | 'PATCH', url: string): Promise<ProjectsPayload> {
@@ -2994,62 +2988,6 @@ function ProjectDetailModal({
     }
   }
 
-  async function saveTodos(nextTodos: ManagedProjectTodo[]) {
-    setBusy('todos');
-    setError(null);
-    try {
-      const todos = nextTodos.map((todo) => ({
-        ...todo,
-        text: todo.text.trim(),
-        dueDate: todo.dueDate || null,
-      }));
-      if (todos.some((todo) => !todo.text)) {
-        throw new Error('TODO item text is required.');
-      }
-      setTodoDrafts(todos);
-      const body = await requestJson<ProjectsPayload>(`/api/projects/${project.id}`, 'Could not save TODO list.', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ todos }),
-      });
-      if (!body.project) throw new Error('Could not save TODO list.');
-      setTodoDrafts(body.project.todos || []);
-      await onChanged(body.project);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Could not save TODO list.');
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  function updateTodoDraft(todoId: string, patch: Partial<ManagedProjectTodo>) {
-    setTodoDrafts((current) => current.map((todo) => (todo.id === todoId ? { ...todo, ...patch } : todo)));
-  }
-
-  async function addTodo() {
-    const text = newTodo.text.trim();
-    if (!text) {
-      setError('TODO item text is required.');
-      return;
-    }
-    const now = new Date().toISOString();
-    const nextTodo: ManagedProjectTodo = {
-      id: crypto.randomUUID(),
-      text,
-      dueDate: newTodo.dueDate || null,
-      done: false,
-      createdAt: now,
-      updatedAt: now,
-    };
-    setNewTodo({ text: '', dueDate: '' });
-    await saveTodos([...todoDrafts, nextTodo]);
-  }
-
-  async function removeTodo(todo: ManagedProjectTodo) {
-    await saveTodos(todoDrafts.filter((item) => item.id !== todo.id));
-    setTodoToRemove(null);
-  }
-
   async function submitComment(updateId: string) {
     const text = commentDrafts[updateId]?.trim();
     if (!text) return;
@@ -3100,6 +3038,7 @@ function ProjectDetailModal({
             <Plus aria-hidden="true" />
             Update
           </button>
+          <button className={mode === 'workflow' ? 'selected' : ''} type="button" onClick={() => setMode('workflow')}>Research workflow</button>
           <button className={mode === 'todos' ? 'selected' : ''} type="button" onClick={() => setMode('todos')}>
             <ClipboardList aria-hidden="true" />
             TODO
@@ -3253,7 +3192,7 @@ function ProjectDetailModal({
             )}
 
         <ProjectIdeaOrigin projectId={project.id} />
-        <ProjectMeetingActions projectId={project.id} />
+
         <section className="project-artifact-panel">
           <div className="ops-panel-head">
             <div>
@@ -3549,108 +3488,8 @@ function ProjectDetailModal({
           </div>
         )}
 
-        {mode === 'todos' && (
-          <section className="project-todo-panel" aria-label="Project TODO list">
-            <div className="ops-panel-head">
-              <div>
-                <h2>TODO list</h2>
-                <p>{todoDrafts.filter((todo) => !todo.done).length} open / {todoDrafts.length} total</p>
-              </div>
-              <ClipboardList aria-hidden="true" />
-            </div>
-            <div className="project-todo-list">
-              {todoDrafts.length ? (
-                todoDrafts.map((todo) => (
-                  <div className={['project-todo-row', todo.done ? 'done' : ''].filter(Boolean).join(' ')} key={todo.id}>
-                    <input
-                      type="checkbox"
-                      checked={todo.done}
-                      disabled={!project.access.canEdit || busy === 'todos'}
-                      aria-label={`Complete TODO: ${todo.text}`}
-                      onChange={(event) => {
-                        const nextTodos = todoDrafts.map((item) =>
-                          item.id === todo.id ? { ...item, done: event.target.checked } : item,
-                        );
-                        setTodoDrafts(nextTodos);
-                        void saveTodos(nextTodos);
-                      }}
-                    />
-                    <input
-                      className="todo-text-input"
-                      value={todo.text}
-                      readOnly={!project.access.canEdit}
-                      aria-label={`TODO item: ${todo.text}`}
-                      onChange={(event) => updateTodoDraft(todo.id, { text: event.target.value })}
-                      onBlur={(event) => {
-                        if (!project.access.canEdit) return;
-                        const nextTodos = todoDrafts.map((item) =>
-                          item.id === todo.id ? { ...item, text: event.target.value } : item,
-                        );
-                        void saveTodos(nextTodos);
-                      }}
-                    />
-                    <input
-                      className="todo-date-input"
-                      type="date"
-                      value={todo.dueDate || ''}
-                      disabled={!project.access.canEdit}
-                      aria-label={`TODO deadline: ${todo.text}`}
-                      onChange={(event) => updateTodoDraft(todo.id, { dueDate: event.target.value || null })}
-                      onBlur={(event) => {
-                        if (!project.access.canEdit) return;
-                        const nextTodos = todoDrafts.map((item) =>
-                          item.id === todo.id ? { ...item, dueDate: event.target.value || null } : item,
-                        );
-                        void saveTodos(nextTodos);
-                      }}
-                    />
-                    {project.access.canEdit && (
-                      <button
-                        className="ops-secondary icon-only-button danger-action"
-                        type="button"
-                        disabled={busy === 'todos'}
-                        aria-label={`Remove TODO: ${todo.text}`}
-                        title="Remove TODO"
-                        onClick={() => setTodoToRemove(todo)}
-                      >
-                        <Trash2 aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="ops-muted-line">No TODOs yet.</div>
-              )}
-            </div>
-            {project.access.canEdit && (
-              <form
-                className="project-todo-create"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void addTodo();
-                }}
-              >
-                <input
-                  aria-label="New TODO item"
-                  value={newTodo.text}
-                  onChange={(event) => setNewTodo((current) => ({ ...current, text: event.target.value }))}
-                  placeholder="Next project task"
-                />
-                <input
-                  aria-label="New TODO deadline"
-                  type="date"
-                  value={newTodo.dueDate}
-                  onChange={(event) => setNewTodo((current) => ({ ...current, dueDate: event.target.value }))}
-                />
-                <button className="ops-primary" type="submit" disabled={busy === 'todos'}>
-                  <Plus aria-hidden="true" />
-                  Add TODO
-                </button>
-              </form>
-            )}
-            {error && <div className="form-message error">{error}</div>}
-          </section>
-        )}
+        {(mode === 'todos' || mode === 'workflow') && <ProjectWorkflow key={`${project.id}-${mode}`} projectId={project.id} initialTab={mode === 'todos' ? 'tasks' : 'research'} onChanged={onChanged} />}
+
       </div>
       <ConfirmDialog
         id="remove-artifact-confirm"
@@ -3664,18 +3503,7 @@ function ProjectDetailModal({
           if (artifactToRemove) void removeArtifact(artifactToRemove);
         }}
       />
-      <ConfirmDialog
-        id="remove-todo-confirm"
-        open={Boolean(todoToRemove)}
-        title="Remove TODO?"
-        message={todoToRemove ? `Remove ${todoToRemove.text}?` : ''}
-        confirmLabel="Remove"
-        busy={busy === 'todos'}
-        onCancel={() => setTodoToRemove(null)}
-        onConfirm={() => {
-          if (todoToRemove) void removeTodo(todoToRemove);
-        }}
-      />
+
     </div>
   );
 }
