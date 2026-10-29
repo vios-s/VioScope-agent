@@ -166,7 +166,7 @@ async function login(page: any, username: string) {
   await page.getByText('Briefing').first().waitFor({ state: 'visible', timeout: 15_000 });
   await page.locator('.welcome-dialog').waitFor({ state: 'visible', timeout: 1_500 }).catch(() => undefined);
   await dismissWelcomeIfVisible(page);
-  await page.getByRole('button', { name: 'Meeting' }).click();
+  await page.getByRole('button', { name: 'Meetings', exact: true }).click();
   await page.getByRole('heading', { name: 'Theme meetings', level: 1 }).waitFor({ state: 'visible', timeout: 15_000 });
 }
 
@@ -204,7 +204,7 @@ async function checkMember(browser: any) {
   assert.equal(await page.locator('.theme-update-form textarea').nth(0).inputValue(), 'Edited the submitted mock UI update.');
   await expectVisible(page, 'Your submitted update');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  assert.equal(await page.getByRole('button', { name: 'Theme meeting' }).count(), 0, 'Member should not see theme meeting settings.');
+  assert.equal(await page.getByLabel('Settings sections').getByRole('button', { name: 'Theme meeting' }).count(), 0, 'Member should not see theme meeting settings.');
   await page.close();
 }
 
@@ -216,7 +216,7 @@ async function checkCoordinator(browser: any) {
   await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'B');
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('button', { name: 'Theme meeting' }).click();
+  await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
   await expectVisible(page, 'Meeting configuration');
   await expectVisible(page, 'Theme B');
   await page.close();
@@ -237,7 +237,7 @@ async function checkPlanningOnly(browser: any, username: string) {
   await page.getByRole('button', { name: 'Restore meeting' }).click();
   await expectVisible(page, 'meeting restored.');
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('button', { name: 'Theme meeting' }).click();
+  await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
   await expectVisible(page, 'Meeting configuration');
   await expectVisible(page, 'Theme A');
   await page.close();
@@ -252,7 +252,7 @@ async function checkAdminMember(browser: any) {
   await page.getByText(/^For \d{2}\/\d{2}\/\d{4}$/).waitFor({ state: 'visible', timeout: 10_000 });
   assert.equal(await page.locator('.theme-update-form select').first().inputValue(), 'D');
   await page.getByRole('button', { name: 'Settings' }).click();
-  await page.getByRole('button', { name: 'Theme meeting' }).click();
+  await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
   await expectVisible(page, 'Meeting configuration');
   await expectVisible(page, 'All theme groups');
   await expectVisible(page, 'UI Theme D');

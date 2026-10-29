@@ -211,7 +211,7 @@ async function checkPi(browser: any) {
     await page.getByText(/[1-9]\d* updated/).waitFor({ state: 'visible' });
     await page.getByRole('heading', { name: 'Project planning brief' }).waitFor({ state: 'visible' });
     await page.getByText('Finished baseline memory wiring and reached milestone for tutor evaluation.').first().waitFor({ state: 'visible' });
-    await page.getByText(`${title} / ${users.member} / Milestone check / stage 3 (85%)`).first().click();
+    await page.getByText(`${title} / ${users.member} / Update / stage 3 (85%)`).first().click();
     await page.getByRole('button', { name: 'Update', exact: true }).waitFor({ state: 'visible' });
     await page.getByLabel('Close project details').click();
     await page.getByRole('button', { name: 'Add to agenda' }).first().click();

@@ -116,7 +116,7 @@ async function loginAs(page: any, baseUrl: string, username: string) {
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByText('Briefing').first().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByRole('heading', { name: 'Briefing', level: 1 }).waitFor({ state: 'visible', timeout: 15_000 });
   await dismissWelcomeIfVisible(page);
 }
 
@@ -126,7 +126,7 @@ async function login(page: any, baseUrl: string) {
 
 async function checkBriefing(page: any) {
   await page.getByText(projectTitle).waitFor({ state: 'visible', timeout: 15_000 });
-  await page.getByText('Release Theme A').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByText('Release Theme A', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
   await page.getByText('Active projects', { exact: true }).waitFor({ state: 'visible' });
   await page.getByText('Need attention', { exact: true }).waitFor({ state: 'visible' });
 }
@@ -167,9 +167,10 @@ async function checkFeedback(page: any, baseUrl: string, browser: any) {
     await dismissWelcomeIfVisible(adminPage);
     await adminPage.getByRole('button', { name: 'Feedback' }).click();
     await adminPage.getByText(title, { exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
-    await adminPage.getByLabel('Status', { exact: true }).selectOption('solved');
-    await adminPage.getByLabel('Reply to requester').fill('Resolved by the release UI smoke check.');
-    await adminPage.getByRole('button', { name: 'Save update' }).click();
+    const feedbackCard = adminPage.locator('.feedback-card').filter({ hasText: title });
+    await feedbackCard.getByLabel('Status', { exact: true }).selectOption('solved');
+    await feedbackCard.getByLabel('Reply to requester').fill('Resolved by the release UI smoke check.');
+    await feedbackCard.getByRole('button', { name: 'Save update' }).click();
     await adminPage.getByRole('status').filter({ hasText: 'Feedback request updated.' }).waitFor({ state: 'visible', timeout: 15_000 });
     await adminPage.locator('.feedback-card').filter({ hasText: title }).locator('.feedback-status-solved').waitFor({ state: 'visible' });
   } finally {
