@@ -2,14 +2,14 @@ import JSZip from 'jszip';
 import type { Browser } from 'playwright';
 import { AuthError } from '../auth/session';
 import { ideaFields, ideaDraftSchema, pitchExportFilename, type IdeaCheckPayload, type PitchExportFormat } from './idea-check';
+import { formatDayTime } from '../../../app/format';
 
 // Keep this projection explicit: private source text, review reports and old versions never leave here.
 export function approvedPitchDocument(payload: IdeaCheckPayload, version: number) {
   const current = payload.current;
   if (!current || current.version !== version) throw new AuthError('The pitch changed. Reload before downloading.', 409, 'conflict');
   if (current.decision?.outcome !== 'proceed') throw new Error('Confirm a human Proceed decision before downloading an approved pitch.');
-  const date = new Date(current.at);
-  const recordedAt = Number.isNaN(date.getTime()) ? current.at : date.toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
+  const recordedAt = `${formatDayTime(current.at)} UK time`;
   return {
     title: payload.pitch.title,
     introduction: `Approved idea pitch for @${payload.pitch.ownerUsername}. Human Proceed decision recorded by @${current.by} on ${recordedAt}. Version ${current.version}.`,
@@ -23,7 +23,12 @@ export function approvedPitchDocument(payload: IdeaCheckPayload, version: number
 }
 type PitchDocument = ReturnType<typeof approvedPitchDocument>;
 const xml = (value: string) => value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
-const markdown = (value: string) => value.replace(/([\\`*_{}\[\]()#+.!|>~-])/g, '\\$1');
+// Escape only what would change the meaning of user text: inline emphasis/code/link/HTML characters, and a leading
+// heading or quote marker. User bullets ("- ", "* ", "1. ") stay as written.
+const markdown = (value: string) => value.replace(/([\\`*_[\]<>|])/g, (_match, char: string, offset: number, text: string) => {
+  const lineStart = /^[ \t]*$/.test(text.slice(text.lastIndexOf('\n', offset - 1) + 1, offset));
+  return char === '*' && lineStart && text[offset + 1] === ' ' ? char : '\\' + char;
+}).replace(/^([ \t]*)([#>])/gm, '$1\\$2');
 function wordParagraph(text: string, style = 'Normal') {
   return `<w:p><w:pPr><w:pStyle w:val="${style}"/></w:pPr><w:r>${text.split('\n').map(line => `<w:t xml:space="preserve">${xml(line)}</w:t>`).join('<w:br/>')}</w:r></w:p>`;
 }

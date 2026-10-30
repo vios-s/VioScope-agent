@@ -80,7 +80,8 @@ export async function extractPitchUpload(file: File) {
   const text = ext === '.txt' || ext === '.md' ? new TextDecoder('utf-8', { fatal: true }).decode(buffer) : await extractOfficeOrPdf(buffer, ext, file.name);
   return { name: file.name.slice(0, 200), text: checkedSource(text), method: 'upload' as const };
 }
-const heading = String.raw`[ \t]*(?:#{1,6}[ \t]*)?(?:[*_]{1,2})?[ \t]*(?:\d+[ \t]*[.):][ \t]*)?The[ \t]+(?:Why|Context|What|De-?Risk|Resources)\b(?:[ \t]*\([^)\n]*\))?[ \t]*:?[ \t]*(?:[*_]{1,2})?[ \t]*:?[ \t]*`;
+// The VIOS template quotes some keywords: The “Why” (The Hook), The "What", The ‘De-Risk’.
+const heading = String.raw`[ \t]*(?:#{1,6}[ \t]*)?(?:[*_]{1,2})?[ \t]*(?:\d+[ \t]*[.):][ \t]*)?The[ \t]+["“”'‘’]?(?:Why|Context|What|De-?Risk|Resources)\b["“”'‘’]?(?:[ \t]*\([^)\n]*\))?[ \t]*:?[ \t]*(?:[*_]{1,2})?[ \t]*:?[ \t]*`;
 const leadingHeading = new RegExp(`^\\s*${heading}(?:\\n|$)`, 'i');
 const trailingHeading = new RegExp(`(?:^|\\n)${heading}\\s*$`, 'i');
 /** A short first line that is not a block heading or Track line, offered as a title suggestion only. */
@@ -99,6 +100,15 @@ export function validatePitchExtraction(value: unknown, source: string): IdeaDra
   const draft = ideaDraftSchema.parse(value);
   // Source headings that repeat a template block title ("## 1. The Why") are not pitch content.
   for (const { key } of ideaFields) draft[key] = draft[key].replace(leadingHeading, '').replace(trailingHeading, '').trim();
+  // A block keeps only a substantial passage of its own: fragments under four words and spans overlapping a longer block stay empty.
+  const kept: Array<[number, number]> = [];
+  for (const { key } of [...ideaFields].sort((a, b) => draft[b.key].length - draft[a.key].length)) {
+    const text = draft[key];
+    if (!text) continue;
+    const start = source.indexOf(text), end = start + text.length;
+    if (text.split(/\s+/).filter(word => /[\p{L}\p{N}]/u.test(word)).length < 4 || kept.some(([from, to]) => start < to && from < end)) { draft[key] = ''; continue; }
+    kept.push([start, end]);
+  }
   if (draft.track && !new RegExp(`\\btrack\\s*[:=-]\\s*(?:track\\s*)?${draft.track}\\b`, 'i').test(source)) throw new Error('The extracted track is not explicitly stated in the source.');
   return draft;
 }

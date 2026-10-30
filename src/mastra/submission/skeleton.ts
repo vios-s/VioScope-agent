@@ -49,9 +49,10 @@ export function findAbstract(text: string): string | null {
   const latex = /\\begin\{abstract\}([\s\S]*?)\\end\{abstract\}/.exec(text);
   if (latex) return latex[1].replace(/%.*$/gm, '').replace(/\\[a-zA-Z]+\*?(\[[^\]]*\])?/g, ' ').replace(/[{}]/g, ' ');
   const lines = text.split(/\r?\n/);
-  const start = lines.findIndex(line => /^\s*(?:#{1,6}\s*)?\**abstract\**\s*:?\s*$/i.test(line));
+  // Patterns run on trimmed lines without adjacent optional-whitespace groups, so long whitespace runs cannot backtrack catastrophically.
+  const start = lines.findIndex(line => /^(?:#{1,6}\s*)?\**abstract\**(?:\s*:)?$/i.test(line.trim()));
   if (start < 0) return null;
-  const end = lines.findIndex((line, index) => index > start && /^\s*(?:#{1,6}\s|\\(?:section|chapter|begin|end)\b|(?:\d+(?:\.\d+)*\.?|[IVX]+\.)?\s*(?:introduction|keywords|index terms|ccs concepts)\b)/i.test(line));
+  const end = lines.findIndex((line, index) => index > start && /^(?:#{1,6}\s|\\(?:section|chapter|begin|end)\b|(?:(?:\d+(?:\.\d+)*\.?|[IVX]+\.)\s*)?(?:introduction|keywords|index terms|ccs concepts)\b)/i.test(line.trim()));
   const body = lines.slice(start + 1, end < 0 ? undefined : end).join('\n').trim();
   return body || null;
 }
@@ -60,11 +61,11 @@ export function measurePaperSkeleton(text: string): Partial<Record<PaperSkeleton
   const measured: Partial<Record<PaperSkeletonId, string>> = {};
   const abstract = findAbstract(text);
   if (abstract) measured.abstract = `${words(abstract)} words in the abstract section`;
-  const bib = new Set(Array.from(text.matchAll(/^\s*@(?!string\b|comment\b|preamble\b)\w+\s*\{\s*([^,\s]+)\s*,/gim), match => match[1])).size;
+  const bib = new Set(Array.from(text.matchAll(/^[ \t]*@(?!string\b|comment\b|preamble\b)\w+\s*\{\s*([^,\s]+)\s*,/gim), match => match[1])).size;
   const bibitems = (text.match(/\\bibitem\b/g) || []).length;
   const citeKeys = new Set(Array.from(text.matchAll(/\\(?:no)?cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{([^}]*)\}/g), match => match[1].split(',').map(key => key.trim())).flat().filter(Boolean)).size;
-  const heading = text.split(/\r?\n/).findIndex(line => /^\s*(?:#{1,6}\s*)?\**(?:references|bibliography)\**\s*:?\s*$/i.test(line));
-  const listed = heading < 0 ? 0 : text.split(/\r?\n/).slice(heading + 1).filter(line => /^\s*(?:\[\d+\]|\d+\.)\s+\S/.test(line)).length;
+  const heading = text.split(/\r?\n/).findIndex(line => /^(?:#{1,6}\s*)?\**(?:references|bibliography)\**(?:\s*:)?$/i.test(line.trim()));
+  const listed = heading < 0 ? 0 : text.split(/\r?\n/).slice(heading + 1).filter(line => /^(?:\[\d+\]|\d+\.)\s+\S/.test(line.trim())).length;
   const counts = [bib && `${bib} BibTeX entries`, bibitems && `${bibitems} \\bibitem entries`, listed && `${listed} numbered references`, citeKeys && `${citeKeys} distinct \\cite keys`].filter(Boolean);
   if (counts.length) measured.references = counts.join(' · ');
   return measured;

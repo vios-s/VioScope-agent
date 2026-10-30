@@ -321,6 +321,8 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
     setBusy(true); setMessage(null); setDialogError('');
     try {
       await post({ operation: 'confirm', sourceVersion: data.sourceVersion, entries }, 'Could not confirm the agenda.');
+      // The confirmed order is now the saved baseline, not an unsaved order to discard when the data reloads.
+      unsavedOrders.delete(orderKey);
       setMessage({ error: false, text: `Version ${nextVersion} confirmed. Email it when you are ready.` });
       setDialog(null);
       onSaved();

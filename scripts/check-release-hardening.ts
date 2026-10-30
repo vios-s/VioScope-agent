@@ -194,8 +194,8 @@ async function main() {
     );
     const reminderBody = await reminderResponse.json();
     assert.equal(reminderResponse.status, 200, 'Coordinator should send manual missing-update reminder.');
-    assert.equal(reminderBody.notifications?.length, 1, 'Manual reminder should target exactly one missing member.');
-    assert.equal(reminderBody.notifications?.[0]?.member_username, users.missing);
+    assert.equal(reminderBody.notificationCount, 1, 'Manual reminder should target exactly one missing member.');
+    assert.equal(reminderBody.recipients?.[0]?.username, users.missing);
 
     console.log('Release hardening check passed.');
     console.log(JSON.stringify({ missingUserRejected: true, inactiveUserRejected: true, manualReminderCount: 1 }, null, 2));

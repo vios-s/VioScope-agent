@@ -5,6 +5,7 @@ export type ChatSourceRecord = {
   title: string;
   url: string;
   path?: string;
+  cited?: boolean;
 };
 
 export type ChatMessageRecord = {
@@ -336,6 +337,24 @@ export async function saveChatTurn(input: {
     );
     await postgres.pool.query('UPDATE chat_sessions SET updated_at = now() WHERE id = $1', [input.sessionId]);
   });
+}
+
+/** Owner and membership of an existing session, or null for a new thread id. Checked before any model call. */
+export async function chatSessionAccess(sessionId: string, userId: string): Promise<{ ownerUserId: string; member: boolean } | null> {
+  await ensureChatTables();
+  const postgres = createPostgresClient('vioscope-chat');
+  try {
+    const result = await postgres.pool.query<{ owner_user_id: string; member: boolean }>(
+      `SELECT owner_user_id::text,
+              EXISTS (SELECT 1 FROM chat_session_members WHERE session_id = $1 AND user_id = $2) AS member
+       FROM chat_sessions WHERE id = $1`,
+      [sessionId, userId],
+    );
+    const row = result.rows[0];
+    return row ? { ownerUserId: row.owner_user_id, member: row.member } : null;
+  } finally {
+    await postgres.disconnect();
+  }
 }
 
 export async function importLocalChatSessions(input: {

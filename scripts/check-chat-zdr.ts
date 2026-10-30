@@ -14,9 +14,12 @@ const checks = [
   [
     'retries without thread memory',
     /isZdrItemReferenceError\(error\)/.test(source) &&
-      /responseThreadId\s*=\s*`web-\$\{Date\.now\(\)\}`/.test(source) &&
-      /response\s*=\s*await agent\.generate\(agentMessage,[\s\S]*?requestContext,[\s\S]*?\);/.test(source),
+      /responseThreadId\s*=\s*`web-\$\{randomUUID\(\)\}`/.test(source) &&
+      /useMemory\s*=\s*false;\s*response\s*=\s*await generate\(agentMessage\)/.test(source),
   ],
+  ['checks session access before generating', source.indexOf('chatSessionAccess(threadId') > 0 && source.indexOf('chatSessionAccess(threadId') < source.indexOf('agent.generate(')],
+  ['uses random thread ids', !/web-\$\{Date\.now\(\)\}/.test(source) && !/web-\$\{Date\.now\(\)\}/.test(uiSource)],
+  ['never echoes internal errors', /The assistant could not answer this message/.test(source)],
   ['includes user context', /messageWithUserContext\(message,\s*user,\s*userDatastoreContext/.test(source)],
   ['blocks obvious out-of-scope chat', /isClearlyOutOfScope\(message\)/.test(source)],
   ['keeps chat scope policy in config', /labScopeTerms/.test(chatPolicySource) && /annual leave/.test(chatPolicySource)],
@@ -24,7 +27,7 @@ const checks = [
   ['loads user datastore context', /loadUserDatastoreContext\(user\)/.test(source)],
   ['states lab-only scope in agent prompt', /VioScope only helps with VIOS lab work/.test(agentPromptSource)],
   ['searches wiki before rejecting local procedure questions', /Search the wiki before deciding they are out of scope/.test(agentPromptSource)],
-  ['returns source links', /const sources = mergeSources\(extractSources\(response\.toolResults \|\| \[\]\)/.test(source)],
+  ['returns source links', /const sources = answerSources\(response\.text, mergeSources\(extractSources\(response\.toolResults \|\| \[\]\)/.test(source)],
   ['keeps chat history', /useState<ChatMessage\[\]>\(\[\]\)/.test(uiSource)],
   ['stores local chat sessions', /window\.localStorage\.setItem/.test(uiSource)],
   ['renders markdown answers', /function MarkdownText/.test(uiSource)],

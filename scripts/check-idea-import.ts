@@ -28,10 +28,21 @@ assert.equal((await extractPitchUpload(new File([mixedBytes], 'mixed.docx'))).te
 assert.equal(await extractDocumentText(new File([mixedBytes], 'mixed.docx')), mixedText, 'Skeleton Lock uses the same DOCX extraction.');
 await assert.rejects(extractDocumentText(new File(['plain'], 'notes.txt')), /DOCX and text-based PDF/);
 // Template headings are stripped from extracted blocks; a leading title line is only a suggestion.
-const headed = '# [Demo] Sparse routing\n\nTrack: A\n\n## 1. The Why (The Hook)\nThe Pain Point: routing is slow.\n\n**2. The Context:**\nThe Giants: MoE.\n\n## 3. The What';
-const stripped = validatePitchExtraction({ why: '## 1. The Why (The Hook)\nThe Pain Point: routing is slow.\n\n**2. The Context:**', context: '**2. The Context:**\nThe Giants: MoE.' }, headed);
+const headed = '# [Demo] Sparse routing\n\nTrack: A\n\n## 1. The Why (The Hook)\nThe Pain Point: routing is slow.\n\n**2. The Context:**\nThe Giants: MoE and dense transformers.\n\n## 3. The What';
+const stripped = validatePitchExtraction({ why: '## 1. The Why (The Hook)\nThe Pain Point: routing is slow.\n\n**2. The Context:**', context: '**2. The Context:**\nThe Giants: MoE and dense transformers.' }, headed);
 assert.equal(stripped.why, 'The Pain Point: routing is slow.');
-assert.equal(stripped.context, 'The Giants: MoE.');
+assert.equal(stripped.context, 'The Giants: MoE and dense transformers.');
+// The VIOS template's own headings quote the keyword (text copied from the template DOCX).
+const template = '1. The “Why” (The Hook)\nThe Pain Point: dense 3D networks exceed 80 GB of GPU memory.\n2. The Context (The Landscape)\nThe Giants: nnU-Net and Swin-UNETR remain the strongest baselines.\n3. The “What” (The Technical Strategy)\nThe Core Idea: route 3D patches to organ-specific experts.\n4. The “De-Risk” (The Execution)\nThe 2-Week Experiment: train on the AMOS subset first.\n5. The \'Resources\'\nOne A100 for two weeks.';
+const lines = template.split('\n');
+const fromTemplate = validatePitchExtraction({ why: lines.slice(0, 3).join('\n'), context: lines.slice(2, 4).join('\n'), strategy: lines.slice(4, 7).join('\n'), execution: lines.slice(6, 9).join('\n'), resourcePlan: lines.slice(8).join('\n') }, template);
+assert.equal(fromTemplate.why, lines[1]); assert.equal(fromTemplate.context, lines[3]); assert.equal(fromTemplate.strategy, lines[5]); assert.equal(fromTemplate.execution, lines[7]); assert.equal(fromTemplate.resourcePlan, lines[9]);
+// Fragments under four words and spans overlapping a longer block stay empty.
+const overlapSource = 'The Pain Point: routing large mixtures is slow and expensive on current GPUs.\nThe Giants: MoE.';
+const overlapping = validatePitchExtraction({ why: 'The Pain Point: routing large mixtures is slow and expensive on current GPUs.', strategy: 'routing large mixtures is slow and expensive', context: 'The Giants: MoE.' }, overlapSource);
+assert.equal(overlapping.why, 'The Pain Point: routing large mixtures is slow and expensive on current GPUs.');
+assert.equal(overlapping.strategy, '', 'A span inside another block is a duplicate.');
+assert.equal(overlapping.context, '', 'A fragment under four words is left empty.');
 assert.equal(validatePitchExtraction({ why: 'The Why it matters is cost.' }, 'The Why it matters is cost.').why, 'The Why it matters is cost.', 'Prose that starts like a heading is kept.');
 assert.equal(suggestedPitchTitle(headed), '[Demo] Sparse routing');
 assert.equal(suggestedPitchTitle('## 1. The Why\nText'), '');

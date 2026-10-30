@@ -92,8 +92,8 @@ try {
   assert.match(memberPreview.subject, /^\[DRAFT\]/);
   assert.match(memberPreview.html, /DRAFT AGENDA PREVIEW/);
   assert.match(memberPreview.text, /Wednesday 08:00 \(Europe\/London\)/);
-  assert.match(memberPreview.text, /Deep dive \| 30 min/);
-  assert.match(memberPreview.html, /Deep dive/);
+  assert.match(memberPreview.text, /Deep Dive \| 30 min/);
+  assert.match(memberPreview.html, /Deep Dive/);
   assert.doesNotMatch(memberPreview.html, /Theme D &mdash;/);
   assert.match(memberPreview.text, /Not submitted yet: muted.c/);
   assert.match(sent.find((mail) => mail.to === 'member.d@example.test')!.text, /Submissions are still open/);
@@ -129,7 +129,8 @@ try {
   const api = await reminderRoute.POST(request(coordinator, 'agenda_preview'));
   assert.equal(api.status, 200, await api.clone().text());
   const body = await api.json();
-  assert.deepEqual(body.notifications, []);
+  assert.equal(body.notificationCount, 0);
+  assert.deepEqual(body.recipients, []);
   assert.equal(body.agendaEmails.sent, 1);
   assert.equal(sent.length, beforeApi + 1);
   assert.match(sent.at(-1)!.subject, /^\[DRAFT\]/);

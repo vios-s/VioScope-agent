@@ -20,9 +20,11 @@ export async function listSkeletonReviews(user: AuthUser) {
   await ensureTable();
   const projects = await listProjectsForUser(user, { includeArchived: true });
   const ids = projects.map(project => project.id);
-  const result = await createPostgresClient().pool.query(`SELECT id::text, project_id AS "projectId", created_at::text AS "createdAt", revision,
-    project_snapshot AS "projectSnapshot", decisions, result->'structured'->>'verdict' AS verdict FROM skeleton_reviews
-    WHERE project_id = ANY($1::uuid[]) ORDER BY created_at DESC LIMIT 200`, [ids]);
+  // Latest check per project plus its check count; earlier checks of one project come from projectSkeletonReviewChoices.
+  const result = await createPostgresClient().pool.query(`SELECT DISTINCT ON (project_id) id::text, project_id AS "projectId", created_at::text AS "createdAt", revision,
+    project_snapshot AS "projectSnapshot", decisions, result->'structured'->>'verdict' AS verdict,
+    (count(*) OVER (PARTITION BY project_id))::int AS count FROM skeleton_reviews
+    WHERE project_id = ANY($1::uuid[]) ORDER BY project_id, created_at DESC, id DESC`, [ids]);
   return { projects, reviews: result.rows, viewer: { username: user.username, manager: canSeeAll(user), administrator: user.role === 'administrator' } };
 }
 export async function projectSkeletonReviewChoices(projectId: string, user: AuthUser) {
@@ -33,8 +35,9 @@ export async function projectSkeletonReviewChoices(projectId: string, user: Auth
 export async function getSkeletonReview(id: string, user: AuthUser): Promise<SkeletonRecord> {
   await ensureTable();
   const row = (await createPostgresClient().pool.query(`SELECT ${columns} FROM skeleton_reviews WHERE id=$1`, [id])).rows[0];
-  if (!row) throw new Error('Skeleton review not found.');
-  await getProjectForUser(row.projectId, user);
+  // Missing and inaccessible checks look the same, so the response never reveals another project's check.
+  if (!row) throw new AuthError('Skeleton review not found.', 404, 'not_found');
+  await getProjectForUser(row.projectId, user).catch(() => { throw new AuthError('Skeleton review not found.', 404, 'not_found'); });
   return row;
 }
 async function lockProject(projectId: string, user: AuthUser) {

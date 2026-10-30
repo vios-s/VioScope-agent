@@ -30,6 +30,10 @@ export type SubmissionReviewInput = {
   reportTitle?: string;
   /** Skeleton Lock: also return the advisory VIOS Paper Skeleton checklist. */
   paperSkeleton?: boolean;
+  /** Text the Paper Skeleton quotes and counts are checked against (the submitted draft without added project context). */
+  paperSkeletonSource?: string;
+  /** Mode-specific instructions appended to the prompt. */
+  extraInstructions?: string;
 };
 
 export type SubmissionReviewResult = {
@@ -116,8 +120,6 @@ function buildSkillsBlock(skills: ViosSkill[]): string {
     .map(
       (skill) => `## ${skill.name}${skill.version ? ` v${skill.version}` : ''}
 
-Source: ${skill.sourcePath}
-
 ${skill.markdown}`,
     )
     .join('\n\n---\n\n');
@@ -152,7 +154,7 @@ function renderSubmissionReviewMarkdown(review: SubmissionReviewStructured, titl
   const appliedSkills = review.appliedSkills
     .map(
       (skill) =>
-        `| ${escapeTableCell(skill.name)} | ${escapeTableCell(skill.version || 'unknown')} | ${escapeTableCell(skill.sourcePath)} |`,
+        `| ${escapeTableCell(skill.name)} | ${escapeTableCell(skill.version || 'unknown')} |`,
     )
     .join('\n');
 
@@ -188,9 +190,9 @@ ${review.verdict}
 ${review.summary}
 
 ## Applied Skills
-| Skill | Version | Source |
-|---|---|---|
-${appliedSkills || '| missing | missing | missing |'}
+| Skill | Version |
+|---|---|
+${appliedSkills || '| missing | missing |'}
 
 ## Evidence-Backed Findings
 | Area | Status | Evidence | Gap | Required action |
@@ -262,7 +264,13 @@ export function normalizePaperSkeleton(items: Array<{ id: string; status: 'met' 
     const item = items?.find((entry) => entry.id === id) || { id, status: 'unknown' as const, evidence: 'not found' };
     const evidence = item.evidence.trim() || 'not found';
     const quote = quoteKey(evidence);
-    return { id, status: item.status, evidence, quoteFound: quote !== 'not found' && quote.length > 0 && source.includes(quote), ...(measured[id] ? { measured: measured[id] } : {}) };
+    // Measured counts outrank the AI reading: below 20 references or an abstract outside 200–250 words is never "met".
+    let status = item.status;
+    let note = measured[id];
+    const counted = note ? Math.max(...(note.match(/\d+/g) || ['0']).map(Number)) : 0;
+    if (status === 'met' && id === 'references' && note && counted < 20) { status = 'partly'; note += ' (fewer than 20 measured)'; }
+    if (status === 'met' && id === 'abstract' && note && (counted < 200 || counted > 250)) { status = 'partly'; note += ' (outside 200–250 words measured)'; }
+    return { id, status, evidence, quoteFound: quote !== 'not found' && quote.length > 0 && source.includes(quote), ...(note ? { measured: note } : {}) };
   });
 }
 
@@ -314,7 +322,9 @@ ${renderPromptTemplate(submissionReviewPrompt.jsonResponseTemplate, {
 
 ${renderPromptTemplate(submissionReviewPrompt.paperSkeletonTemplate, {
     requirements: paperSkeletonRequirements.map((item) => `- ${item.id}: ${item.label} — ${item.requirement}`).join('\n'),
-  })}` : ''}`;
+  })}` : ''}${input.extraInstructions ? `
+
+${input.extraInstructions}` : ''}`;
 
   const result = await generateText({
     model: elmChatModel,
@@ -326,7 +336,7 @@ ${renderPromptTemplate(submissionReviewPrompt.paperSkeletonTemplate, {
   const structured = submissionReviewStructuredSchema.parse({
     ...parsed,
     appliedSkills: skillMetadata(skills),
-    paperSkeleton: input.paperSkeleton ? normalizePaperSkeleton(parsed.paperSkeleton, draft.text) : undefined,
+    paperSkeleton: input.paperSkeleton ? normalizePaperSkeleton(parsed.paperSkeleton, input.paperSkeletonSource ?? draft.text) : undefined,
   });
 
   return {

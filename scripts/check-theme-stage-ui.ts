@@ -70,16 +70,23 @@ try {
   await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
   await form.getByRole('button', { name: 'Copy AI prompt for progress', exact: true }).click();
   const copiedPrompt = await page.evaluate(() => navigator.clipboard.readText());
-  assert.ok(copiedPrompt.includes('Stage 3/5') && copiedPrompt.includes('PROJECT_DATA_JSON') && copiedPrompt.includes('Synthetic linked project') && copiedPrompt.includes('The Wall'));
+  assert.ok(copiedPrompt.includes('Stage 3/5') && copiedPrompt.includes('PROJECT_DATA_JSON') && copiedPrompt.includes('Synthetic linked project') && copiedPrompt.includes('The Wall') && copiedPrompt.includes('Discussant questions'));
   assert.equal(suggestionCalls, 0);
-  await form.getByRole('button', { name: 'Suggest again with AI', exact: true }).click();
+  await form.getByRole('button', { name: 'Suggest with AI', exact: true }).click();
   await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).waitFor();
+  assert.equal(await form.getByRole('button', { name: 'Suggest again with AI', exact: true }).count(), 1, 'The button reads "Suggest again" only after a suggestion.');
   assert.equal(await form.getByRole('textbox', { name: /^Progress/ }).inputValue(), '', 'Generating advice does not overwrite the draft.');
   assert.equal(submitted, undefined, 'AI advice does not submit a meeting update.');
   await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).click();
   assert.equal(await form.getByRole('textbox', { name: /^Progress/ }).inputValue(), aiDraft);
   assert.equal(await slotSelect.inputValue(), 'deep_dive');
   await form.getByRole('textbox', { name: /^Progress/ }).fill('Completed the synthetic baseline.');
+  // Typed text is never replaced without asking.
+  await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).click();
+  const replaceDialog = page.getByRole('dialog', { name: 'Replace your draft?' });
+  await replaceDialog.waitFor();
+  await replaceDialog.getByRole('button', { name: 'Keep my text', exact: true }).click();
+  assert.equal(await form.getByRole('textbox', { name: /^Progress/ }).inputValue(), 'Completed the synthetic baseline.');
   await form.getByRole('button', { name: 'Submit update', exact: true }).click();
   await page.getByText('Update submitted.', { exact: true }).waitFor();
   assert.equal(submitted!.projectId, project.id);

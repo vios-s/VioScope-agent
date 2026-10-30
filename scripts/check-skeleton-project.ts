@@ -50,7 +50,7 @@ try {
   const gated=await post(early.id);assert.equal(gated.status,400);assert.match((await gated.json()).error,/opens at stage 4 \(Pre-Submission\).*currently at stage 2/);
   await assert.rejects(records.saveSkeletonReview(early.id,skeletonProjectSnapshot(early),'Synthetic evidence',result,accounts.get('alice')!),/opens at stage 4/);
   assert.equal((await projectDb.getProjectForUser(early.id,accounts.get('alice')!)).stage,2,'The gate never changes the project stage.');
-  assert.equal((await get('outsider')).status,400);await ok(await get('carol'));await ok(await get('bob'));
+  assert.equal((await get('outsider')).status,404,'An inaccessible check reads as not found.');await ok(await get('carol'));assert.deepEqual((await ok(await get('bob'))).choices.map((item:{id:string})=>item.id),[review.id]);
   assert.equal((await decide('alice',0)).status,403);assert.equal((await decide('principal',0)).status,403);
   assert.equal((await decide('principal',0,'pi','approved')).status,400);
   assert.equal((await decide('bob',0,'pdra','CLEARED','')).status,400);
@@ -63,30 +63,32 @@ try {
   assert.equal((await decide('bob',0)).status,409);
   saved=(await ok(await decide('principal',1,'pi','approved'))).review;
   assert.equal(latestSkeletonDecisions(saved.decisions).pi?.outcome,'approved');
-  saved=(await ok(await decide('bob',2,'pdra','SLIDE'))).review;
+  saved=(await ok(await decide('bob',2,'pdra','CLEARED'))).review;
+  assert.equal(latestSkeletonDecisions(saved.decisions).pi?.outcome,'approved','Re-recording the same PDRA verdict keeps the PI confirmation.');
+  saved=(await ok(await decide('bob',3,'pdra','SLIDE'))).review;
   assert.equal(latestSkeletonDecisions(saved.decisions).pi,null,'Changed PDRA verdict invalidates earlier final approval.');
-  assert.equal(saved.decisions.length,3,'Human decision history is retained.');
-  assert.equal((await decide('principal',3,'pi','approved')).status,400,'PI cannot confirm the lock after a SLIDE verdict.');
-  saved=(await ok(await decide('bob',3,'pdra','CONDITIONAL',undefined,{reevaluateOn:londonDay(3)}))).review;
-  assert.equal(saved.decisions[3].reevaluateOn,londonDay(3));assert.equal(saved.decisions[3].outcome,'CONDITIONAL');
+  assert.equal(saved.decisions.length,4,'Human decision history is retained.');
+  assert.equal((await decide('principal',4,'pi','approved')).status,400,'PI cannot confirm the lock after a SLIDE verdict.');
+  saved=(await ok(await decide('bob',4,'pdra','CONDITIONAL',undefined,{reevaluateOn:londonDay(3)}))).review;
+  assert.equal(saved.decisions[4].reevaluateOn,londonDay(3));assert.equal(saved.decisions[4].outcome,'CONDITIONAL');
   // Legacy PDRA codes stored before the verdict change still load and keep their PI rules.
   await db.pool.query(`UPDATE skeleton_reviews SET decisions=decisions || '[{"kind":"pdra","outcome":"revise","note":"Legacy","by":"bob","at":"2026-10-01T10:00:00.000Z"}]'::jsonb,revision=revision+1 WHERE id=$1`,[review.id]);
   saved=(await ok(await get('carol'))).review;assert.equal(latestSkeletonDecisions(saved.decisions).pdra?.outcome,'revise');
-  assert.match(await (await decide('principal',5,'pi','approved')).text(),/PDRA requested revision/);
+  assert.match(await (await decide('principal',6,'pi','approved')).text(),/PDRA requested revision/);
   // Existing reviews stay completable after the project leaves stage 4.
   await projectDb.updateProject(project.id,{stage:5},accounts.get('alice')!);
-  saved=(await ok(await decide('bob',5,'pdra','CLEARED'))).review;
-  saved=(await ok(await decide('principal',6,'pi','approved'))).review;assert.equal(latestSkeletonDecisions(saved.decisions).pi?.outcome,'approved');
+  saved=(await ok(await decide('bob',6,'pdra','CLEARED'))).review;
+  saved=(await ok(await decide('principal',7,'pi','approved'))).review;assert.equal(latestSkeletonDecisions(saved.decisions).pi?.outcome,'approved');
   await assert.rejects(records.saveSkeletonReview(project.id,skeletonProjectSnapshot(await projectDb.getProjectForUser(project.id,accounts.get('alice')!)),'New evidence',result,accounts.get('alice')!),/currently at stage 5/);
   await projectDb.updateProject(project.id,{stage:4},accounts.get('alice')!);
   const second=await records.saveSkeletonReview(project.id,skeletonProjectSnapshot(project),'New synthetic evidence',result,accounts.get('alice')!);
-  assert.deepEqual(second.decisions,[]);assert.equal((await decide('bob',7)).status,409,'Old versions cannot be confirmed.');
+  assert.deepEqual(second.decisions,[]);assert.match(await (await decide('bob',8)).text(),/newer AI check/,'Old versions cannot be confirmed.');
   await projectDb.updateProject(project.id,{pdraUsername:'outsider'},accounts.get('alice')!);
-  assert.equal((await get('bob')).status,400,'Reassignment revokes non-collaborator PDRA access.');
+  assert.equal((await get('bob')).status,404,'Reassignment revokes non-collaborator PDRA access.');
   await assert.rejects(records.decideSkeletonReview(second.id,{kind:'pdra',outcome:'CLEARED',note:'A note',revision:0,confirmed:true},accounts.get('outsider')!),/Project details changed/);
   project=await projectDb.getProjectForUser(project.id,accounts.get('alice')!);
   await assert.rejects(records.saveSkeletonReview(project.id,{...skeletonProjectSnapshot(project),venue:'Forged'},'Evidence',result,accounts.get('alice')!),/Project details changed/);
-  const listing=await records.listSkeletonReviews(accounts.get('outsider')!);assert.equal(listing.reviews.length,2);
+  const listing=await records.listSkeletonReviews(accounts.get('outsider')!);assert.equal(listing.reviews.length,1,'The list carries the latest check per project.');assert.equal(listing.reviews[0].id,second.id);assert.equal(listing.reviews[0].count,2);
   assert.equal((await records.listSkeletonReviews(accounts.get('bob')!)).reviews.length,0);
   assert.equal(project.stage,4,'Human judgments do not change project stage.');
   if(process.env.CHECK_SKELETON_PROJECT_UI==='true') {

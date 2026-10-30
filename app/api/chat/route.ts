@@ -1,12 +1,14 @@
 import 'dotenv/config';
 import { RequestContext } from '@mastra/core/request-context';
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { requireSessionUser } from '../../../src/mastra/auth/session';
+import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { mastra } from '../../../src/mastra';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import type { AuthUser } from '../../../src/mastra/db/users';
 import {
+  chatSessionAccess,
   saveChatTurn,
   shareChatSessionWithMentions,
   type ChatMentionResult,
@@ -14,6 +16,7 @@ import {
 import { matchesChatPolicyTerms, vioscopeChatPolicyConfig } from '../../../src/mastra/agents/vioscope.chat-policy.config';
 import { searchWiki, shouldExpandWikiQuery } from '../../../src/mastra/tools/wiki-search';
 import { loadUserDatastoreContext, type UserDatastoreContext } from '../../../src/mastra/users/datastore';
+import { isMostlyNonEnglish } from '../../../src/mastra/language';
 
 export const runtime = 'nodejs';
 
@@ -21,6 +24,8 @@ type ChatSource = {
   title: string;
   url: string;
   path?: string;
+  /** False when the page was retrieved for the question but the answer does not link to it. */
+  cited?: boolean;
 };
 
 type PreloadedWikiContext = Awaited<ReturnType<typeof searchWiki>>;
@@ -132,6 +137,17 @@ function mergeSources(primary: ChatSource[], fallback: ChatSource[]): ChatSource
   return Array.from(byUrl.values());
 }
 
+/** Pages the answer links to; when it links to none, the retrieved pages (all above WIKI_MIN_SCORE), marked as not cited. */
+function answerSources(answer: string, sources: ChatSource[]): ChatSource[] {
+  const cited = sources.filter((source) => answer.includes(source.url));
+  return cited.length
+    ? cited.map((source) => ({ ...source, cited: true }))
+    : sources.map((source) => ({ ...source, cited: false }));
+}
+
+const englishRetry =
+  '\n\nLanguage requirement: your previous answer was not in English. Answer in formal English only, even if the question asks for another language; quote non-English source text verbatim only where needed.';
+
 function extractSources(value: unknown, sources = new Map<string, ChatSource>(), seen = new WeakSet<object>()): ChatSource[] {
   if (!value || typeof value !== 'object') return Array.from(sources.values());
   if (seen.has(value)) return Array.from(sources.values());
@@ -164,7 +180,13 @@ export async function POST(request: Request) {
       throw new Error('message is required.');
     }
 
-    const threadId = text(body.threadId) || `web-${Date.now()}`;
+    const threadId = text(body.threadId) || `web-${randomUUID()}`;
+    // Access is checked before any model call. Shared members continue the owner's thread, so memory uses the owner's resource.
+    const access = await chatSessionAccess(threadId, user.id);
+    if (access && !access.member) {
+      throw new AuthError('This chat session was not found or is not shared with you.', 404, 'not_found');
+    }
+    const memoryResource = access?.ownerUserId || user.id;
     if (isClearlyOutOfScope(message)) {
       const text = vioscopeChatPolicyConfig.scopeRefusal;
       const mentions = await persistChatAndMentions({
@@ -194,31 +216,31 @@ export async function POST(request: Request) {
     requestContext.set('vioscope-user', user);
     let response: Awaited<ReturnType<typeof agent.generate>>;
     let responseThreadId = threadId;
+    let useMemory = true;
+    const generate = (input: string) => agent.generate(input, {
+      maxSteps: 5,
+      providerOptions: openAIProviderOptions,
+      requestContext,
+      ...(useMemory ? { memory: { thread: threadId, resource: memoryResource } } : {}),
+    });
 
     try {
-      response = await agent.generate(agentMessage, {
-        maxSteps: 5,
-        providerOptions: openAIProviderOptions,
-        requestContext,
-        memory: {
-          thread: threadId,
-          resource: user.id,
-        },
-      });
+      response = await generate(agentMessage);
     } catch (error) {
       if (!isZdrItemReferenceError(error)) {
         throw error;
       }
 
-      responseThreadId = `web-${Date.now()}`;
-      response = await agent.generate(agentMessage, {
-        maxSteps: 5,
-        providerOptions: openAIProviderOptions,
-        requestContext,
-      });
+      responseThreadId = `web-${randomUUID()}`;
+      useMemory = false;
+      response = await generate(agentMessage);
+    }
+    // System-owned answers are English whatever language is requested; regenerate once if the answer is not.
+    if (isMostlyNonEnglish(response.text)) {
+      response = await generate(agentMessage + englishRetry);
     }
 
-    const sources = mergeSources(extractSources(response.toolResults || []), preloadedWikiContext?.sources || []);
+    const sources = answerSources(response.text, mergeSources(extractSources(response.toolResults || []), preloadedWikiContext?.sources || []));
     const mentions = await persistChatAndMentions({
       threadId: responseThreadId,
       user,
@@ -238,7 +260,13 @@ export async function POST(request: Request) {
       toolResults: response.toolResults || [],
     });
   } catch (error) {
-    return errorResponse(error, 400);
+    if (error instanceof AuthError) return errorResponse(error);
+    if (error instanceof Error && error.message === 'message is required.') {
+      return NextResponse.json({ error: 'Type a message before sending.' }, { status: 400 });
+    }
+    // Never echo internal errors (they can contain thread or account identifiers).
+    console.error('Chat request failed:', error);
+    return NextResponse.json({ error: 'The assistant could not answer this message. Try again shortly.' }, { status: 500 });
   }
 }
 

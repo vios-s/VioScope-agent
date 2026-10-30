@@ -12,8 +12,10 @@ export async function POST(request: Request, context: { params: Promise<{ pitchI
   try {
     const actor = await requireSessionUser(request);
     const { pitchId } = await context.params;
-    z.string().uuid().parse(pitchId);
-    const state = await getIdeaCheck(pitchId, actor);
+    // "new" previews an import before any record exists; any signed-in user may start a pitch. Saving creates the record.
+    const isNew = pitchId === 'new';
+    if (!isNew) z.string().uuid().parse(pitchId);
+    const state = isNew ? { canEdit: true, canManage: true } : await getIdeaCheck(pitchId, actor);
     if (!state.canEdit) throw new AuthError(state.canManage ? 'This pitch has become a project and can no longer be edited.' : 'Only the proposer, PI or administrator can import into this pitch.', 403, 'forbidden');
     const form = await request.formData();
     const file = form.get('file'); const text = form.get('text');
@@ -22,7 +24,7 @@ export async function POST(request: Request, context: { params: Promise<{ pitchI
     if (hasFile === hasText) throw new Error('Choose one input: upload a document or paste its text.');
     const source = hasFile ? await extractPitchUpload(file as File) : { name: 'Pasted pitch', text: checkedSource(text as string), method: 'paste' as const };
     const draft = await organizePitchSource(source.text);
-    await recordAuditLog({ actor, action: 'idea_pitch.import_preview', targetType: 'idea_pitch', targetId: pitchId,
+    await recordAuditLog({ actor, action: 'idea_pitch.import_preview', targetType: 'idea_pitch', targetId: isNew ? null : pitchId,
       summary: 'User prepared a pitch import preview.', metadata: { source: source.method, chars: source.text.length } });
     return NextResponse.json({ source, draft, title: suggestedPitchTitle(source.text) });
   } catch (error) { return errorResponse(error, 400); }

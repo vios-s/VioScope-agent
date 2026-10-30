@@ -322,11 +322,29 @@
 }
 
 .bf-notifications li {
+  border-top: 1px solid var(--vs-line-soft);
+}
+
+.bf-notification-open {
   display: flex;
   gap: 10px;
+  width: 100%;
   padding: 10px 0;
-  border-top: 1px solid var(--vs-line-soft);
+  border: 0;
+  background: none;
   color: var(--vs-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bf-notification-open:hover > span:last-child {
+  text-decoration: underline;
+}
+
+.bf-notification-open:focus-visible {
+  outline: 2px solid var(--vs-accent);
+  outline-offset: 2px;
 }
 
 .bf-unread-dot {
@@ -341,7 +359,7 @@
   background: var(--vs-accent);
 }
 
-.bf-notifications li > span:last-child {
+.bf-notification-open > span:last-child {
   display: flex;
   flex-direction: column;
   min-width: 0;

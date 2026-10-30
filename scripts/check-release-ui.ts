@@ -133,7 +133,7 @@ async function checkBriefing(page: any) {
 
 async function checkAlertClickThrough(page: any) {
   await page.getByRole('button', { name: /Notifications/ }).click();
-  await page.locator('[aria-label="Notifications Center"]').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.locator('[aria-label="Notifications centre"]').waitFor({ state: 'visible', timeout: 15_000 });
   await page.locator('.notification-row').first().click();
   await page.locator('.console-page-title').filter({ hasText: 'Chat' }).waitFor({ state: 'visible', timeout: 15_000 });
   await page.locator('.user-bubble').filter({ hasText: sharedPrompt }).waitFor({ state: 'visible', timeout: 15_000 });

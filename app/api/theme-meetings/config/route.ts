@@ -5,8 +5,9 @@ import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { listUsersForAdmin, type AuthUser } from '../../../../src/mastra/db/users';
 import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
-import { themeMeetingConfigSchema, type ThemeMeetingConfig } from '../../../../src/mastra/theme-meetings/schema';
-import { readThemeMeetingConfig, writeThemeMeetingConfig } from '../../../../src/mastra/theme-meetings/store';
+import { contentHash, withFileLock } from '../../../../src/mastra/atomic-file';
+import { themeMeetingConfigSchema, time24Pattern, type ThemeMeetingConfig } from '../../../../src/mastra/theme-meetings/schema';
+import { readThemeMeetingConfig, resolveThemeMeetingConfigPath, writeThemeMeetingConfig } from '../../../../src/mastra/theme-meetings/store';
 
 export const runtime = 'nodejs';
 
@@ -68,12 +69,26 @@ function normalizeThemeUsers(
   return config;
 }
 
+// A coordinator must stay a member of their theme; a legacy coordinator who was never a member is left as configured.
+function assertCoordinatorsStayMembers(current: ThemeMeetingConfig, next: ThemeMeetingConfig) {
+  for (const theme of next.themes) {
+    const coordinator = normalizeUsername(theme.coordinator_user);
+    if (!coordinator || (theme.member_users || []).includes(coordinator)) continue;
+    const before = current.themes.find((candidate) => candidate.theme_id === theme.theme_id);
+    const unchangedLegacy = before
+      && normalizeUsername(before.coordinator_user) === coordinator
+      && !(before.member_users || []).map(normalizeUsername).includes(coordinator);
+    if (!unchangedLegacy) {
+      throw new Error(`The coordinator of Theme ${theme.theme_id} must remain a member of that theme.`);
+    }
+  }
+}
+
 function validateKnownReminders(config: ThemeMeetingConfig) {
-  const pattern = /^\d{2}:\d{2}$/;
   for (const reminder of config.reminders) {
     const time = reminder.time;
-    if (typeof time === 'string' && !pattern.test(time)) {
-      throw new Error(`Invalid reminder time: ${time}`);
+    if (time !== undefined && (typeof time !== 'string' || !time24Pattern.test(time))) {
+      throw new Error('Reminder times must use a 24-hour time between 00:00 and 23:59.');
     }
   }
 }
@@ -93,6 +108,8 @@ async function payloadFor(user: AuthUser) {
 
   return {
     config: visibleConfig,
+    // Opaque revision of the whole stored file; PATCH must echo it so concurrent edits are not overwritten.
+    revision: contentHash(config),
     users: [...usersByUsername.values()],
     access: {
       canEditGlobal: canSeeAll(user),
@@ -121,40 +138,57 @@ export async function PATCH(request: Request) {
       throw new Error('config object is required.');
     }
 
-    const { path, config: currentConfig } = await readThemeMeetingConfig();
-    const usersByUsername = await activeUserMap();
-    const editableIds = editableThemeIds(currentConfig, user);
-    if (!editableIds.length) {
-      throw new AuthError('Theme meeting settings are only available to coordinators, PIs, and administrators.', 403, 'forbidden');
-    }
+    const revision = typeof body.revision === 'string' ? body.revision : '';
+    const path = await resolveThemeMeetingConfigPath();
+    // Hold the file lock across read-check-write so a concurrent save cannot be silently overwritten.
+    const { changedThemeIds, globalEdit } = await withFileLock(path, async () => {
+      const { config: currentConfig } = await readThemeMeetingConfig({ configPath: path });
+      const editableIds = editableThemeIds(currentConfig, user);
+      if (!editableIds.length) {
+        throw new AuthError('Theme meeting settings are only available to coordinators, PIs, and administrators.', 403, 'forbidden');
+      }
+      if (!revision || contentHash(currentConfig) !== revision) {
+        throw new AuthError('This configuration changed while you were editing. Load the latest version before saving.', 409, 'conflict');
+      }
+      const usersByUsername = await activeUserMap();
 
-    let nextConfig = cloneConfig(currentConfig);
-    let changedThemeIds = editableIds;
-    const globalEdit = canSeeAll(user);
+      let nextConfig = cloneConfig(currentConfig);
+      let changedThemeIds = editableIds;
+      const globalEdit = canSeeAll(user);
 
-    if (globalEdit) {
-      nextConfig = themeMeetingConfigSchema.parse(body.config);
-      validateKnownReminders(nextConfig);
-      normalizeThemeUsers(nextConfig, usersByUsername);
-      changedThemeIds = nextConfig.themes.map((theme) => theme.theme_id);
-    } else {
-      const requestedThemes = Array.isArray((body.config as Partial<ThemeMeetingConfig>).themes)
-        ? ((body.config as Partial<ThemeMeetingConfig>).themes as ThemeMeetingConfig['themes'])
-        : [];
-      const requestedById = new Map(requestedThemes.map((theme) => [theme.theme_id, theme]));
-      nextConfig.themes = nextConfig.themes.map((theme) => {
-        if (!editableIds.includes(theme.theme_id)) return theme;
-        const requestedTheme = requestedById.get(theme.theme_id);
-        if (!requestedTheme) return theme;
-        return {
-          ...theme,
-          member_users: requestedTheme.member_users,
-        };
-      });
-      normalizeThemeUsers(nextConfig, usersByUsername, editableIds);
-    }
+      if (globalEdit) {
+        nextConfig = themeMeetingConfigSchema.parse(body.config);
+        validateKnownReminders(nextConfig);
+        normalizeThemeUsers(nextConfig, usersByUsername);
+        changedThemeIds = nextConfig.themes.map((theme) => theme.theme_id);
+      } else {
+        const requestedThemes = Array.isArray((body.config as Partial<ThemeMeetingConfig>).themes)
+          ? ((body.config as Partial<ThemeMeetingConfig>).themes as ThemeMeetingConfig['themes'])
+          : [];
+        const requestedById = new Map(requestedThemes.map((theme) => [theme.theme_id, theme]));
+        // Unchanged copies of other themes are tolerated (the form sends the whole draft); a change is refused, never ignored.
+        const memberKey = (users: string[] | undefined) => JSON.stringify((users || []).map((name) => name.trim().toLowerCase()));
+        if (requestedThemes.some((theme) => !editableIds.includes(theme.theme_id)
+          && memberKey(theme.member_users) !== memberKey(currentConfig.themes.find((current) => current.theme_id === theme.theme_id)?.member_users))) {
+          throw new AuthError('You can only change members of themes you coordinate.', 403, 'forbidden');
+        }
+        nextConfig.themes = nextConfig.themes.map((theme) => {
+          if (!editableIds.includes(theme.theme_id)) return theme;
+          const requestedTheme = requestedById.get(theme.theme_id);
+          if (!requestedTheme) return theme;
+          return {
+            ...theme,
+            member_users: requestedTheme.member_users,
+          };
+        });
+        normalizeThemeUsers(nextConfig, usersByUsername, editableIds);
+      }
 
-    await writeThemeMeetingConfig(nextConfig, { configPath: path });
+      assertCoordinatorsStayMembers(currentConfig, nextConfig);
+      await writeThemeMeetingConfig(nextConfig, { configPath: path });
+      return { changedThemeIds, globalEdit };
+    });
+
     await recordAuditLog({
       actor: user,
       action: 'theme_meeting.config_update',

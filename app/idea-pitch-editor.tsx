@@ -8,6 +8,7 @@ import { ApiRequestError, requestJson } from './client-request';
 import { ConfirmDialog } from './confirm-dialog';
 import { checkIdea, ideaDraftSchema, ideaFields, ideaOutcomeLabels, pitchExportFilename, defaultPitchExportFormat, type PitchExportFormat, type IdeaCheckPayload, type IdeaDecision, type IdeaDraft, type IdeaSource } from '../src/mastra/projects/idea-check';
 import { ideaBlockStatusLabels, ideaDiscussantQuestions, ideaDiscussantStatusLabels, isLegacyIdeaReview, type IdeaReview, type SavedIdeaReview } from '../src/mastra/projects/idea-review-schema';
+import { formatDayTime } from './format';
 
 export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, onDeleted, onStateChanged }: { userId: string; pitchId: string; onChanged: (id: string) => Promise<void>; onProjectCreated: () => Promise<void>; onDeleted: () => Promise<void>; onStateChanged: (state: { dirty: boolean; busy: boolean }) => void }) {
   const prefix = useId();
@@ -42,10 +43,10 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   const url = `/api/idea-pitches/${encodeURIComponent(resolvedId.current)}`;
   async function ensurePitch() {
     if (!resolvedId.current) {
-      if (!title.trim()) throw new Error('Enter a pitch title before importing or saving.');
+      if (!title.trim()) throw new Error('Enter a pitch title before saving.');
       const result = await requestJson<{ id: string }>('/api/idea-pitches', 'Could not create pitch.', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title.trim() }) });
       resolvedId.current = result.id;
-      // Import creates the record before any save; list it now so it can be picked even if extraction fails.
+      // List the new record now so it can be picked even if the first save fails.
       await onChanged(result.id).catch(() => undefined);
     }
     return `/api/idea-pitches/${encodeURIComponent(resolvedId.current)}`;
@@ -84,7 +85,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   async function prepareImport() {
     setBusy(true); setError(''); setPreview(null);
     try {
-      const target = await ensurePitch();
+      // A new pitch is previewed without creating a record; Save creates it, using the suggested title when the title is empty.
+      const target = resolvedId.current ? url : '/api/idea-pitches/new';
       const form = new FormData(); if (upload) form.set('file', upload); if (pasted.trim()) form.set('text', pasted);
       setPreview(await requestJson<{ draft: IdeaDraft; source: IdeaSource; title?: string }>(`${target}/import`, 'Could not organise the document.', { method: 'POST', body: form }));
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not import.'); }
@@ -172,15 +174,16 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
         <button type="button" className="ops-secondary" onClick={() => setConflictingDraft(null)}>Use saved version</button>
       </div>
     </section>}
-    {error && <p role="alert" className="ops-notice error">{error} <button type="button" className="ops-secondary" disabled={locked} onClick={() => { if (dirty) setReloadConfirmOpen(true); else setReload((value) => value + 1); }}>Reload saved version</button></p>}
+    {error && <p role="alert" className="ops-notice error">{error} {data?.current && <button type="button" className="ops-secondary" disabled={locked} onClick={() => { if (dirty) setReloadConfirmOpen(true); else setReload((value) => value + 1); }}>Reload saved version</button>}</p>}
     {status && <p role="status" className="form-message">{status}</p>}
     {!data ? <p role="status" className="checklist-hint">{error ? 'Idea check unavailable.' : 'Loading idea check…'}</p> : <>
       <div className="checklist-record-head">
         <label className="checklist-record-label" htmlFor={`${prefix}-title`}>Pitch title</label>
-        <input id={`${prefix}-title`} form={formId} className="checklist-record-title" disabled={locked} readOnly={!data.canEdit} required={data.canEdit} maxLength={200} value={title} onChange={(event) => { setTitle(event.target.value); setConfirmed(false); setCreateConfirmed(false); }} placeholder="e.g. Smaller models for low-cost research" />
+        {/* A single-line title that wraps instead of clipping long titles; line breaks are not part of a title. */}
+        <textarea id={`${prefix}-title`} form={formId} className="checklist-record-title" rows={1} disabled={locked} readOnly={!data.canEdit} required={data.canEdit} maxLength={200} value={title} onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }} onChange={(event) => { setTitle(event.target.value.replace(/\s*\n\s*/g, ' ')); setConfirmed(false); setCreateConfirmed(false); }} placeholder="e.g. Smaller models for low-cost research" />
         {resolvedId.current && <h2 className="vs-sr-only">{data.pitch.id ? data.pitch.title : 'Unsaved pitch'}</h2>}
         <div className="checklist-record-meta">
-          <span className="vs-mono">{data.current ? `v${data.current.version} · saved ${formatRecordTime(data.current.at)} by @${data.current.by}` : 'Not saved yet'}</span>
+          <span className="vs-mono">{data.current ? `v${data.current.version} · saved ${formatDayTime(data.current.at)} by @${data.current.by}` : 'Not saved yet'}</span>
           {data.canManage && <span className="checklist-private"><Lock aria-hidden="true" />Private · history visible to the proposer, PI and administrators{data.collaborators.length ? ` · read-only copy shared with ${data.collaborators.length}` : ''}</span>}
           <label className="checklist-inline-field">Track
             <select value={draft.track} disabled={locked || !data.canEdit} onChange={event => { setDraft({ ...draft, track: event.target.value as '' | 'A' | 'B' }); setConfirmed(false); setCreateConfirmed(false); }}>
@@ -278,11 +281,11 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
             <small className="checklist-advice-meta">Derived by a fixed rule from the saved review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span>{reviewIsStale(data.reviews[0].pitchVersion) ? ', before the latest changes' : ''}. It is not a decision.</small>
           </div>;
         })()}
-        <p className="checklist-advice-meta">{data.reviews[0] ? <>Latest review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span> · <span className="vs-mono">{formatRecordTime(data.reviews[0].at)}</span>. </> : 'No AI review yet. '}The agent gives suggestions on evidence and feasibility. It cannot approve, decide or change a stage.</p>
+        <p className="checklist-advice-meta">{data.reviews[0] ? <>Latest review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span> · <span className="vs-mono">{formatDayTime(data.reviews[0].at)}</span>. </> : 'No AI review yet. '}The agent gives suggestions on evidence and feasibility. It cannot approve, decide or change a stage.</p>
         {data.reviews.map((review) => <details key={review.id} className="idea-review" open={review === data.reviews[0]}>
           <summary>Review of <span className="vs-mono">v{review.pitchVersion}</span> · {reviewHeadline(review.report)}{reviewIsStale(review.pitchVersion) ? ' · Draft changed — review again' : ''}</summary>
           <IdeaReviewReport report={review.report} />
-          <small className="checklist-advice-meta">@{review.by} · <span className="vs-mono">{formatRecordTime(review.at)}</span> · {review.model} · Rules <span className="vs-mono">{review.rulesHash.slice(0, 12)}</span></small>
+          <small className="checklist-advice-meta">@{review.by} · <span className="vs-mono">{formatDayTime(review.at)}</span> · {review.model} · Rules <span className="vs-mono">{review.rulesHash.slice(0, 12)}</span></small>
         </details>)}
         {data.canEdit && <button type="button" className="ops-secondary checklist-advice-run" disabled={busy || dirty || !data.current} onClick={() => void runReview()}>Check pitch with AI</button>}
         {data.canEdit && (dirty || !data.current) && <p className="checklist-advice-meta">Save the draft before checking it.</p>}
@@ -316,7 +319,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       }} />}
       {data.canManage && <section className="checklist-step idea-history" aria-labelledby={`${prefix}-history-heading`}><h3 id={`${prefix}-history-heading`}>History</h3>
         {!data.history.length && <p>Your saved versions will appear here.</p>}
-        {data.history.map((revision) => <details key={revision.version}><summary><span className="vs-mono">v{revision.version}</span> · @{revision.by} · <span className="vs-mono">{formatRecordTime(revision.at)}</span> · {revision.decision ? `Decision: ${ideaOutcomeLabels[revision.decision.outcome]}` : 'Draft saved · awaiting decision'}</summary>
+        {data.history.map((revision) => <details key={revision.version}><summary><span className="vs-mono">v{revision.version}</span> · @{revision.by} · <span className="vs-mono">{formatDayTime(revision.at)}</span> · {revision.decision ? `Decision: ${ideaOutcomeLabels[revision.decision.outcome]}` : 'Draft saved · awaiting decision'}</summary>
           {revision.title && <p>Title: {revision.title}</p>}
           {revision.source && <details><summary>Source: {revision.source.name}</summary><pre className="checklist-source-text">{revision.source.text}</pre></details>}
           {revision.decision && <><p>{revision.decision.rationale}</p><p>{revision.decision.nextMilestone}</p></>}
@@ -332,16 +335,6 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       confirmLabel="Permanently delete pitch" confirmPhrase={{ value: data.pitch.title, label: 'Type the pitch title to confirm' }}
       onCancel={() => setDeleteOpen(false)} onConfirm={() => void removePitch()} />}
   </section>;
-}
-
-export function formatRecordTime(value: string | undefined, withTime = true) {
-  if (!value) return '';
-  // PostgreSQL text timestamps use "YYYY-MM-DD HH:MM:SS+00"; normalise them for Date parsing.
-  const date = new Date(value.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'));
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat('en-GB', withTime
-    ? { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }
-    : { day: 'numeric', month: 'short', timeZone: 'Europe/London' }).format(date);
 }
 
 type ReviewReport = SavedIdeaReview['report'];
@@ -362,8 +355,9 @@ export function reviewReadiness(report: IdeaReview): { tone: 'ready' | 'nearly' 
   const missing = report.blocks.filter(item => item.status === 'missing').length;
   const needsWork = report.blocks.filter(item => item.status === 'needs_work').length;
   const answered = report.discussant.delta.status === 'addressed' && report.discussant.poc.status === 'addressed';
+  // Only a missing block makes a pitch not ready; anything short of all blocks adequate and both questions addressed is "nearly".
   if (!missing && !needsWork && answered) return { tone: 'ready', label: 'Ready for group discussion' };
-  if (!missing && needsWork <= 2) return { tone: 'nearly', label: needsWork ? `Nearly ready — ${blocks(needsWork)} need${needsWork === 1 ? 's' : ''} work` : 'Nearly ready — discussant questions need fuller answers' };
+  if (!missing) return { tone: 'nearly', label: needsWork ? `Nearly ready — ${blocks(needsWork)} need${needsWork === 1 ? 's' : ''} work` : 'Nearly ready — discussant questions need fuller answers' };
   return { tone: 'not', label: `Not ready for discussion — ${[missing && `${blocks(missing)} missing`, needsWork && `${blocks(needsWork)} need${needsWork === 1 ? 's' : ''} work`].filter(Boolean).join(', ')}` };
 }
 function Quotes({ evidence, own }: { evidence: Array<{ field: string; quote: string }>; own?: string }) {

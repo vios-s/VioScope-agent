@@ -381,10 +381,24 @@ async function main() {
     const memberList = await usersRoute.GET(getRequest('/api/users', cookieFor(member)));
     assert.equal(memberList.status, 403, 'Member should not list users.');
 
+    const inviteTemporaryPassword = 'Invite-Temp1!';
+    const missingTemporaryPassword = await usersRoute.POST(jsonRequest('/api/users', {
+      username: users.noEmailInvite.username,
+      role: users.noEmailInvite.role,
+    }, cookieFor(admin)));
+    assert.equal(missingTemporaryPassword.status, 400, 'Add member must require a temporary password (no username default).');
+    const weakTemporaryPassword = await usersRoute.POST(jsonRequest('/api/users', {
+      username: users.noEmailInvite.username,
+      role: users.noEmailInvite.role,
+      temporaryPassword: 'a',
+    }, cookieFor(admin)));
+    assert.equal(weakTemporaryPassword.status, 400, 'Add member must reject a weak temporary password.');
+    assert.match((await jsonBody(weakTemporaryPassword)).error, /medium strength/);
     const noEmailCreate = await usersRoute.POST(jsonRequest('/api/users', {
       username: users.noEmailInvite.username,
       role: users.noEmailInvite.role,
       position: 'visitor',
+      temporaryPassword: inviteTemporaryPassword,
     }, cookieFor(admin)));
     assert.equal(noEmailCreate.status, 200, 'Admin should create first-login account without email.');
     const noEmailCreateBody = await jsonBody(noEmailCreate);
@@ -393,17 +407,17 @@ async function main() {
       'visitor',
       'Created member position should be saved.',
     );
-    const noEmailLogin = await login(users.noEmailInvite.username, users.noEmailInvite.username);
-    assert.equal(noEmailLogin.response.status, 200, 'Username temporary password should log in.');
+    const noEmailLogin = await login(users.noEmailInvite.username, inviteTemporaryPassword);
+    assert.equal(noEmailLogin.response.status, 200, 'Temporary password should log in.');
     assert.equal(noEmailLogin.body.user.email, null);
     assert.equal(noEmailLogin.body.user.passwordResetRequired, true);
     const noEmailBlockedChange = await changePasswordRoute.POST(jsonRequest('/api/auth/change-password', {
-      currentPassword: users.noEmailInvite.username,
+      currentPassword: inviteTemporaryPassword,
       newPassword: 'NoEmail1!',
     }, noEmailLogin.cookie || undefined));
     assert.equal(noEmailBlockedChange.status, 400, 'First-login password change should require email when missing.');
     const noEmailGoodChange = await changePasswordRoute.POST(jsonRequest('/api/auth/change-password', {
-      currentPassword: users.noEmailInvite.username,
+      currentPassword: inviteTemporaryPassword,
       email: email(users.noEmailInvite.username),
       newPassword: 'NoEmail1!',
     }, noEmailLogin.cookie || undefined));
@@ -415,10 +429,11 @@ async function main() {
     const piCreatesAdmin = await usersRoute.POST(jsonRequest('/api/users', {
       username: users.piBlockedAdmin.username,
       email: email(users.piBlockedAdmin.username),
-      temporaryPassword: '123456',
+      temporaryPassword: 'Strong-Temp1!',
       role: 'administrator',
     }, cookieFor(pi)));
     assert.equal(piCreatesAdmin.status, 400, 'PI should not create admin accounts.');
+    assert.match((await jsonBody(piCreatesAdmin)).error, /PI users can only/);
 
     const piOverwritesAdmin = await usersRoute.POST(jsonRequest('/api/users', {
       username: users.admin.username,
@@ -447,6 +462,12 @@ async function main() {
     );
     assert.equal(memberPositionUpdate.status, 200, 'Admin should update member position.');
     assert.equal((await jsonBody(memberPositionUpdate)).user.position, 'postdoc');
+
+    const weakResetPassword = await userRoute.PATCH(
+      jsonRequest(`/api/users/${member.id}`, { temporaryPassword: 'a' }, cookieFor(admin)),
+      { params: Promise.resolve({ userId: member.id }) },
+    );
+    assert.equal(weakResetPassword.status, 400, 'Edit must reject a weak temporary password.');
 
     const badEmail = await accountRoute.PATCH(jsonRequest('/api/account', { email: 'not-an-email' }, cookieFor(member)));
     assert.equal(badEmail.status, 400, 'Invalid account email should be rejected.');

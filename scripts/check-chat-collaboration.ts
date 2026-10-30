@@ -191,6 +191,55 @@ async function main() {
       'Chat sessions API should expose shared sessions.',
     );
 
+    // Chat route: members of a shared session can reply; outsiders are refused before any model call; errors never echo ids.
+    const { mastra } = await import('../src/mastra');
+    const agent = mastra.getAgent('vioscopeAgent') as unknown as { generate: (message: string, options: Record<string, unknown>) => Promise<unknown> };
+    const generateCalls: Array<Record<string, unknown>> = [];
+    let replies: string[] = [];
+    agent.generate = async (_message, options) => {
+      generateCalls.push(options);
+      return { text: replies.shift() ?? 'Shared reply recorded.', toolResults: [], toolCalls: [], finishReason: 'stop' };
+    };
+    const chatRoute = await import('../app/api/chat/route');
+    const postChat = (user: AuthUser, message: string) => chatRoute.POST(new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: cookieFor(user) },
+      body: JSON.stringify({ threadId: sessionId, message }),
+    }));
+    const memberReply = await postChat(receiver, 'Please summarise the VioScope thread so far.');
+    assert.equal(memberReply.status, 200, await memberReply.clone().text());
+    assert.deepEqual(generateCalls.at(-1)?.memory, { thread: sessionId, resource: owner.id }, 'Shared members continue the owner thread.');
+    assert.ok(
+      (await listChatSessionsForUser(owner.id)).find((session) => session.threadId === sessionId)?.messages
+        .some((message) => message.actorUsername === receiver.username),
+      'The shared member turn is saved in the owner session.',
+    );
+    const callsBeforeOutsider = generateCalls.length;
+    const outsiderReply = await postChat(outsider, 'Please summarise the VioScope thread so far.');
+    const outsiderBody = (await outsiderReply.json()) as { error: string };
+    assert.equal(outsiderReply.status, 404, 'Outsiders cannot post into a session they are not a member of.');
+    assert.equal(generateCalls.length, callsBeforeOutsider, 'Outsiders are refused before generation.');
+    const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    assert.doesNotMatch(outsiderBody.error, uuidPattern);
+    agent.generate = async () => {
+      throw new Error(`Thread ${sessionId} belongs to resource ${owner.id} but resource ${receiver.id} was provided`);
+    };
+    const failedReply = await postChat(receiver, 'Please summarise the VioScope thread so far.');
+    const failedBody = (await failedReply.json()) as { error: string };
+    assert.equal(failedReply.status, 500);
+    assert.doesNotMatch(failedBody.error, uuidPattern, 'Internal errors are not echoed.');
+    assert.equal(failedBody.error.includes(sessionId), false);
+    // A non-English answer is regenerated once in English, whatever language was requested.
+    agent.generate = async (_message, options) => {
+      generateCalls.push(options);
+      return { text: replies.shift() ?? 'English answer.', toolResults: [], toolCalls: [], finishReason: 'stop' };
+    };
+    replies = [String.fromCodePoint(0x8fd9, 0x662f, 0x4e00, 0x4e2a, 0x4e2d, 0x6587, 0x56de, 0x7b54, 0x3002), 'The answer is given in English.'];
+    const callsBeforeLanguage = generateCalls.length;
+    const languageReply = await postChat(receiver, `Please answer in ${String.fromCodePoint(0x4e2d, 0x6587)}: what is the VioScope thread about?`);
+    assert.equal(((await languageReply.json()) as { text: string }).text, 'The answer is given in English.');
+    assert.equal(generateCalls.length - callsBeforeLanguage, 2, 'Exactly one English regeneration.');
+
     const renamedTitle = `Renamed collaboration chat ${stamp}`;
     const renameOwnedResponse = await sessionsRoute.PATCH(
       new Request('http://localhost/api/chat/sessions', {
@@ -306,6 +355,10 @@ async function main() {
           sharedSessionRemoval: 'passed',
           ownedSessionDelete: 'passed',
           noPermissionEscalation: 'passed',
+          sharedMemberReply: 'passed',
+          outsiderRejectedBeforeGeneration: 'passed',
+          noInternalIdsInErrors: 'passed',
+          englishRegeneration: 'passed',
         },
         null,
         2,

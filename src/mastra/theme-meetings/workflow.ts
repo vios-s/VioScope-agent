@@ -7,7 +7,7 @@ import { atomicWrite, contentHash, withFileLock } from '../atomic-file';
 import { resolveThemeMeetingUpdatesPath, type ThemeMeetingStoreOptions } from './store';
 import { themeMeetingAgendaItemSchema, type ThemeMeetingPlan } from './schema';
 
-export const meetingDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(
+export const meetingDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a valid date.').refine(
   (value) => !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value,
   'Choose a valid date.',
 );

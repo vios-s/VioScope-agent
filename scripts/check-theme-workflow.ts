@@ -122,7 +122,7 @@ try {
   assert.deepEqual(sent.map((mail) => mail.to).sort(), ['alice', 'carol', 'chair', 'principal'].map((name) => `${name}@example.test`));
   const v2 = (await workflow.readMeetingWorkflow()).confirmations.at(-1)!;
   const v2Order = v2.entries.filter((entry) => !entry.deferred).map((entry) => entry.member);
-  assert.match(sent[0].subject, /confirmed theme meeting agenda 2026-10-28 Theme A \(version 2\)/);
+  assert.match(sent[0].subject, /confirmed theme meeting agenda 28 Oct 2026 Theme A \(version 2\)/);
   assert.match(sent[0].html, /CONFIRMED AGENDA &middot; VERSION 2/);
   assert.ok(sent[0].text.indexOf(v2Order[0]) < sent[0].text.indexOf(v2Order[1]), 'Confirmed order is preserved.');
   assert.doesNotMatch(sent[0].text, /Deferred/, 'New versions schedule every submission, so the email lists no deferred items.');
@@ -155,6 +155,31 @@ try {
   assert.equal(delivery.emails.sent, 3, 'A new confirmed version can be circulated.');
   assert.deepEqual(delivery.emails, { sent: 3, skipped: audience.skipped + 1, failed: 0 }, 'Claim-aware preview matches the send.');
   assert.match(sent.at(-1)!.subject, /\(version 3\)/);
+  // The scheduled cutoff circulation follows an existing confirmation instead of contradicting it.
+  const sentBeforeCutoff = sent.length;
+  assert.equal((await planner.sendThemeMeetingAgendaEmails((await planner.buildThemeMeetingPlan({ meetingDate: date })).plan, config, { themeId: 'A' })).sent, 4);
+  const cutoffMail = sent.at(-1)!;
+  assert.equal(sent.length, sentBeforeCutoff + 4);
+  assert.match(cutoffMail.subject, /^VioScope confirmed theme meeting agenda 28 Oct 2026 Theme A$/);
+  assert.match(cutoffMail.text, /Confirmed version 3, by @chair/);
+  assert.match(cutoffMail.text, /10:00 \| /, 'The cutoff email uses the confirmed order with start times.');
+  assert.doesNotMatch(cutoffMail.text + cutoffMail.html, /advisory until confirmed|Missing updates/);
+  assert.match(cutoffMail.text, /Date: Wednesday 28 October 2026/);
+  assert.doesNotMatch(cutoffMail.text + cutoffMail.html, /\d{4}-\d{2}-\d{2}T\d{2}:/, 'No raw timestamps in emails.');
+  // Cutoff notices address the missing member directly; managers read them in the third person.
+  const cutoffRun = await planner.buildThemeMeetingReminderRun('agenda_cutoff', { meetingDate: date, previewOnly: true });
+  const missingNotice = cutoffRun.notifications.find((item) => item.member_username === 'outsider')!;
+  assert.match(missingNotice.body, /^You have no project progress update for Theme B\. Your item will not be planned/);
+  const { visibleNotificationsForUser } = await import('../src/mastra/theme-meetings/access');
+  assert.match(visibleNotificationsForUser([missingNotice], config, accounts.get('principal')!)[0].body, /^outsider has no project progress update for Theme B/);
+  assert.equal(visibleNotificationsForUser([missingNotice], config, accounts.get('outsider')!)[0].body, missingNotice.body);
+  // Updates target a scheduled meeting of that theme; invalid dates get a formal message, not "Invalid time value".
+  await assert.rejects(planner.submitThemeMeetingUpdate({ meetingDate: '2026-10-29', themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'Wrong day.', now: new Date('2026-10-27T12:00:00Z') }), /Example A does not meet on 29 Oct 2026/);
+  const updatesRoute = await import('../app/api/theme-meetings/updates/route');
+  const badDate = await updatesRoute.POST(new Request('http://localhost/api/theme-meetings/updates', { method: 'POST', headers: headers('alice'),
+    body: JSON.stringify({ meetingDate: 'tomorrow', themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'Bad date.' }) }));
+  assert.equal(badDate.status, 400);
+  assert.equal((await badDate.json()).error, 'Choose a valid date.');
   await planner.cancelThemeMeeting({ meetingDate: date, themeId: 'A', cancelledByUsername: 'chair', reason: 'Workshop week' });
   draft = await ok(await get('chair'));
   assert.equal(draft.cancelled, true);
@@ -165,7 +190,7 @@ try {
   assert.equal((await planner.buildThemeMeetingReminderRun('first_reminder', { meetingDate: date, previewOnly: true })).notifications.some((item) => item.theme_id === 'A'), false, 'Reminders exclude a skipped meeting.');
   const { removeThemeMeetingCancellation } = await import('../src/mastra/theme-meetings/store');
   await removeThemeMeetingCancellation(date, 'A');
-  assert.equal(sent.length, 7);
+  assert.equal(sent.length, 11);
   const action = { decision: 'Proceed with the baseline check.', task: 'Run the baseline and attach results.', owner: 'alice', dueDate: '2026-10-30' };
   assert.equal((await post('alice', { operation: 'add_action', action })).status, 403);
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, owner: 'outsider' } })).status, 400);
@@ -215,7 +240,7 @@ try {
   assert.equal((await ok(await projectGet('outsider'))).actions.length, 0, 'Unlinked group actions stay out of projects.');
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, owner: 'bob', projectId: project.id } })).status, 400, 'Assignment does not grant project access.');
   const privateProject = await projects.createProject({ title: 'Private synthetic project', ownerUsername: 'outsider' }, accounts.get('principal')!);
-  assert.equal((await post('chair', { operation: 'add_action', action: { ...action, projectId: privateProject.id } })).status, 400, 'Theme management does not grant project access.');
+  assert.equal((await post('chair', { operation: 'add_action', action: { ...action, projectId: privateProject.id } })).status, 404, 'Theme management does not grant project access.');
   await ok(await post('chair', { operation: 'add_action', action: { ...action, projectId: project.id } }));
   const linked = (await ok(await projectGet('outsider'))).actions[0];
   assert.equal(linked.projectId, project.id);
@@ -228,7 +253,7 @@ try {
   await projects.updateProject(project.id, { collaborators: [] }, accounts.get('principal')!);
   assert.equal((await projectGet('outsider')).status, 404, 'Revoking project access revokes meeting record access.');
   assert.equal((await ok(await get('chair'))).actions.some((item: { id: string }) => item.id === linked.id), false, 'Theme manager cannot bypass project permissions.');
-  assert.equal((await post('chair', { operation: 'update_action', id: linked.id, version: linkedView.version, status: 'open', note: 'Denied' })).status, 400);
+  assert.equal((await post('chair', { operation: 'update_action', id: linked.id, version: linkedView.version, status: 'open', note: 'Denied' })).status, 404);
   const legacy = workflow.workflowSchema.parse({ confirmations: [], actions: [{ ...item, projectId: undefined }] });
   assert.equal(legacy.actions[0].projectId, null, 'Existing records remain unlinked.');
   const before = await readFile(workflow.workflowPath(), 'utf8');

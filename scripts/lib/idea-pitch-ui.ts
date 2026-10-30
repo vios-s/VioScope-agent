@@ -188,7 +188,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await page.route('**/api/theme-meetings', route => route.continue({ url: base + '/api/theme-meetings?date=2099-11-04' }));
     await page.goto(base + '/?view=meeting');
     const meetingForm = page.locator('.theme-update-form');
-    await meetingForm.getByRole('combobox', { name: 'Project source', exact: true }).selectOption(converted.pitch.projectId);
+    await meetingForm.getByRole('combobox', { name: 'Project', exact: true }).selectOption(converted.pitch.projectId);
     // The project evidence sits in a collapsed Advisory details block, so wait for it to be present rather than visible.
     await meetingForm.getByText('Run three synthetic pilot comparisons', { exact: false }).first().waitFor({ state: 'attached' });
     await meetingForm.getByRole('combobox', { name: 'Update type', exact: true }).selectOption('deep_dive');
@@ -207,13 +207,13 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     assert.equal(entry.project_context.stage, 1);
     assert.equal(entry.project_context.actions[0].dueDate, '2099-11-06');
     await page.reload();
-    await meetingForm.getByRole('combobox', { name: 'Project source', exact: true }).waitFor();
-    assert.equal(await meetingForm.getByRole('combobox', { name: 'Project source', exact: true }).inputValue(), converted.pitch.projectId);
+    await meetingForm.getByRole('combobox', { name: 'Project', exact: true }).waitFor();
+    assert.equal(await meetingForm.getByRole('combobox', { name: 'Project', exact: true }).inputValue(), converted.pitch.projectId);
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await meetingForm.getByRole('textbox', { name: /^Progress/ }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: resolve(output, 'project-meeting-mobile.png') });
-    await meetingForm.getByRole('combobox', { name: 'Project source', exact: true }).selectOption('none');
+    await meetingForm.getByRole('combobox', { name: 'Project', exact: true }).selectOption('none');
     await meetingForm.getByRole('button', { name: 'Save changes', exact: true }).click();
     await page.getByRole('status').filter({ hasText: 'Changes saved.' }).waitFor();
     const unlinked = await (await context.request.get(base + '/api/theme-meetings?date=2099-11-04')).json();

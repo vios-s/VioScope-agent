@@ -443,7 +443,7 @@
 }
 
 /* The editable pitch title reads as the record title, not as a boxed field. */
-.console-page input.checklist-record-title:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]) {
+.console-page .checklist-panel textarea.checklist-record-title {
   min-height: 0;
   padding: 0 0 4px;
   border: 0;
@@ -452,13 +452,20 @@
   background: transparent;
   box-shadow: none;
   font: 400 30px/1.2 var(--vs-font-serif);
+  /* Long titles wrap and the field grows with them (rows=1 fallback where field-sizing is unsupported). */
+  display: block;
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  field-sizing: content;
 }
 
-.console-page input.checklist-record-title:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):hover:not(:read-only) {
+.console-page .checklist-panel textarea.checklist-record-title:hover:not(:read-only) {
   border-bottom-color: var(--vs-line);
 }
 
-.console-page input.checklist-record-title:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):focus-visible {
+.console-page .checklist-panel textarea.checklist-record-title:focus-visible {
   box-shadow: none;
   border-bottom-color: var(--vs-accent);
   outline: var(--vs-focus-ring);
@@ -1075,7 +1082,7 @@
 
 @media (max-width: 640px) {
   .checklist-record-title,
-  .console-page input.checklist-record-title:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]) {
+  .console-page .checklist-panel textarea.checklist-record-title {
     font-size: 24px;
   }
 

@@ -37,7 +37,7 @@ async function checkEvidence(projectId:string,ids:string[],completed=false) {
 async function checkAssignee(projectId:string,username:string) {
  const account=await getUserByUsername(username);
  if(!account||account.provisioningStatus!=='active')throw new Error('Choose an active account username.');
- await getProjectForUser(projectId,account);
+ await getProjectForUser(projectId,account).catch(()=>{throw new Error('This person does not have access to this project.');});
 }
 export async function changeProjectWorkflow(projectId:string,input:unknown,user:AuthUser) {
  const command=workflowCommandSchema.parse(input);

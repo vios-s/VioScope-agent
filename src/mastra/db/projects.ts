@@ -2,7 +2,7 @@ import type { ProjectTask } from '../projects/workflow';
 import { ensureProjectWorkflowTables } from './project-workflow-schema';
 import { importProjectTodos, taskColumns, replaceLegacyProjectTodos, taskAsTodo } from './project-tasks';
 import { randomUUID } from 'node:crypto';
-import { canSeeAll } from '../auth/session';
+import { AuthError, canSeeAll } from '../auth/session';
 import { canManageTheme } from '../theme-meetings/access';
 import { readThemeMeetingConfig } from '../theme-meetings/store';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
@@ -250,8 +250,18 @@ function cleanUsername(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function cleanUsernames(values?: string[]): string[] {
-  return [...new Set((values || []).map(cleanUsername).filter(Boolean))];
+// Account usernames are normalised; external collaborator labels keep the case they were typed in.
+async function cleanCollaborators(values?: string[]): Promise<string[]> {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values || []) {
+    const label = value.trim();
+    const key = cleanUsername(label);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push((await getUserByUsername(key)) ? key : label);
+  }
+  return result;
 }
 
 function cleanTrack(value?: string | null): ProjectTrack {
@@ -854,7 +864,7 @@ export async function getProjectForUser(projectId: string, user: AuthUser): Prom
   const projects = await hydrateProjects(await projectRowsByIdOrSlug(projectId), user);
   const project = projects[0];
   if (!project) {
-    throw new Error('Project not found or access denied.');
+    throw new AuthError('Project not found or access denied.', 404, 'not_found');
   }
   return project;
 }
@@ -865,7 +875,7 @@ export async function getProjectForUpdate(updateId: string, user: AuthUser): Pro
   try {
     const result = await postgres.pool.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id = $1', [updateId]);
     const projectId = result.rows[0]?.project_id;
-    if (!projectId) throw new Error('Project update not found.');
+    if (!projectId) throw new AuthError('Project update not found.', 404, 'not_found');
     return getProjectForUser(projectId, user);
   } finally {
     await postgres.disconnect();
@@ -880,11 +890,11 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
 
   const ownerUsername = cleanUsername(input.ownerUsername || actor.username);
   if (!canSeeAll(actor) && ownerUsername !== cleanUsername(actor.username)) {
-    throw new Error('Only PI/admin can create a project for another owner.');
+    throw new AuthError('Only PI/admin can create a project for another owner.', 403, 'forbidden');
   }
 
   await assertActiveOwner(ownerUsername);
-  const collaborators = cleanUsernames(input.collaborators);
+  const collaborators = await cleanCollaborators(input.collaborators);
   const reviewers = await validateProjectReviewers(input.piUsername, input.pdraUsername, ownerUsername);
   await assertProjectNameAvailable({ ownerUsername, title, slug });
 
@@ -949,11 +959,11 @@ async function updateProjectInTransaction(projectId: string, input: ProjectUpdat
   await createPostgresClient().pool.query('SELECT id FROM project_records WHERE id=$1 FOR UPDATE',[resolved.id]);
   const current = await getProjectForUser(resolved.id, actor);
   if (!current.access.canEdit) {
-    throw new Error('You do not have permission to edit this project.');
+    throw new AuthError('You do not have permission to edit this project.', 403, 'forbidden');
   }
   const nextOwnerUsername = cleanUsername(input.ownerUsername || current.ownerUsername);
   if (nextOwnerUsername !== cleanUsername(current.ownerUsername) && !canSeeAll(actor)) {
-    throw new Error('Only PI/admin can change the project owner.');
+    throw new AuthError('Only PI/admin can change the project owner.', 403, 'forbidden');
   }
   await assertActiveOwner(nextOwnerUsername);
   const nextPi = input.piUsername === undefined ? current.piUsername : input.piUsername;
@@ -961,7 +971,7 @@ async function updateProjectInTransaction(projectId: string, input: ProjectUpdat
   const reviewers = nextPi !== current.piUsername || nextPdra !== current.pdraUsername || nextOwnerUsername !== current.ownerUsername
     ? await validateProjectReviewers(nextPi, nextPdra, nextOwnerUsername)
     : { piUsername: current.piUsername, pdraUsername: current.pdraUsername };
-  const nextCollaborators = input.collaborators === undefined ? current.collaborators : cleanUsernames(input.collaborators);
+  const nextCollaborators = input.collaborators === undefined ? current.collaborators : await cleanCollaborators(input.collaborators);
   const nextSlug = cleanSlug(input.project || current.project);
   if (!nextSlug) throw new Error('Project slug is required.');
   const nextTitle = cleanText(input.title) || current.title;
@@ -1063,7 +1073,7 @@ export async function archiveProject(projectId: string, actor: AuthUser): Promis
 export async function addProjectUpdate(projectId: string, input: AddProjectUpdateInput, actor: AuthUser): Promise<ProjectRecord> {
   const project = await getProjectForUser(projectId, actor);
   if (!project.access.canAddUpdate) {
-    throw new Error('You do not have permission to add project updates.');
+    throw new AuthError('You do not have permission to add project updates.', 403, 'forbidden');
   }
   const text = cleanText(input.text);
   if (!text) throw new Error('Update text is required.');
@@ -1159,9 +1169,9 @@ export async function editProjectUpdate(updateId: string, input: EditProjectUpda
     const client = await postgres.pool.connect();
     const found = await client.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id = $1', [updateId]);
     const projectId = found.rows[0]?.project_id;
-    if (!projectId) throw new Error('Project update not found.');
+    if (!projectId) throw new AuthError('Project update not found.', 404, 'not_found');
     const project = await getProjectForUser(projectId, actor);
-    if (!project.access.canEdit) throw new Error('You do not have permission to edit project updates.');
+    if (!project.access.canEdit) throw new AuthError('You do not have permission to edit project updates.', 403, 'forbidden');
 
     const text = cleanText(input.text);
     if (!text) throw new Error('Update text is required.');
@@ -1208,9 +1218,9 @@ export async function deleteProjectUpdate(updateId: string, actor: AuthUser): Pr
     const client = await postgres.pool.connect();
     const found = await client.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id = $1', [updateId]);
     const projectId = found.rows[0]?.project_id;
-    if (!projectId) throw new Error('Project update not found.');
+    if (!projectId) throw new AuthError('Project update not found.', 404, 'not_found');
     const project = await getProjectForUser(projectId, actor);
-    if (!project.access.canEdit) throw new Error('You do not have permission to delete project updates.');
+    if (!project.access.canEdit) throw new AuthError('You do not have permission to delete project updates.', 403, 'forbidden');
 
     await client.query('UPDATE project_artifacts SET deleted_at = now(), is_current = false WHERE source_update_id = $1 AND deleted_at IS NULL', [updateId]);
     await client.query('DELETE FROM project_updates WHERE id = $1', [updateId]);
@@ -1231,11 +1241,11 @@ export async function addProjectUpdateComment(updateId: string, textValue: strin
       [updateId],
     );
     const projectId = projectResult.rows[0]?.project_id;
-    if (!projectId) throw new Error('Project update not found.');
+    if (!projectId) throw new AuthError('Project update not found.', 404, 'not_found');
 
     const project = await getProjectForUser(projectId, actor);
     if (!project.access.canComment) {
-      throw new Error('You do not have permission to comment on this project update.');
+      throw new AuthError('You do not have permission to comment on this project update.', 403, 'forbidden');
     }
 
     await postgres.pool.query(
@@ -1264,11 +1274,11 @@ export async function getProjectArtifactForUser(
       [artifactId],
     );
     const projectId = result.rows[0]?.project_id;
-    if (!projectId) throw new Error('Artifact not found.');
+    if (!projectId) throw new AuthError('Artifact not found.', 404, 'not_found');
 
     const project = await getProjectForUser(projectId, actor);
     const artifact = project.artifacts.find((item) => item.id === artifactId);
-    if (!artifact) throw new Error('Artifact not found or access denied.');
+    if (!artifact) throw new AuthError('Artifact not found or access denied.', 404, 'not_found');
     return { project, artifact };
   } finally {
     await postgres.disconnect();
@@ -1283,7 +1293,7 @@ export async function updateProjectArtifactDigest(
 ): Promise<ProjectRecord> {
   const { project } = await getProjectArtifactForUser(artifactId, actor);
   if (!project.access.canEdit) {
-    throw new Error('You do not have permission to update this artifact.');
+    throw new AuthError('You do not have permission to update this artifact.', 403, 'forbidden');
   }
 
   const postgres = createPostgresClient('vioscope-projects');
@@ -1306,7 +1316,7 @@ export async function updateProjectArtifactDigest(
 export async function removeProjectArtifact(artifactId: string, actor: AuthUser): Promise<ProjectRecord> {
   const { project } = await getProjectArtifactForUser(artifactId, actor);
   if (!project.access.canEdit) {
-    throw new Error('You do not have permission to remove this artifact.');
+    throw new AuthError('You do not have permission to remove this artifact.', 403, 'forbidden');
   }
 
   const postgres = createPostgresClient('vioscope-projects');

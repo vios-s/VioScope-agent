@@ -88,10 +88,14 @@ export function visibleNotificationsForUser(
   config: ThemeMeetingConfig,
   user: AuthUser,
 ): ThemeMeetingNotification[] {
-  return notifications.filter((notification) =>
-    normalizeUsername(notification.member_username) === normalizeUsername(user.username) ||
-    (!memberReminderActions.has(notification.action) && canManageTheme(config, notification.theme_id, user)),
-  );
+  return notifications.flatMap((notification) => {
+    if (normalizeUsername(notification.member_username) === normalizeUsername(user.username)) return [notification];
+    if (memberReminderActions.has(notification.action) || !canManageTheme(config, notification.theme_id, user)) return [];
+    // The stored cutoff text addresses the member ("You have…"); managers read it about that member.
+    return [notification.action === 'agenda_cutoff'
+      ? { ...notification, body: `${notification.member} has no project progress update for Theme ${notification.theme_id}. Their item will not be planned into the agenda.` }
+      : notification];
+  });
 }
 
 export type ThemeReminderStatus = {

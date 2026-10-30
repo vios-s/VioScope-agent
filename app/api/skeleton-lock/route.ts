@@ -31,7 +31,7 @@ export async function POST(request: Request) {
     const mode = z.enum(['blocks','paste','upload']).parse(form.get('mode'));
     let text = '';
     if (mode === 'blocks') text = renderSkeletonDraft(skeletonDraftSchema.parse(JSON.parse(String(form.get('blocks')))));
-    if (mode === 'paste') text = z.string().trim().min(1).max(55000).parse(form.get('text'));
+    if (mode === 'paste') text = z.string().trim().min(1, 'Paste the outline or draft before checking.').max(55000, 'The pasted text exceeds 55,000 characters. Shorten it or upload the document instead; content is never silently truncated.').parse(form.get('text'));
     if (mode === 'upload') {
       const file = form.get('file');
       if (!(file instanceof File) || !file.size) throw new Error('Choose a non-empty draft or deck.');
@@ -47,7 +47,11 @@ export async function POST(request: Request) {
     const snapshot = skeletonProjectSnapshot(project);
     const draftText = `Project context (recorded in Projects):\n${JSON.stringify(snapshot)}\n\n${text.trim()}`;
     if (!text.trim() || draftText.length > 60000) throw new Error('Provide readable evidence within 60,000 characters. Content is never silently truncated.');
-    const result = await reviewSubmission({ draftText, draftName: `${project.title} — Skeleton Lock`, skills: ['vios-skeleton-lock'], reportTitle: 'VIOS Skeleton Lock review', targetVenue: project.venue || undefined, deadline: project.submissionDeadline || undefined, maxDraftChars: 60000, paperSkeleton: true });
+    // The 18-item Paper Skeleton checklist applies to full drafts only; the sections form is not judged on missing paper text.
+    const fullDraft = mode !== 'blocks';
+    const result = await reviewSubmission({ draftText, draftName: `${project.title} — Skeleton Lock`, skills: ['vios-skeleton-lock'], reportTitle: 'VIOS Skeleton Lock review', targetVenue: project.venue || undefined, deadline: project.submissionDeadline || undefined, maxDraftChars: 60000,
+      paperSkeleton: fullDraft, paperSkeletonSource: text.trim(),
+      extraInstructions: fullDraft ? undefined : 'The input is the Skeleton Lock sections form, not a full paper draft. Judge the stated evidence in each section. Do not treat the absence of full paper text (abstract, figures, notation, related work or a bibliography) as a gap or a reason for the verdict.' });
     const review = await withDatabaseTransaction(async () => {
       const saved = await saveSkeletonReview(projectId, snapshot, draftText, result, user);
       await recordAuditLog({ actor: user, action: 'skeleton.review_created', targetType: 'project', targetId: projectId, summary: 'Project-bound Skeleton Lock AI check saved.', metadata: { reviewId: saved.id } });

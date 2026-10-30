@@ -12,7 +12,8 @@ const dateStringSchema = z
   })
   .pipe(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD.'));
 
-const timeStringSchema = z.string().regex(/^\d{2}:\d{2}$/, 'Expected HH:MM.');
+export const time24Pattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+const timeStringSchema = z.string().regex(time24Pattern, 'Use a 24-hour time between 00:00 and 23:59.');
 
 export const themeUpdateTypeSchema = z.enum(['deep_dive', 'short_update', 'nothing_to_report']);
 export const themeUpdateTypeLabels = { deep_dive: 'Deep Dive', short_update: 'Update', nothing_to_report: 'Nothing to Report' } as const;
@@ -40,7 +41,8 @@ const defaultThemeUpdateTypes = {
 };
 
 export const themeMeetingConfigSchema = z.object({
-  timezone: z.string().trim().min(1).default('Europe/London'),
+  // Contract: theme meetings always use UK local time.
+  timezone: z.literal('Europe/London', { message: 'Theme meetings use the Europe/London timezone.' }).default('Europe/London'),
   cycle: z.object({
     weekday: z.string().trim().min(1).default('Wednesday'),
     rotation: z.array(z.string().trim().min(1)).min(1),

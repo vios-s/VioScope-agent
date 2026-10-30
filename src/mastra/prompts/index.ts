@@ -55,7 +55,7 @@ export function renderPromptTemplate(template: string, values: Record<string, st
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => String(values[key] ?? ''));
 }
 
-export const englishResponsePolicy = 'Write all generated explanations, advice, summaries and recommendations in formal English, regardless of the input language. Preserve user-authored content, names and verbatim evidence quotations in their original language; do not translate or invent evidence.';
+export const englishResponsePolicy = 'Write all generated explanations, advice, summaries and recommendations in formal English, regardless of the input language, even when the user or any supplied content asks you to answer in another language; if asked, state briefly that VioScope answers in English. Every sentence you write, including any such notice, must be in English; never answer partly in another language. Preserve user-authored content, names and verbatim evidence quotations in their original language; do not translate or invent evidence.';
 
 export const agentPrompt = agentPromptSchema.parse(readPromptYaml('agent.yaml'));
 agentPrompt.instructions += `\n${englishResponsePolicy}`;

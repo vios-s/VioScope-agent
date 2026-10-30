@@ -32,6 +32,14 @@ assert.equal(skeletonOutcomeLabels.revise, 'Revise before locking');
 assert.equal(skeletonOutcomeLabels.conditional, 'Conditional — actions required');
 for (const verdict of ['CLEARED', 'CONDITIONAL', 'SLIDE']) assert.equal(skeletonOutcomeLabels[verdict], skeletonVerdictLabels[verdict]);
 assert.equal(latestSkeletonDecisions([{ kind: 'pdra', outcome: 'revise', note: 'n', by: 'a', at: 'x' }]).pdra?.outcome, 'revise');
+// Re-recording the same verdict keeps the PI confirmation; a changed verdict or CONDITIONAL date needs a fresh one.
+const decided = (outcome: string, reevaluateOn?: string) => ({ kind: 'pdra' as const, outcome, note: 'n', by: 'p', at: 'x', ...(reevaluateOn ? { reevaluateOn } : {}) });
+const piOk = { kind: 'pi' as const, outcome: 'approved', note: 'n', by: 'q', at: 'x' };
+assert.equal(latestSkeletonDecisions([decided('CLEARED'), piOk, decided('CLEARED')]).pi?.outcome, 'approved');
+assert.equal(latestSkeletonDecisions([decided('CLEARED'), piOk, decided('SLIDE')]).pi, null);
+assert.equal(latestSkeletonDecisions([decided('CLEARED'), piOk, decided('SLIDE'), decided('CLEARED')]).pi, null, 'An intervening changed verdict voids the earlier confirmation.');
+assert.equal(latestSkeletonDecisions([decided('CONDITIONAL', '2030-01-02'), piOk, decided('CONDITIONAL', '2030-01-02')]).pi?.outcome, 'approved');
+assert.equal(latestSkeletonDecisions([decided('CONDITIONAL', '2030-01-02'), piOk, decided('CONDITIONAL', '2030-01-09')]).pi, null);
 
 // Paper Skeleton: measured counts from the supplied text.
 const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ');
@@ -44,6 +52,11 @@ assert.equal(measurePaperSkeleton(bib).references, '21 BibTeX entries');
 assert.equal(measurePaperSkeleton('Text \\cite{a,b} and \\citep[p.~2]{c} \\cite{a}').references, '3 distinct \\cite keys');
 assert.equal(measurePaperSkeleton('## References\n[1] A. Author. Paper.\n[2] B. Author. Paper.\n3. C. Author.').references, '3 numbered references');
 assert.deepEqual(measurePaperSkeleton('No paper sections here.'), {});
+// Long whitespace runs must not trigger catastrophic regex backtracking.
+for (const hostile of ['References' + ' '.repeat(59000) + 'x', 'Abstract' + ' '.repeat(59000) + 'x', 'Abstract\n' + ' '.repeat(59000) + 'x', '\n'.repeat(59000) + 'x', '@' + ' '.repeat(59000) + 'x', '1.' + ' '.repeat(59000)]) {
+  const started = performance.now(); measurePaperSkeleton(hostile);
+  assert.ok(performance.now() - started < 100, `Measurement must finish within 100 ms (${JSON.stringify(hostile.slice(0, 12))}…).`);
+}
 
 // Paper Skeleton: model output parsing, template order, quote check and backward compatibility.
 const source = `## Abstract\n${words(220)}\n## Introduction\nWe pitch this as an efficiency paper.`;
@@ -55,7 +68,15 @@ assert.equal(items.find(item => item.id === 'introduction')!.quoteFound, true);
 assert.equal(items.find(item => item.id === 'title')!.quoteFound, false, 'Quotes absent from the source are flagged.');
 assert.deepEqual(items.find(item => item.id === 'notation'), { id: 'notation', status: 'unknown', evidence: 'not found', quoteFound: false });
 assert.match(items.find(item => item.id === 'abstract')!.measured!, /^220 words/);
-assert.equal(submissionReviewModelOutputSchema.safeParse({ ...parsed, paperSkeleton: [{ id: 'title', status: 'done', evidence: 'x' }] }).success, false);
+// Model status wording varies: obvious synonyms map, anything else becomes unknown instead of failing the check.
+const statusOf = (status: string) => submissionReviewModelOutputSchema.parse({ ...parsed, paperSkeleton: [{ id: 'title', status, evidence: 'x' }] }).paperSkeleton![0].status;
+assert.equal(statusOf('partial'), 'partly'); assert.equal(statusOf('Partly met'), 'partly'); assert.equal(statusOf('yes'), 'met'); assert.equal(statusOf('no'), 'missing'); assert.equal(statusOf('somewhat'), 'unknown');
+// Measured values outrank the AI reading.
+const fewRefs = normalizePaperSkeleton([{ id: 'references', status: 'met', evidence: 'not found' }, { id: 'abstract', status: 'met', evidence: 'not found' }], `## Abstract\n${words(120)}\n## Introduction\nText\n## References\n[1] A. Paper.\n[2] B. Paper.`);
+assert.equal(fewRefs.find(item => item.id === 'references')!.status, 'partly');
+assert.match(fewRefs.find(item => item.id === 'references')!.measured!, /fewer than 20 measured/);
+assert.equal(fewRefs.find(item => item.id === 'abstract')!.status, 'partly');
+assert.equal(normalizePaperSkeleton([{ id: 'references', status: 'met', evidence: 'not found' }], bib).find(item => item.id === 'references')!.status, 'met');
 const legacyStructured = { ...parsed, paperSkeleton: undefined, appliedSkills: [] };
 assert.equal(submissionReviewStructuredSchema.safeParse(legacyStructured).success, true, 'Saved reviews without the checklist still parse.');
 console.log('Skeleton sections passed: empty input, partial evidence, all rule areas, bounded input, PDRA verdict enum and re-evaluation dates, legacy labels, measured Paper Skeleton counts and checklist parsing.');

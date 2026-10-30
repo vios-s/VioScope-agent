@@ -7,7 +7,6 @@ import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import {
   buildThemeMeetingPlan,
   buildThemeMeetingReminderRun,
-  renderThemeMeetingPlan,
   sendThemeMeetingAgendaEmails,
   sendThemeMeetingReminderEmails,
 } from '../../../../src/mastra/theme-meetings/planner';
@@ -17,13 +16,6 @@ export const runtime = 'nodejs';
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-}
-
-function planForTheme<T extends { meetings: Array<{ theme_id: string }> }>(plan: T, themeId: string): T {
-  return {
-    ...plan,
-    meetings: plan.meetings.filter((meeting) => meeting.theme_id === themeId),
-  };
 }
 
 export async function POST(request: Request) {
@@ -60,7 +52,6 @@ export async function POST(request: Request) {
       run.action === 'agenda_cutoff' || run.action === 'agenda_preview'
         ? await sendThemeMeetingAgendaEmails(run.plan, payload.config, { themeId, phase: run.action === 'agenda_preview' ? 'preview' : 'final' })
         : { sent: 0, skipped: 0, failed: 0 };
-    const scopedPlan = planForTheme(run.plan, themeId);
 
     await recordAuditLog({
       actor: user,
@@ -80,18 +71,16 @@ export async function POST(request: Request) {
         agendaEmailFailed: agendaEmails.failed,
       },
     });
+    // Counts and recipients only: reminder texts belong to the addressed members.
     return NextResponse.json({
       action: run.action,
-      plan: scopedPlan,
-      notifications: run.notifications,
-      markdown: `# Theme Meeting Cron
-
-- Action: ${run.action}
-- Meeting date: ${scopedPlan.meeting_date}
-- Cycle group: ${scopedPlan.cycle_group}
-- Notifications: ${run.notifications.length}
-
-${renderThemeMeetingPlan(scopedPlan)}`,
+      meetingDate: run.plan.meeting_date,
+      themeId,
+      notificationCount: run.notifications.length,
+      recipients: run.notifications.map((notification) => ({
+        username: notification.member_username || null,
+        displayName: notification.member,
+      })),
       emails,
       agendaEmails,
     });

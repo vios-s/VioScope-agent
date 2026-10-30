@@ -11,8 +11,25 @@ function parse(value: string | Date | null | undefined): Date | null {
     ? `${value}T12:00:00Z`
     // PostgreSQL text timestamps use "YYYY-MM-DD HH:MM:SS+00".
     : value.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00');
+  // A date-time without Z or an offset (a meeting slot such as "2026-11-04T10:00") is UK wall-clock time, never browser-local.
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(text)) return londonWallClock(text);
   const date = new Date(text);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Minutes Europe/London is ahead of UTC at an instant (0 in winter, 60 in summer). */
+function londonOffset(date: Date) {
+  const name = new Intl.DateTimeFormat('en-GB', { timeZone: zone, timeZoneName: 'longOffset' }).formatToParts(date).find(part => part.type === 'timeZoneName')?.value || '';
+  const match = /([+-])(\d{2}):?(\d{2})?/.exec(name);
+  return match ? (match[1] === '-' ? -1 : 1) * (Number(match[2]) * 60 + Number(match[3] || 0)) : 0;
+}
+
+function londonWallClock(text: string): Date | null {
+  const asUtc = Date.parse(`${text}Z`);
+  if (Number.isNaN(asUtc)) return null;
+  // Two passes settle the offset across a clock change.
+  const first = asUtc - londonOffset(new Date(asUtc)) * 60000;
+  return new Date(asUtc - londonOffset(new Date(first)) * 60000);
 }
 
 function format(value: string | Date | null | undefined, options: Intl.DateTimeFormatOptions, fallback: string) {

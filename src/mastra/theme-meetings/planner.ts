@@ -1,3 +1,4 @@
+import { withFileLock } from '../atomic-file';
 import { formatMeetingProject } from './project-context';
 import {
   claimThemeMeetingEmailDelivery,
@@ -34,7 +35,8 @@ import {
   type ThemeUpdateType,
 } from './schema';
 
-import { applyConfirmedAgendas, readMeetingWorkflow } from './workflow';
+import { applyConfirmedAgendas, latestConfirmation, meetingDateSchema, readMeetingWorkflow } from './workflow';
+import { formatDay, formatLongDay } from '../../../app/format';
 
 const millisecondsPerDay = 24 * 60 * 60 * 1000;
 const targetWeekday = 3; // Wednesday, UTC date math over YYYY-MM-DD.
@@ -526,14 +528,19 @@ export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateIn
   if (input.validateUsers) {
     assertConfiguredUsersActive(config, usersByUsername);
   }
-  const meetingDate = input.meetingDate || upcomingWednesday(input.now, config.timezone);
+  const meetingDate = meetingDateSchema.parse(input.meetingDate || upcomingWednesday(input.now, config.timezone));
+  const scheduledTheme = config.themes.find((theme) => theme.theme_id === input.themeId);
+  if (!scheduledTheme) throw new Error(`Unknown theme: ${input.themeId}`);
+  if (parseDateOnly(meetingDate).getUTCDay() !== targetWeekday || cycleGroupForDate(config, meetingDate) !== scheduledTheme.cycle_group) {
+    throw new Error(`${scheduledTheme.title} does not meet on ${formatDay(meetingDate)}. Choose one of its scheduled meeting dates.`);
+  }
   const deadline = submissionDeadline(config, meetingDate);
   if (localDateTimeString(input.now || new Date(), config.timezone) >= deadline) {
-    throw new Error(`Theme ${input.themeId} updates are locked after ${deadline.replace('T', ' ')} (${config.timezone}).`);
+    throw new Error(`Theme ${input.themeId} updates are locked after ${formatDay(deadline.slice(0, 10))}, ${deadline.slice(11)} (UK time).`);
   }
   const { cancellations } = await readThemeMeetingCancellations(input);
   if (cancellations.some((cancellation) => meetingKey(cancellation.meeting_date, cancellation.theme_id) === meetingKey(meetingDate, input.themeId))) {
-    throw new Error(`Theme ${input.themeId} meeting on ${meetingDate} has been cancelled.`);
+    throw new Error(`Theme ${input.themeId} meeting on ${formatDay(meetingDate)} has been skipped.`);
   }
   const member = canonicalMember(config, input.themeId, input.member, usersByUsername);
   const questions = input.questions?.trim() || '';
@@ -574,8 +581,9 @@ function notificationBody(
   themeId: string,
   cutoff: { weekday: string; time: string },
 ): string {
+  // Addressed to the member; theme managers see a third-person version (see visibleNotificationsForUser).
   if (action === 'agenda_cutoff') {
-    return `${member} has no project progress update for Theme ${themeId}; they will not be planned into the agenda.`;
+    return `You have no project progress update for Theme ${themeId}. Your item will not be planned into the agenda.`;
   }
 
   if (action === 'gentle_missing_update_reminder' || action === 'manual_missing_update_reminder') {
@@ -598,7 +606,7 @@ export async function buildThemeMeetingReminderRun(
   ).filter((meeting) => !meeting.cancelled);
 
   if (options.themeId && !meetings.length) {
-    throw new Error(`Theme ${options.themeId} is not active on ${plan.meeting_date}.`);
+    throw new Error(`Theme ${options.themeId} is not active on ${formatDay(plan.meeting_date)}.`);
   }
 
   const notifications = action === 'agenda_preview' ? [] : meetings.flatMap((meeting) => {
@@ -672,7 +680,7 @@ export async function sendThemeMeetingReminderEmails(
         {
           to: email,
           subject: notification.title,
-          text: `${notification.body}\n\nMeeting date: ${notification.meeting_date}\nTheme: ${notification.theme_id}\n\nOpen VioScope to respond.`,
+          text: `${notification.body}\n\nMeeting date: ${formatLongDay(notification.meeting_date)}\nTheme: ${notification.theme_id}\n\nOpen VioScope to respond.`,
         },
         options,
       );
@@ -743,6 +751,19 @@ export async function confirmedAgendaEmailAudience(
   return { version, emailEnabled: notificationEmailEnabled(), skipped: audience.length - reachable.length, recipients };
 }
 
+async function confirmedAgendasByTheme(plan: ThemeMeetingPlan, options: ThemeMeetingStoreOptions): Promise<Record<string, ConfirmedAgendaEmail>> {
+  const state = await readMeetingWorkflow(options);
+  const result: Record<string, ConfirmedAgendaEmail> = {};
+  for (const meeting of plan.meetings) {
+    const saved = latestConfirmation(state, plan.meeting_date, meeting.theme_id);
+    if (saved && !meeting.cancelled) {
+      result[meeting.theme_id] = { version: saved.version, confirmedBy: saved.confirmedBy, confirmedAt: saved.confirmedAt,
+        skipped: saved.entries.filter((entry) => entry.deferred).map(({ deferred: _, ...entry }) => entry) };
+    }
+  }
+  return result;
+}
+
 export async function sendThemeMeetingAgendaEmails(
   plan: ThemeMeetingPlan,
   config: ThemeMeetingConfig,
@@ -752,9 +773,15 @@ export async function sendThemeMeetingAgendaEmails(
   const preview = options.phase === 'preview';
   const confirmation = options.confirmation;
   const recipients = await agendaEmailRecipients(plan, config, { themeId: options.themeId, phase: options.phase, version: confirmation?.version });
-  const subject = `${preview ? '[DRAFT] VioScope theme meeting agenda preview' : confirmation ? 'VioScope confirmed theme meeting agenda' : 'VioScope advisory theme meeting agenda'} ${plan.meeting_date}${
-    options.themeId ? ` Theme ${options.themeId}` : ''
-  }${confirmation ? ` (version ${confirmation.version})` : ''}`;
+  // The cutoff circulation must not contradict a human confirmation: confirmed themes use their confirmed version.
+  const confirmations = preview || confirmation ? undefined : await confirmedAgendasByTheme(plan, options);
+  const subjectFor = (recipientPlan: ThemeMeetingPlan) => {
+    const live = recipientPlan.meetings.filter((meeting) => !meeting.cancelled);
+    const allConfirmed = Boolean(confirmation) || (live.length > 0 && live.every((meeting) => confirmations?.[meeting.theme_id]));
+    return `${preview ? '[DRAFT] VioScope theme meeting agenda preview' : allConfirmed ? 'VioScope confirmed theme meeting agenda' : 'VioScope advisory theme meeting agenda'} ${formatDay(plan.meeting_date)}${
+      options.themeId ? ` Theme ${options.themeId}` : ''
+    }${confirmation ? ` (version ${confirmation.version})` : ''}`;
+  };
 
   for (const { email, plan: recipientPlan, deliveryId } of recipients) {
     if (!email) {
@@ -767,8 +794,8 @@ export async function sendThemeMeetingAgendaEmails(
         deliveryId,
         {
           to: email,
-          subject,
-          ...renderThemeMeetingAgendaEmail(recipientPlan, { phase: options.phase, cutoff: configuredReminderSchedule(config).agendaCutoff, confirmation }),
+          subject: subjectFor(recipientPlan),
+          ...renderThemeMeetingAgendaEmail(recipientPlan, { phase: options.phase, cutoff: configuredReminderSchedule(config).agendaCutoff, confirmation, confirmations }),
         },
         options,
       );
@@ -788,7 +815,10 @@ export async function updateThemeMeetingMember(input: UpdateThemeMeetingMemberIn
   plan: ThemeMeetingPlan;
   config: ThemeMeetingConfig;
 }> {
-  const { path: configPath, config } = await readThemeMeetingConfig(input);
+  // Read-modify-write of the whole config file under the same advisory lock as the config route.
+  const { path: configPath } = await readThemeMeetingConfig(input);
+  const result = await withFileLock(configPath, async () => {
+  const { config } = await readThemeMeetingConfig({ ...input, configPath });
   const user = input.userId
     ? await getUserById(input.userId)
     : input.username
@@ -825,8 +855,10 @@ export async function updateThemeMeetingMember(input: UpdateThemeMeetingMemberIn
   theme.member_users = nextUsernames;
   theme.members = nextUsernames.map((nextUsername) => usersByUsername.get(nextUsername)?.displayName || nextUsername);
   await writeThemeMeetingConfig(config, { configPath });
+  return { config, user };
+  });
   const { plan } = await buildThemeMeetingPlan({ ...input, meetingDate: input.meetingDate });
-  return { user, plan, config };
+  return { user: result.user, plan, config: result.config };
 }
 
 export function renderThemeMeetingPlan(plan: ThemeMeetingPlan): string {

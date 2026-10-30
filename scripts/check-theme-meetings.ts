@@ -509,7 +509,7 @@ async function main() {
       submittedVia: 'api',
       now: new Date('2026-06-23T12:00:00.000Z'),
     }),
-    /updates are locked after 2026-06-23 13:00 \(Europe\/London\)/,
+    /updates are locked after 23 Jun 2026, 13:00 \(UK time\)/,
     'Updates should lock exactly at Tuesday 13:00 UK local time.',
   );
 

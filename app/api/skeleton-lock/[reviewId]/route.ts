@@ -2,13 +2,13 @@ import { z } from 'zod';
 import { NextResponse } from 'next/server';
 import { requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
-import { getSkeletonReview, decideSkeletonReview } from '../../../../src/mastra/db/skeleton-reviews';
+import { getSkeletonReview, decideSkeletonReview, projectSkeletonReviewChoices } from '../../../../src/mastra/db/skeleton-reviews';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { withDatabaseTransaction } from '../../../../src/mastra/db/postgres';
 export const runtime = 'nodejs';
 type Context = { params: Promise<{ reviewId: string }> };
 export async function GET(request: Request, context: Context) {
-  try { const user = await requireSessionUser(request); const id = z.string().uuid().parse((await context.params).reviewId); return NextResponse.json({ review: await getSkeletonReview(id, user) }); }
+  try { const user = await requireSessionUser(request); const id = z.string().uuid().parse((await context.params).reviewId); const review = await getSkeletonReview(id, user); return NextResponse.json({ review, choices: await projectSkeletonReviewChoices(review.projectId, user) }); }
   catch (error) { return errorResponse(error, 400); }
 }
 export async function PATCH(request: Request, context: Context) {

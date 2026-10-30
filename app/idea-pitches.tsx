@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Plus } from 'lucide-react';
 import { checklistDraftKey, readChecklistDraft, removeChecklistDraft, writeChecklistDraft } from './checklist-drafts';
 import { requestJson } from './client-request';
-import { IdeaPitchEditor, formatRecordTime } from './idea-pitch-editor';
+import { IdeaPitchEditor } from './idea-pitch-editor';
+import { formatShortDay } from './format';
 import { ConfirmDialog } from './confirm-dialog';
 import { ideaOutcomeLabels, type IdeaPitch } from '../src/mastra/projects/idea-check';
 
@@ -14,9 +15,10 @@ const railGroups = [
   { access: 'shared', label: 'Shared with you · Read only' },
 ] as const;
 
-const statusLabels: Record<string, string> = { draft: 'Awaiting decision', ...ideaOutcomeLabels, project: 'Project created' };
-const statusTone: Record<string, string> = { draft: 'muted', revise: 'warn', proceed: 'ok', stop: 'danger', project: 'accent' };
-const pitchState = (pitch: IdeaPitch) => pitch.projectId ? 'project' : pitch.outcome || 'draft';
+const statusLabels: Record<string, string> = { unsaved: 'Not saved yet', draft: 'Awaiting decision', ...ideaOutcomeLabels, project: 'Project created' };
+const statusTone: Record<string, string> = { unsaved: 'muted', draft: 'muted', revise: 'warn', proceed: 'ok', stop: 'danger', project: 'accent' };
+// A record without a saved version (version 0) has nothing to decide yet.
+const pitchState = (pitch: IdeaPitch) => pitch.projectId ? 'project' : pitch.outcome || (pitch.version ? 'draft' : 'unsaved');
 
 export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onProjectCreated: () => Promise<void> }) {
   const editorRef = useRef<HTMLDivElement>(null);
@@ -79,7 +81,7 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
         <div id="idea-list-body" className="checklist-list-body" data-open={listOpen}>
           {(pitches?.length || 0) > 0 && <div className="checklist-list-filters">
             <label>Find a pitch<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Title or @username" /></label>
-            <label>Status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All statuses</option><option value="draft">Awaiting decision</option><option value="revise">Revise</option><option value="proceed">Proceed</option><option value="stop">Stop</option><option value="project">Project created</option></select></label>
+            <label>Status<select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">All statuses</option><option value="unsaved">Not saved yet</option><option value="draft">Awaiting decision</option><option value="revise">Revise</option><option value="proceed">Proceed</option><option value="stop">Stop</option><option value="project">Project created</option></select></label>
           </div>}
           {pitches === null && <span className="checklist-list-note" role="status">{error ? 'Saved pitches unavailable.' : 'Loading saved pitches…'}</span>}
           {pitches && matchingPitches.length === 0 && <p className="checklist-list-note" role="status">{pitches.length ? 'No pitches match this search.' : 'No saved pitches yet.'}</p>}
@@ -90,7 +92,7 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
               <ul>{items.map(pitch => <li key={pitch.id}>
                 <button type="button" data-pitch-id={pitch.id} className={`checklist-list-item${pitch.id === displayed ? ' active' : ''}`} aria-current={pitch.id === displayed ? 'true' : undefined} disabled={editorState.busy} onClick={() => { if (pitch.id !== displayed) openPitch(pitch.id); else setListOpen(false); }}>
                   <span>{pitch.title}</span>
-                  <small>{group.access !== 'owner' && <>@{pitch.ownerUsername} · </>}<span className={`checklist-status is-${statusTone[pitchState(pitch)]}`}>{statusLabels[pitchState(pitch)]}</span>{pitch.version ? <> · <span className="vs-mono">v{pitch.version}</span></> : null}{pitch.updatedAt ? ` · ${formatRecordTime(pitch.updatedAt, false)}` : ''}</small>
+                  <small>{group.access !== 'owner' && <>@{pitch.ownerUsername} · </>}<span className={`checklist-status is-${statusTone[pitchState(pitch)]}`}>{statusLabels[pitchState(pitch)]}</span>{pitch.version ? <> · <span className="vs-mono">v{pitch.version}</span></> : null}{pitch.updatedAt ? ` · ${formatShortDay(pitch.updatedAt)}` : ''}</small>
                 </button>
               </li>)}</ul>
             </div>;

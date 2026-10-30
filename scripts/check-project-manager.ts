@@ -281,7 +281,7 @@ async function main() {
     assert.ok(project?.id, 'Expected created project id.');
     assert.equal(project.watchPath, `project://${owner.username}/${slug}`, 'Watch path should be assigned from owner and slug.');
     assert.equal(project.stageProgress, 20, 'Initial stage progress should be saved.');
-    assert.ok(project.collaborators.includes('external advisor'), 'External collaborators should be saved.');
+    assert.ok(project.collaborators.includes('External Advisor'), 'External collaborator labels should keep their case.');
     assert.deepEqual(project.todos, [], 'New projects should start with an empty TODO list.');
 
     const duplicateResponse = await projectsRoute.POST(jsonRequest('/api/projects', {
@@ -374,7 +374,7 @@ async function main() {
       jsonRequest(`/api/projects/${project.id}`, { ownerUsername: outsider.username }, owner, 'PATCH'),
       projectContext(project.id),
     );
-    assert.equal(forbiddenOwnerChange.status, 400, 'Owner must not be allowed to transfer ownership.');
+    assert.equal(forbiddenOwnerChange.status, 403, 'Owner must not be allowed to transfer ownership.');
 
     const collaboratorDetailResponse = await projectRoute.GET(getRequest(`/api/projects/${project.id}`, collaborator), projectContext(project.id));
     assert.equal(collaboratorDetailResponse.status, 200, 'An active named collaborator should see project detail.');

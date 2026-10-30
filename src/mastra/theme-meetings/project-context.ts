@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ProjectRecord } from '../db/projects';
+import { formatDay } from '../../../app/format';
 
 export const meetingProjectContextSchema = z.object({
   projectId: z.string().uuid(),
@@ -20,7 +21,7 @@ export function formatMeetingProject(context?: MeetingProjectContext): string {
   if (!context) return '';
   return [`Project: ${context.title}`, `Owner: @${context.ownerUsername}`,
     `Project stage: ${context.stage === undefined ? 'Not recorded' : context.stage}`,
-    ...context.actions.map(action => `Next: ${action.text} | Due: ${action.dueDate || 'Not set'}`),
+    ...context.actions.map(action => `Next: ${action.text} | Due: ${action.dueDate ? formatDay(action.dueDate) : 'Not set'}`),
     ...(context.actions.length ? [] : ['No open project actions recorded.']),
   ].join('\n');
 }

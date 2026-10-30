@@ -45,7 +45,17 @@ export type SkeletonRecord = {
   id: string; projectId: string; createdAt: string; createdBy: string; revision: number;
   projectSnapshot: SkeletonProjectSnapshot; draftText: string; result: SubmissionReviewResult; decisions: SkeletonDecision[];
 };
+/** The current PDRA judgment and the PI confirmation that still applies to it. Re-recording the same verdict (and, for
+ * CONDITIONAL, the same re-evaluation date) keeps an existing PI confirmation; a changed verdict needs a fresh one. */
 export function latestSkeletonDecisions(decisions: SkeletonDecision[]) {
   const pdraIndex = decisions.findLastIndex(item => item.kind === 'pdra');
-  return { pdra: decisions[pdraIndex] || null, pi: decisions.slice(pdraIndex + 1).findLast(item => item.kind === 'pi') || null };
+  const pdra = decisions[pdraIndex] || null;
+  let since = pdraIndex;
+  for (let index = pdraIndex - 1; pdra && index >= 0; index--) {
+    const item = decisions[index];
+    if (item.kind !== 'pdra') continue;
+    if (item.outcome !== pdra.outcome || item.reevaluateOn !== pdra.reevaluateOn) break;
+    since = index;
+  }
+  return { pdra, pi: decisions.slice(since + 1).findLast(item => item.kind === 'pi') || null };
 }

@@ -285,7 +285,7 @@ async function main() {
         await configRoute.PATCH(
           requestFor(user, '/api/theme-meetings/config', {
             method: 'PATCH',
-            body: jsonBody({ config: coordinatorDraft }),
+            body: jsonBody({ config: coordinatorDraft, revision: coordinatorSettings.revision }),
           }),
         ),
       );
@@ -293,6 +293,16 @@ async function main() {
         coordinatorSavedSettings.config.themes[0].member_users.includes(coordinator.addCandidate),
         `Expected coordinator settings to add ${coordinator.addCandidate}.`,
       );
+      const unmanagedThemeEdit = await configRoute.PATCH(
+        requestFor(user, '/api/theme-meetings/config', {
+          method: 'PATCH',
+          body: jsonBody({
+            config: { themes: [{ theme_id: coordinator.otherThemeId, member_users: [coordinator.username] }] },
+            revision: coordinatorSavedSettings.revision,
+          }),
+        }),
+      );
+      assert.equal(unmanagedThemeEdit.status, 403, 'Changing another theme is refused, not silently ignored.');
 
       const reminder = await expectJson<any>(
         `${coordinator.username} own reminder`,
@@ -307,15 +317,14 @@ async function main() {
           }),
         ),
       );
-      assert.ok(reminder.notifications.length > 0, `Expected Theme ${coordinator.themeId} reminder notifications.`);
+      assert.ok(reminder.notificationCount > 0, `Expected Theme ${coordinator.themeId} reminder notifications.`);
+      assert.equal(reminder.themeId, coordinator.themeId, `Expected only Theme ${coordinator.themeId} reminders.`);
+      assert.equal(reminder.recipients.length, reminder.notificationCount);
+      assert.equal('notifications' in reminder || 'markdown' in reminder || 'plan' in reminder, false, 'The sender receives counts and recipients, not reminder texts.');
       assert.deepEqual(
         reminder.emails,
-        { sent: 0, skipped: reminder.notifications.length, failed: 0 },
+        { sent: 0, skipped: reminder.notificationCount, failed: 0 },
         'Reminder email delivery should respect disabled email transport in smoke tests.',
-      );
-      assert.ok(
-        reminder.notifications.every((notification: { theme_id: string }) => notification.theme_id === coordinator.themeId),
-        `Expected only Theme ${coordinator.themeId} notifications.`,
       );
 
       const agendaCutoff = await expectJson<any>(
@@ -337,7 +346,7 @@ async function main() {
 
       // Reminders are visible only to the addressed member; managers get a body-free reminder status instead.
       const isReminder = (notification: { action: string }) => notification.action !== 'agenda_cutoff';
-      const remindedUsername = reminder.notifications[0].member_username as string;
+      const remindedUsername = reminder.recipients[0].username as string;
       const managerView = await expectJson<any>(
         `${coordinator.username} dashboard after reminder`,
         await themeMeetingsRoute.GET(requestFor(user, `/api/theme-meetings?date=${coordinator.meetingDate}`)),
@@ -588,11 +597,44 @@ async function main() {
       await configRoute.PATCH(
         requestFor(pi, '/api/theme-meetings/config', {
           method: 'PATCH',
-          body: jsonBody({ config: piSettings.config }),
+          body: jsonBody({ config: piSettings.config, revision: piSettings.revision }),
         }),
       ),
     );
     assert.equal(piSavedSettings.config.submission.progress_word_target, 45);
+
+    // Optimistic concurrency: a save based on an older read is refused, never merged over the newer file.
+    const piPatch = (config: unknown, revision: unknown) => configRoute.PATCH(
+      requestFor(pi, '/api/theme-meetings/config', { method: 'PATCH', body: jsonBody({ config, revision }) }),
+    );
+    const staleSave = await piPatch(piSettings.config, piSettings.revision);
+    assert.equal(staleSave.status, 409, 'A save based on a stale revision must be refused.');
+    assert.match((await staleSave.json()).error, /changed while you were editing/);
+    assert.equal((await piPatch(piSavedSettings.config, undefined)).status, 409, 'A save without a revision must be refused.');
+    const invalidCases: Array<[string, (config: any) => void]> = [
+      ['reminder time 25:99', (config) => { config.reminders = [{ name: 'first_reminder', weekday: 'Monday', time: '25:99' }]; }],
+      ['theme time 24:00', (config) => { config.themes[0].time = '24:00'; }],
+      ['timezone other than Europe/London', (config) => { config.timezone = 'America/New_York'; }],
+      ['a new coordinator who is not a member', (config) => { config.themes[0].coordinator_user = 'hana'; }],
+    ];
+    for (const [label, mutate] of invalidCases) {
+      const config = JSON.parse(JSON.stringify(piSavedSettings.config));
+      mutate(config);
+      const response = await piPatch(config, piSavedSettings.revision);
+      assert.equal(response.status, 400, `Theme settings must reject ${label}.`);
+    }
+    // Once the coordinator is a member, removing them (here via a coordinator's own save) is refused.
+    const withCoordinator = JSON.parse(JSON.stringify(piSavedSettings.config));
+    withCoordinator.themes[0].member_users.push(withCoordinator.themes[0].coordinator_user);
+    const coordinatorAdded = await expectJson<any>('pi adds coordinator as member', await piPatch(withCoordinator, piSavedSettings.revision));
+    const themeACoordinator = await activeUser(coordinatorAdded.config.themes[0].coordinator_user);
+    const coordinatorView = await expectJson<any>('coordinator settings', await configRoute.GET(requestFor(themeACoordinator, '/api/theme-meetings/config')));
+    coordinatorView.config.themes[0].member_users = coordinatorView.config.themes[0].member_users
+      .filter((username: string) => username !== themeACoordinator.username);
+    const selfRemoval = await configRoute.PATCH(requestFor(themeACoordinator, '/api/theme-meetings/config', {
+      method: 'PATCH', body: jsonBody({ config: coordinatorView.config, revision: coordinatorView.revision }),
+    }));
+    assert.equal(selfRemoval.status, 400, 'A coordinator cannot remove themselves from their own theme.');
 
     const admin = await activeUser('theme.admin');
     const adminSettings = await expectJson<any>('admin theme settings', await configRoute.GET(requestFor(admin, '/api/theme-meetings/config')));
@@ -606,7 +648,7 @@ async function main() {
       await configRoute.PATCH(
         requestFor(admin, '/api/theme-meetings/config', {
           method: 'PATCH',
-          body: jsonBody({ config: adminSettings.config }),
+          body: jsonBody({ config: adminSettings.config, revision: adminSettings.revision }),
         }),
       ),
     );

@@ -113,7 +113,7 @@ export async function POST(request: Request) {
         if (command.action.projectId) {
           const project = await getProjectForUser(command.action.projectId, user);
           if (project.lifecycle === 'archived') throw new Error('Choose an active project.');
-          await getProjectForUser(command.action.projectId, owner);
+          await getProjectForUser(command.action.projectId, owner).catch(() => { throw new Error('The assignee does not have access to this project.'); });
         }
         addMeetingAction(state, command.themeId, command.meetingDate, command.action, user.username);
       } else {

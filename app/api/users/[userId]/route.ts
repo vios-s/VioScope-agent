@@ -4,6 +4,7 @@ import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/sessi
 import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import {
+  assertMediumPassword,
   isUserProvisioningStatus,
   isUserPosition,
   isUserRole,
@@ -105,6 +106,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
 
     validateEmail(email);
     validateAvatarUrl(avatarUrl);
+    const temporaryPassword = text(body.temporaryPassword);
+    if (temporaryPassword) assertMediumPassword(temporaryPassword);
 
     if (admin.id === userId && nextRole && nextRole !== 'administrator') {
       throw new Error('You cannot remove your own administrator role.');
@@ -124,7 +127,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
       email,
       aliases: textArray(body.aliases),
       avatarUrl,
-      temporaryPassword: text(body.temporaryPassword),
+      temporaryPassword,
       passwordResetRequired: typeof body.passwordResetRequired === 'boolean' ? body.passwordResetRequired : undefined,
     });
 

@@ -215,11 +215,17 @@ try {
   assert.deepEqual(reviewReadiness(graded(good, 'addressed', 'partial')), { tone: 'nearly', label: 'Nearly ready — discussant questions need fuller answers' });
   assert.deepEqual(reviewReadiness(graded(['needs_work', ...good.slice(1)])), { tone: 'nearly', label: 'Nearly ready — 1 block needs work' });
   assert.deepEqual(reviewReadiness(graded(['needs_work', 'needs_work', ...good.slice(2)], 'unanswered')), { tone: 'nearly', label: 'Nearly ready — 2 blocks need work' });
-  assert.deepEqual(reviewReadiness(graded(['needs_work', 'needs_work', 'needs_work', 'strong', 'strong'])), { tone: 'not', label: 'Not ready for discussion — 3 blocks need work' });
+  assert.deepEqual(reviewReadiness(graded(['needs_work', 'needs_work', 'needs_work', 'strong', 'strong'])), { tone: 'nearly', label: 'Nearly ready — 3 blocks need work' }, 'Only a missing block makes a pitch not ready.');
   assert.deepEqual(reviewReadiness(graded(['missing', ...good.slice(1)])), { tone: 'not', label: 'Not ready for discussion — 1 block missing' });
   assert.deepEqual(reviewReadiness(graded(['missing', 'needs_work', 'needs_work', 'adequate', 'missing'])), { tone: 'not', label: 'Not ready for discussion — 2 blocks missing, 2 blocks need work' });
-  assert.equal(reviewReadiness(report).tone, 'not');
+  assert.equal(reviewReadiness(report).tone, 'nearly');
   for (const expected of ['1. The Why (The Hook)', '5. The Resources', 'Needs work', 'Is the delta big enough for a top-tier venue?', 'Partly addressed', 'Not addressed', 'Improve: Define an observable next test.', 'Evaluation']) assert.ok(currentHtml.includes(expected), expected);
+  // A new pitch can preview an import before any record exists; the record is created only by an explicit save.
+  const importRoute = await import('../app/api/idea-pitches/[pitchId]/import/route');
+  const pitchesBefore = (await ideaDb.listIdeaPitches(accounts.get('carol')!)).length;
+  const emptyImport = await importRoute.POST(new Request('http://localhost/pitch/import', { method: 'POST', headers: { cookie: headers('carol').cookie }, body: new FormData() }), { params: Promise.resolve({ pitchId: 'new' }) });
+  assert.equal(emptyImport.status, 400); assert.match((await emptyImport.json()).error, /Choose one input/);
+  assert.equal((await ideaDb.listIdeaPitches(accounts.get('carol')!)).length, pitchesBefore, 'Previewing a new pitch import stores nothing.');
   const sharingRoute = await import('../app/api/idea-pitches/[pitchId]/collaborators/route');
   const share = (actor: string, username: string, action = 'add') => sharingRoute.POST(new Request('http://localhost/pitch/collaborators', { method: 'POST', headers: headers(actor), body: JSON.stringify({ username, action }) }), context);
   assert.equal((await share('bob', 'carol')).status, 403);
@@ -272,8 +278,9 @@ try {
     method: 'POST', headers: headers(name), body: JSON.stringify({ meetingDate: '2099-11-04', themeId: 'A', member: name,
       updateType: 'deep_dive', progressText: 'The pilot is planned, not completed.', projectId: records[0].id, ...extra }),
   }));
-  assert.equal((await meetingPost('outsider')).status, 400);
-  assert.equal((await meetingPost('bob')).status, 400);
+  // Project access refusals are 403/404 (shared project access mapping), not a generic 400.
+  assert.ok([403, 404].includes((await meetingPost('outsider')).status));
+  assert.ok([403, 404].includes((await meetingPost('bob')).status));
   const linked = await ok(await meetingPost('alice'));
   const snapshot = linked.update.project_context;
   assert.equal(snapshot.ownerUsername, 'alice');
@@ -291,7 +298,7 @@ try {
   assert.match(email.text, /Run a synthetic pilot/);
   assert.match(email.text, /Project stage: 1/);
   assert.match(email.html, /Project stage: 1/);
-  assert.match(email.html, /2026-11-06/);
+  assert.match(email.html, /2026-11-06|6 Nov 2026/);
   const workflow = await import('../src/mastra/theme-meetings/workflow');
   const state = { confirmations: [], actions: [] };
   const confirmation = workflow.confirmAgenda(state, agenda, '2099-11-04', [{ username: 'alice', deferred: false, minutes: 10 }], 'chair');
@@ -349,6 +356,13 @@ try {
   const xml = await zip.file('word/document.xml')!.async('string');
   assert.ok(xml.includes('Human decision and evidence'));
   assert.ok(!xml.includes('DO_NOT_EXPORT'));
+  // Markdown keeps user bullets and ordinary punctuation; escaping is limited to inline markup. Times are UK time.
+  const bulleted = { ...privatePayload, current: { ...privatePayload.current!, draft: { ...privatePayload.current!.draft, why: '- First point (cited, e.g. Smith et al.).\n- Second point uses *emphasis* and <tags>.\n# Not a heading' } } };
+  const md = (await exportApprovedPitch(bulleted, 6, 'md')).body.toString('utf8');
+  assert.ok(md.includes('- First point (cited, e.g. Smith et al.).'), md);
+  assert.ok(md.includes('- Second point uses \\*emphasis\\* and \\<tags\\>.'), md);
+  assert.ok(md.includes('\\# Not a heading'), md);
+  assert.match(md, /recorded by @\S+ on \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UK time\./);
   const exportedText = await exportResult.text();
   assert.ok(exportedText.includes(decision.rationale));
   assert.ok(!exportedText.includes('Synthetic evidence-backed review'));

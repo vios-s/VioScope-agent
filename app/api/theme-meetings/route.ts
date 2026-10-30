@@ -8,6 +8,7 @@ import { listThemeAgendaSubscriptions } from '../../../src/mastra/db/theme-agend
 import { isThemeAgendaSubscriptionRequired } from '../../../src/mastra/theme-meetings/agenda-recipients';
 import { notificationStateForUser } from '../../../src/mastra/theme-meetings/notification-state';
 import {
+  canManageTheme,
   managedThemeIdsForUser,
   reminderStatusForManager,
   visibleNotificationsForUser,
@@ -132,11 +133,19 @@ export async function GET(request: Request) {
           (cancellation) => cancellation.meeting_date === notification.meeting_date && cancellation.theme_id === notification.theme_id,
         ),
     );
-    const pastPlans = await Promise.all(
-      [7, 14, 21].map(async (daysBack) => {
-        const past = await buildThemeMeetingPlan({ meetingDate: dateOffset(payload.plan.meeting_date, -daysBack), validateUsers: true });
-        return summarizePlan(past.plan);
-      }),
+    const recentPlans = await Promise.all(
+      [7, 14, 21, 28].map(async (daysBack) =>
+        (await buildThemeMeetingPlan({ meetingDate: dateOffset(payload.plan.meeting_date, -daysBack), validateUsers: true })).plan),
+    );
+    const pastPlans = recentPlans.slice(0, 3).map(summarizePlan);
+    // The bell keeps the previous four weeks too, so unread items from the last cycle do not vanish.
+    const notificationPlans = [payload.plan, ...recentPlans];
+    const recentNotifications = payload.notifications.filter(
+      (notification) =>
+        notificationPlans.some((plan) => plan.meeting_date === notification.meeting_date) &&
+        !payload.cancellations.some(
+          (cancellation) => cancellation.meeting_date === notification.meeting_date && cancellation.theme_id === notification.theme_id,
+        ),
     );
     let submissionPlan: ThemeMeetingPlan | null = null;
     for (let week = 0; week < 8; week += 1) {
@@ -169,11 +178,13 @@ export async function GET(request: Request) {
         };
       }),
       notifications: notificationStateForUser(
-        visibleNotificationsForUser(currentNotifications, payload.config, user).filter((notification) => notificationAllowed(notification, user)),
-        payload.plan, user, await readThemeNotificationIds(user.id),
+        visibleNotificationsForUser(recentNotifications, payload.config, user).filter((notification) => notificationAllowed(notification, user)),
+        notificationPlans, user, await readThemeNotificationIds(user.id),
       ),
       access: {
         canManageThemeIds: managedThemeIds,
+        // Any theme in the configuration, not only this week's pair: drives the Settings → Theme meeting tab.
+        managesAnyTheme: payload.config.themes.some((theme) => canManageTheme(payload.config, theme.theme_id, user)),
       },
       // Latest reminder per member, only for themes this user manages; no notification bodies.
       reminderStatus: reminderStatusForManager(currentNotifications, payload.config, user),

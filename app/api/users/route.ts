@@ -4,6 +4,7 @@ import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session'
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import {
+  assertMediumPassword,
   getUserByUsername,
   isUserPosition,
   isUserRole,
@@ -86,7 +87,6 @@ export async function POST(request: Request) {
     if (!username) {
       throw new Error('Username is required.');
     }
-    const temporaryPassword = text(body.temporaryPassword) || username;
     validateEmail(email);
     assertAssignableRole(actor, nextRole);
     // "Add member" must never overwrite an existing account (password, role, status); only a
@@ -95,6 +95,10 @@ export async function POST(request: Request) {
     if (existing && existing.provisioningStatus !== 'profile_only') {
       throw new Error('A member with this username already exists. Use Edit to change their details.');
     }
+    // No default: the temporary password must meet the normal rule and is changed at first sign-in.
+    const temporaryPassword = text(body.temporaryPassword);
+    if (!temporaryPassword) throw new Error('Set a temporary password for the new member.');
+    assertMediumPassword(temporaryPassword);
 
     const createdUser = await upsertLocalUser({
       username,

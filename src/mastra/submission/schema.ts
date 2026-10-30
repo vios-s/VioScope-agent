@@ -35,9 +35,11 @@ const humanSignOffSchema = z.object({
 
 // Skeleton Lock only: advisory per-requirement reading of the VIOS Paper Skeleton minimum content.
 export const paperSkeletonStatusSchema = z.enum(['met', 'partly', 'missing', 'unknown']);
+// Model wording varies ("partial", "partly met", "yes"); map obvious synonyms and treat anything else as unknown instead of failing the whole check.
+const paperSkeletonStatusSynonyms: Record<string, z.infer<typeof paperSkeletonStatusSchema>> = { met: 'met', yes: 'met', present: 'met', done: 'met', complete: 'met', partly: 'partly', partial: 'partly', partially: 'partly', 'partly met': 'partly', 'partially met': 'partly', missing: 'missing', no: 'missing', absent: 'missing', 'not met': 'missing', unknown: 'unknown' };
 const paperSkeletonItemSchema = z.object({
   id: z.string().min(1),
-  status: paperSkeletonStatusSchema,
+  status: z.preprocess(value => paperSkeletonStatusSynonyms[String(value ?? '').trim().toLowerCase().replace(/[_-]+/g, ' ')] ?? 'unknown', paperSkeletonStatusSchema),
   evidence: z.string().describe('A short verbatim quote from the draft, or "not found".'),
 });
 
