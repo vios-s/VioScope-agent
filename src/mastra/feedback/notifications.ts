@@ -49,8 +49,8 @@ export async function notifyFeedbackRequester(
   query: FeedbackQuery,
   changed: { status: boolean; reply: boolean },
   actor: AuthUser,
-): Promise<{ web: boolean; email: boolean }> {
-  const result = { web: false, email: false };
+): Promise<{ web: boolean; email: boolean; emailFailed?: boolean }> {
+  const result: { web: boolean; email: boolean; emailFailed?: boolean } = { web: false, email: false };
   const replied = changed.reply && Boolean(query.adminNote);
   if (!changed.status && !replied) return result;
   const requester = await getUserByUsername(query.submitterUsername);
@@ -64,7 +64,8 @@ export async function notifyFeedbackRequester(
     await createFeedbackReplyNotification({ recipientUserId: requester.id, actorUserId: actor.id, feedbackId: query.id, title, body });
     result.web = true;
   }
-  if (preference.email && registeredNotificationEmail(requester.email)) {
+  // A failed email must not hide a web notification that was already delivered.
+  if (preference.email && registeredNotificationEmail(requester.email)) try {
     result.email = await sendNotificationEmail({
       to: requester.email,
       subject: `[VioScope feedback] ${query.title}`,
@@ -79,6 +80,8 @@ export async function notifyFeedbackRequester(
         'You can change these emails in Settings → Notifications → Feedback replies.',
       ].join('\n'),
     });
+  } catch {
+    result.emailFailed = true;
   }
   return result;
 }

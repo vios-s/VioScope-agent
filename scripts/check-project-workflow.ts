@@ -89,6 +89,9 @@ try {
   const latest=(await getProjectWorkflow(project.id,owner)).research;
   const myDraft={...mergeBase,claim:'My claim.',risks:'My risks.'};
   await assert.rejects(change({operation:'research',revision:before.revision,confirmed:true,profile:myDraft,reason:'Stale draft.'}),/changed/);
+  const resource={id:'00000000-0000-4000-8000-000000000001',kind:'compute' as const,need:'GPU hours.',status:'needed' as const,owner:'',evidence:'',dueDate:null};
+  const reordered=Object.fromEntries(Object.entries(resource).reverse()) as typeof resource;
+  assert.deepEqual(researchMergeFields(mergeBase,{...mergeBase,resources:[resource]},{...mergeBase,resources:[reordered]}),[],'Key order alone is not a change.');
   const fields=researchMergeFields(mergeBase,latest.profile,myDraft);
   assert.deepEqual(fields.map(field=>[field.key,field.conflict,field.choice]),[['question',false,'latest'],['claim',false,'mine'],['risks',true,null]]);
   const defaults=Object.fromEntries(fields.map(field=>[field.key,field.choice]));

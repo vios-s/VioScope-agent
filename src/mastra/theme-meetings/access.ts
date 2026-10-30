@@ -21,17 +21,22 @@ export function canManageTheme(config: ThemeMeetingConfig, themeId: string, user
   return Boolean(theme && normalizeUsername(theme.coordinator_user) === normalizeUsername(user.username));
 }
 
-/** True when a coordinator (theme manager without PI/admin rights) views a meeting before the theme's current/next meeting
- * after its edit window (16:00 on the following Friday) has closed. */
-export function isPastMeetingReadOnly(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser, now = new Date()): boolean {
+/** True when a coordinator (theme manager without PI/admin rights) acts on a meeting before the theme's current/next one, i.e. already held. */
+export function isHeldMeetingForCoordinator(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser, now = new Date()): boolean {
   if (canSeeAll(user) || !canManageTheme(config, themeId, user)) return false;
   const current = nextThemeMeetingDate(config, themeId, now);
-  return Boolean(current && meetingDate < current && !coordinatorEditWindowOpen(config, meetingDate, now));
+  return Boolean(current && meetingDate < current);
 }
 
-export function assertMeetingWritable(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser): void {
-  if (isPastMeetingReadOnly(config, themeId, meetingDate, user)) {
-    throw new AuthError('Coordinators can change a meeting until 16:00 on the Friday after it.', 403, 'forbidden');
+/** Held meetings stay editable for coordinators (agenda, email, actions) until 16:00 on the following Friday. */
+export function isPastMeetingReadOnly(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser, now = new Date()): boolean {
+  return isHeldMeetingForCoordinator(config, themeId, meetingDate, user, now) && !coordinatorEditWindowOpen(config, meetingDate, now);
+}
+
+/** Skipping, restoring and missing-update reminders only make sense before a meeting: coordinators cannot do them once it is held. */
+export function assertMeetingNotHeld(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser): void {
+  if (isHeldMeetingForCoordinator(config, themeId, meetingDate, user)) {
+    throw new AuthError('Coordinators cannot skip, restore or send reminders for a meeting that has already taken place.', 403, 'forbidden');
   }
 }
 

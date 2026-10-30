@@ -10,6 +10,7 @@ import { themeAgendaRequiredReason } from '../../../src/mastra/theme-meetings/ag
 import { notificationStateForUser } from '../../../src/mastra/theme-meetings/notification-state';
 import {
   canManageTheme,
+  isHeldMeetingForCoordinator,
   isPastMeetingReadOnly,
   managedThemeIdsForUser,
   reminderStatusForManager,
@@ -190,6 +191,8 @@ export async function GET(request: Request) {
         canManageThemeIds: managedThemeIds,
         // Managed themes that are read-only on this date: coordinators cannot change meetings before the theme's current one.
         readOnlyThemeIds: managedThemeIds.filter((themeId) => isPastMeetingReadOnly(payload.config, themeId, payload.plan.meeting_date, user)),
+        // Managed themes whose meeting on this date is already held: coordinators can no longer skip, restore or remind.
+        heldThemeIds: managedThemeIds.filter((themeId) => isHeldMeetingForCoordinator(payload.config, themeId, payload.plan.meeting_date, user)),
         // Any theme in the configuration, not only this week's pair: drives the Settings → Theme meeting tab.
         managesAnyTheme: payload.config.themes.some((theme) => canManageTheme(payload.config, theme.theme_id, user)),
       },

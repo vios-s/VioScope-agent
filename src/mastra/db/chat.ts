@@ -244,19 +244,25 @@ async function ensureChatTablesOnce(): Promise<void> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
-    await postgres.pool.query('ALTER TABLE chat_notifications ADD COLUMN IF NOT EXISTS feedback_id UUID');
-    await postgres.pool.query('ALTER TABLE chat_notifications ALTER COLUMN session_id DROP NOT NULL');
-    await postgres.pool.query('ALTER TABLE chat_notifications DROP CONSTRAINT IF EXISTS chat_notifications_type_check');
-    await postgres.pool.query(`
-      DO $$
-      BEGIN
-        ALTER TABLE chat_notifications ADD CONSTRAINT chat_notifications_type_check CHECK (
-          (type = 'chat_mention' AND session_id IS NOT NULL) OR (type = 'feedback_reply' AND feedback_id IS NOT NULL)
-        );
-      EXCEPTION WHEN duplicate_object THEN
-        NULL;
-      END $$;
-    `);
+    // Feedback-reply notifications: migrate once (these ALTERs lock the table, so skip them when already applied).
+    const typeCheck = await postgres.pool.query<{ definition: string }>(
+      "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conname = 'chat_notifications_type_check' AND conrelid = 'chat_notifications'::regclass",
+    );
+    if (!typeCheck.rows[0]?.definition.includes('feedback_reply')) {
+      await postgres.pool.query('ALTER TABLE chat_notifications ADD COLUMN IF NOT EXISTS feedback_id UUID');
+      await postgres.pool.query('ALTER TABLE chat_notifications ALTER COLUMN session_id DROP NOT NULL');
+      await postgres.pool.query('ALTER TABLE chat_notifications DROP CONSTRAINT IF EXISTS chat_notifications_type_check');
+      await postgres.pool.query(`
+        DO $$
+        BEGIN
+          ALTER TABLE chat_notifications ADD CONSTRAINT chat_notifications_type_check CHECK (
+            (type = 'chat_mention' AND session_id IS NOT NULL) OR (type = 'feedback_reply' AND feedback_id IS NOT NULL)
+          );
+        EXCEPTION WHEN duplicate_object THEN
+          NULL;
+        END $$;
+      `);
+    }
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS chat_sessions_updated_at_idx ON chat_sessions (updated_at DESC)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS chat_session_members_user_idx ON chat_session_members (user_id)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS chat_messages_session_idx ON chat_messages (session_id, created_at)');

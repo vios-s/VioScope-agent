@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
-import { assertMeetingWritable, canManageTheme } from '../../../../src/mastra/theme-meetings/access';
+import { assertMeetingNotHeld, canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import {
   buildThemeMeetingPlan,
   buildThemeMeetingReminderRun,
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     if (!canManageTheme(payload.config, themeId, user)) {
       throw new AuthError('Only administrators, PIs, and the theme coordinator can send reminders.', 403, 'forbidden');
     }
-    if (meetingDate) assertMeetingWritable(payload.config, themeId, payload.plan.meeting_date, user);
+    assertMeetingNotHeld(payload.config, themeId, payload.plan.meeting_date, user);
     if (payload.plan.meetings.find((meeting) => meeting.theme_id === themeId)?.cancelled) {
       throw new Error(`Theme ${themeId} meeting on ${payload.plan.meeting_date} has been cancelled.`);
     }

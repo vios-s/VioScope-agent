@@ -12,7 +12,7 @@ import {
   type AuthUser,
   type UserRole,
 } from '../src/mastra/db/users';
-import { coordinatorEditWindowOpen } from '../src/mastra/theme-meetings/planner';
+import { coordinatorEditWindowOpen, nextThemeMeetingDate } from '../src/mastra/theme-meetings/planner';
 import type { ThemeMeetingConfig } from '../src/mastra/theme-meetings/schema';
 
 const themeConfigForWindow = { timezone: 'Europe/London' } as ThemeMeetingConfig;
@@ -603,17 +603,33 @@ async function main() {
       await themeMeetingsRoute.GET(requestFor(coordinatorA, `/api/theme-meetings?date=${pastDate}`)));
     assert.deepEqual(pastDashboard.access.canManageThemeIds, ['A'], 'Coordinators still read past meetings in full.');
     assert.deepEqual(pastDashboard.access.readOnlyThemeIds, ['A']);
+    assert.deepEqual(pastDashboard.access.heldThemeIds, ['A'], 'Held meetings cannot be skipped, restored or reminded by coordinators.');
     assert.deepEqual((await expectJson<any>('coordinator current dashboard',
       await themeMeetingsRoute.GET(requestFor(coordinatorA, '/api/theme-meetings?date=2027-06-23')))).access.readOnlyThemeIds, []);
     for (const [label, response] of [
       ['past reminder', await remindersRoute.POST(requestFor(coordinatorA, '/api/theme-meetings/reminders', { method: 'POST', body: pastBody({ action: 'manual_missing_update_reminder' }) }))],
       ['past skip', await cancellationsRoute.POST(requestFor(coordinatorA, '/api/theme-meetings/cancellations', { method: 'POST', body: pastBody({ reason: 'Read-only check' }) }))],
       ['past restore', await cancellationsRoute.DELETE(requestFor(coordinatorA, '/api/theme-meetings/cancellations', { method: 'DELETE', body: pastBody() }))],
-      ['past member change', await membersRoute.POST(requestFor(coordinatorA, '/api/theme-meetings/members', { method: 'POST', body: pastBody({ action: 'add', username: 'carla' }) }))],
     ] as const) {
       const body = await expectJson<{ error: string }>(`coordinator ${label}`, response, 403);
-      assert.equal(body.error, 'Coordinators can change a meeting until 16:00 on the Friday after it.');
+      assert.equal(body.error, 'Coordinators cannot skip, restore or send reminders for a meeting that has already taken place.');
     }
+    // Composed rule with a fixed clock: a just-held meeting stays editable until Friday 16:00 UK time (GMT in March 2027),
+    // but is already "held" (no skip, restore or reminders); PIs are never restricted.
+    const { isHeldMeetingForCoordinator, isPastMeetingReadOnly } = await import('../src/mastra/theme-meetings/access');
+    const { readThemeMeetingConfig } = await import('../src/mastra/theme-meetings/store');
+    const windowConfig = (await readThemeMeetingConfig()).config;
+    const held = nextThemeMeetingDate(windowConfig, 'A', new Date('2027-03-01T12:00:00Z'))!;
+    const after = (days: number, time: string) => new Date(`${new Date(Date.parse(`${held}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)}T${time}Z`);
+    const piAccount = await activeUser('theme.pi');
+    assert.equal(isHeldMeetingForCoordinator(windowConfig, 'A', held, coordinatorA, after(1, '09:00:00')), true);
+    assert.equal(isPastMeetingReadOnly(windowConfig, 'A', held, coordinatorA, after(1, '09:00:00')), false, 'Thursday after the meeting: still editable.');
+    assert.equal(isPastMeetingReadOnly(windowConfig, 'A', held, coordinatorA, after(2, '15:59:00')), false, 'Friday 15:59: still editable.');
+    assert.equal(isPastMeetingReadOnly(windowConfig, 'A', held, coordinatorA, after(2, '16:00:00')), true, 'Friday 16:00: read-only.');
+    assert.equal(isPastMeetingReadOnly(windowConfig, 'A', held, piAccount, after(9, '12:00:00')), false, 'PIs are never read-only.');
+    assert.equal(isHeldMeetingForCoordinator(windowConfig, 'A', held, piAccount, after(1, '09:00:00')), false);
+    // Membership is theme-wide, so it is not restricted by the meeting being viewed.
+    await expectJson('coordinator member change from a past view', await membersRoute.POST(requestFor(coordinatorA, '/api/theme-meetings/members', { method: 'POST', body: pastBody({ action: 'add', username: 'carla' }) })));
     for (const leader of ['theme.pi', 'theme.admin']) {
       const account = await activeUser(leader);
       assert.deepEqual((await expectJson<any>(`${leader} past dashboard`,

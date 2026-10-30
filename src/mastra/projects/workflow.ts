@@ -43,7 +43,9 @@ export function submissionTimeline(plan: SubmissionPlan) {
 // keeps My draft, and a field both changed differently has no default (an explicit choice is required).
 export type ResearchMergeChoice = 'latest' | 'mine';
 export type ResearchMergeField = { key: keyof ResearchProfile; conflict: boolean; choice: ResearchMergeChoice | null };
-const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+// Key-order-insensitive: resource objects built in the browser may list keys in another order.
+const stable = (value: unknown) => JSON.stringify(value, (_key, nested) => nested && typeof nested === 'object' && !Array.isArray(nested) ? Object.fromEntries(Object.entries(nested).sort(([a], [b]) => (a < b ? -1 : 1))) : nested);
+const same = (left: unknown, right: unknown) => stable(left) === stable(right);
 export function researchMergeFields(base: ResearchProfile, latest: ResearchProfile, draft: ResearchProfile): ResearchMergeField[] {
  return (Object.keys(researchSchema.shape) as (keyof ResearchProfile)[]).flatMap(key => {
   if (same(latest[key], draft[key])) return [];

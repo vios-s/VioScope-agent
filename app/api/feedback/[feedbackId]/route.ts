@@ -20,16 +20,22 @@ export async function PATCH(request: Request, context: { params: Promise<{ feedb
 
     const { query, changed } = await updateFeedbackQuery(feedbackId, { status: status as FeedbackStatus, adminNote, actor: admin });
     // The update is saved even when notification delivery fails.
-    let requesterNotified = { web: false, email: false };
+    let requesterNotified: Awaited<ReturnType<typeof notifyFeedbackRequester>> = { web: false, email: false };
+    let notificationFailed = false;
     try {
       requesterNotified = await notifyFeedbackRequester(query, changed, admin);
     } catch {
+      notificationFailed = true;
+    }
+    if (notificationFailed || requesterNotified.emailFailed) {
       await recordAuditLog({
         actor: admin,
         action: 'feedback.requester_notification_failed',
         targetType: 'feedback_query',
         targetId: query.id,
-        summary: 'Feedback was updated but the requester notification failed.',
+        summary: notificationFailed
+          ? 'Feedback was updated but the requester notification failed.'
+          : 'Feedback was updated and the web notification sent, but the requester email failed.',
       });
     }
     await recordAuditLog({

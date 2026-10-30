@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
-import { assertMeetingWritable, canManageTheme } from '../../../../src/mastra/theme-meetings/access';
+import { assertMeetingNotHeld, canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import { buildThemeMeetingPlan, cancelThemeMeeting } from '../../../../src/mastra/theme-meetings/planner';
 import { removeThemeMeetingCancellation } from '../../../../src/mastra/theme-meetings/store';
 
@@ -23,10 +23,10 @@ async function requestDetails(request: Request) {
   if (!canManageTheme(before.config, themeId, user)) {
     throw new AuthError('Only administrators, PIs, and the theme coordinator can cancel this meeting.', 403, 'forbidden');
   }
-  if (text(body.meetingDate)) assertMeetingWritable(before.config, themeId, before.plan.meeting_date, user);
   if (!before.plan.meetings.some((meeting) => meeting.theme_id === themeId)) {
     throw new Error(`Theme ${themeId} is not active on ${before.plan.meeting_date}.`);
   }
+  assertMeetingNotHeld(before.config, themeId, before.plan.meeting_date, user);
 
   return { user, themeId, meetingDate: before.plan.meeting_date, reason: text(body.reason) };
 }

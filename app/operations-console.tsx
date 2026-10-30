@@ -348,6 +348,8 @@ type ThemeMeetingPayload = {
     canManageThemeIds: string[];
     /** Managed themes a coordinator may only read on this date (before the theme's current meeting). */
     readOnlyThemeIds?: string[];
+    /** Managed themes whose meeting on this date is already held (coordinators: no skip, restore or reminders). */
+    heldThemeIds?: string[];
     managesAnyTheme?: boolean;
   };
   // Manager-only: latest reminder per member of a managed theme (no notification bodies).
@@ -3574,7 +3576,7 @@ function ThemeMeetingPanel({
   const canManageActive = Boolean(activeMeeting && managedThemeIds.has(activeMeeting.theme_id));
   // Coordinators read past meetings in full but cannot change them; PI and administrator are never read-only.
   const readOnlyActive = Boolean(canManageActive && activeMeeting && payload?.access?.readOnlyThemeIds?.includes(activeMeeting.theme_id));
-  const canEditActive = canManageActive && !readOnlyActive;
+  const heldActive = Boolean(canManageActive && activeMeeting && payload?.access?.heldThemeIds?.includes(activeMeeting.theme_id));
   const canAccessActive = canManageActive || Boolean(activeMeeting?.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username)));
   // Members see only their own draft row, so tell them how many updates are planned and when the draft is circulated.
   const preview = payload?.agendaPreview;
@@ -3692,7 +3694,7 @@ function ThemeMeetingPanel({
                     </p>
                   </div>
                   {readOnlyActive && <p className="mt-board-note is-subtle" role="note">Read only after Friday, 16:00 UK time.</p>}
-                  {canEditActive && activeMeeting && (
+                  {canManageActive && !heldActive && activeMeeting && (
                     <div className="mt-agenda-actions">
                       {activeMeeting.cancelled ? (
                         <button className="ops-secondary" type="button" disabled={cancellationBusy} aria-label="Restore meeting" title="Restore this meeting" onClick={() => void changeMeetingCancellation(activeMeeting, true)}>
@@ -3787,19 +3789,19 @@ function ThemeMeetingPanel({
                         return (
                           <li key={`${activeMeeting.theme_id}-${username}`}>
                             {nextMember}
-                            {canEditActive && <button
+                            <button
                               aria-label={`Remove ${nextMember}`}
                               type="button"
                               title={`Remove ${nextMember}`}
                               onClick={() => setMemberToRemove({ themeId: activeMeeting.theme_id, title: activeMeeting.title, username, name: nextMember })}
                             >
                               <X aria-hidden="true" />
-                            </button>}
+                            </button>
                           </li>
                         );
                       })}
                     </ul>
-                    {canEditActive && <div className="mt-member-add">
+                    <div className="mt-member-add">
                       <select
                         aria-label={`Person to add to ${activeMeeting.title}`}
                         value={memberCandidateByTheme[activeMeeting.theme_id] || ''}
@@ -3825,7 +3827,7 @@ function ThemeMeetingPanel({
                         <Plus aria-hidden="true" />
                         Add member
                       </button>
-                    </div>}
+                    </div>
                   </div>
                 )}
               </section>
