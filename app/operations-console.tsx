@@ -2239,7 +2239,7 @@ function ProjectRecordRail({ project, checkpoints, linked, showPeople = true }: 
         <p className="vs-rail-caption">Stage {project.stage} ({project.stageProgress}%) · {lifecycleLabels[project.lifecycle]}</p>
         <div className="vs-rail-checkpoints">
           <h4>Checkpoints</h4>
-          {checkpoints ?? <p className="vs-rail-caption">Recorded checkpoint decisions are listed in the Research workflow.</p>}
+          {checkpoints ?? <p className="vs-rail-caption">Recorded checkpoint decisions are listed in Details.</p>}
         </div>
       </section>
       {showPeople && <section className="vs-rail-section">
@@ -2863,9 +2863,9 @@ function ProjectDetailModal({
         </header>
 
         <div className="project-modal-tabs vs-record-tabs" role="tablist" aria-label="Project record sections" onKeyDown={tablistKeyDown}>
-          {([['details', 'Details'], ['progress', 'Update'], ['workflow', 'Research workflow']] as const).map(([value, text]) => (
+          {([['details', 'Overview', LayoutDashboard], ['workflow', 'Details', ClipboardList], ['progress', 'Update', Plus]] as const).map(([value, text, Icon]) => (
             <button key={value} className={mode === value ? 'selected' : ''} role="tab" id={`project-record-tab-${value}`} aria-selected={mode === value} aria-controls="project-record-panel" tabIndex={mode === value ? 0 : -1} type="button" onClick={() => setMode(value)}>
-              {text}
+              <Icon aria-hidden="true" size={16} />{text}
             </button>
           ))}
         </div>
@@ -4649,11 +4649,13 @@ function ProjectsView({
                         </td>
                         <td className="vs-actions-cell">
                           <div className="project-table-actions">
-                            <button className="vs-row-link vs-row-secondary" type="button" onClick={() => openProject(project, 'details')} aria-label={`Project details for ${project.title}`}>
-                              Details
+                            <button className="vs-row-action outlined vs-row-secondary" type="button" onClick={() => openProject(project, 'details')} aria-label={`Project overview for ${project.title}`}>
+                              <LayoutDashboard aria-hidden="true" />
+                              Overview
                             </button>
-                            <button className="vs-row-link vs-row-secondary" type="button" onClick={() => openProject(project, 'workflow')} aria-label={`Research workflow for ${project.title}`}>
-                              Research workflow
+                            <button className="vs-row-action outlined vs-row-secondary" type="button" onClick={() => openProject(project, 'workflow')} aria-label={`Project details for ${project.title}`}>
+                              <ClipboardList aria-hidden="true" />
+                              Details
                             </button>
                             {archived
                               ? project.access.canArchive && (

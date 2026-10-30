@@ -11,11 +11,11 @@ export async function checkProjectWorkflowUi(cookieName:string,token:string,proj
   const page=await context.newPage(),errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
   await page.addLocatorHandler(page.locator('.welcome-dialog'),async()=>{await page.getByLabel('Close welcome message').click();});
   await page.goto(base+'/?view=projects');
-  await page.getByLabel('Research workflow for Synthetic bound skeleton').click();
-  const navigation=page.getByRole('group',{name:'Project modal section'});
-  assert.deepEqual((await navigation.getByRole('button').allTextContents()).map(text=>text.trim()),['Details','Update','Research workflow']);
+  await page.getByLabel('Project details for Synthetic bound skeleton').click();
+  const navigation=page.getByRole('tablist',{name:'Project record sections'});
+  assert.deepEqual((await navigation.getByRole('tab').allTextContents()).map(text=>text.trim()),['Overview','Details','Update']);
   assert.equal(await navigation.locator('button svg').count(),3);
-  await page.getByRole('button',{name:'Research workflow',exact:true}).click();
+  await page.getByRole('tab',{name:'Details',exact:true}).click();
   const panel=page.getByRole('region',{name:'Project research workflow'});
   await panel.getByLabel('Research question').waitFor();
   assert.match(await panel.getByLabel('Research question').inputValue(),/robustness/);
@@ -56,14 +56,14 @@ export async function checkProjectWorkflowUi(cookieName:string,token:string,proj
   for(const width of [1440,390]){
    await page.setViewportSize({width,height:1000});await panel.getByRole('button',{name:'Research',exact:true}).click();
    await panel.scrollIntoViewIfNeeded();assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
-   const boxes=await navigation.getByRole('button').evaluateAll(buttons=>buttons.map(button=>{const r=button.getBoundingClientRect();return {top:r.top,width:r.width,height:r.height};}));
-   assert.ok(boxes.every(box=>Math.abs(box.top-boxes[0].top)<1&&Math.abs(box.width-boxes[0].width)<1&&Math.abs(box.height-boxes[0].height)<1),'Project navigation must remain aligned with equal cells.');
+   const boxes=await navigation.getByRole('tab').evaluateAll(buttons=>buttons.map(button=>{const r=button.getBoundingClientRect();return {top:r.top,width:r.width,height:r.height};}));
+   assert.ok(boxes.every(box=>Math.abs(box.top-boxes[0].top)<1&&Math.abs(box.height-boxes[0].height)<1),'Project navigation must remain aligned with equal heights.');
    await navigation.scrollIntoViewIfNeeded();
    await page.screenshot({path:`/tmp/vioscope-project-workflow/research-${width}.png`});
   }
   await context.addCookies([{name:cookieName,value:piToken,url:base}]);
-  await page.reload();await page.getByLabel('Project details for Synthetic bound skeleton').click();
-  await page.getByRole('button',{name:'Research workflow',exact:true}).click();
+  await page.reload();await page.getByLabel('Project overview for Synthetic bound skeleton').click();
+  await page.getByRole('tab',{name:'Details',exact:true}).click();
   await panel.getByRole('button',{name:'Decisions',exact:true}).click();
   await panel.getByText('Record a checkpoint decision',{exact:true}).click();
   const decisionForm=panel.locator('form');

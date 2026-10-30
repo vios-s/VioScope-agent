@@ -167,7 +167,7 @@
 
 .vs-projects .project-table-actions {
   justify-content: flex-end;
-  gap: 2px;
+  gap: 6px;
   min-width: 0;
   white-space: nowrap;
 }

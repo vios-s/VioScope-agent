@@ -103,8 +103,8 @@ async function checkEmptyMemberCreateProject(browser: any) {
 async function checkMember(browser: any) {
   const { context, page } = await login(browser, users.member, title);
   try {
-    await page.getByLabel(`Project details for ${title}`).click();
-    await page.getByRole('tab', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
+    await page.getByLabel(`Project overview for ${title}`).click();
+    await page.getByRole('tab', { name: 'Overview', exact: true }).waitFor({ state: 'visible' });
     // Details are read-only; Edit details opens the shared project form.
     await page.getByRole('button', { name: 'Edit details' }).click();
     const detailsForm = page.locator('.project-modal:not(.project-detail-modal)');
@@ -118,7 +118,7 @@ async function checkMember(browser: any) {
     assert.equal((await saveResponse).ok(), true);
     await page.locator('.vs-details-list').getByText('AIED UX', { exact: true }).waitFor({ state: 'visible' });
 
-    await page.getByRole('tab', { name: 'Research workflow', exact: true }).click();
+    await page.getByRole('tab', { name: 'Details', exact: true }).click();
     await page.getByRole('region', { name: 'Project research workflow' }).getByRole('tab', { name: 'Tasks', exact: true }).click();
     const todoPanel = page.getByRole('region', { name: 'Project research workflow' });
     await todoPanel.getByText('Add a task', { exact: true }).click();
@@ -136,7 +136,7 @@ async function checkMember(browser: any) {
     await todoPanel.getByRole('heading', { name: 'Draft evaluation checklist v2' }).waitFor();
     await page.getByLabel('Close project details').click();
 
-    await page.getByLabel(`Research workflow for ${title}`).click();
+    await page.getByLabel(`Project details for ${title}`).click();
     await page.getByRole('region', { name: 'Project research workflow' }).getByRole('tab', { name: 'Tasks', exact: true }).click();
     await page.getByRole('heading', { name: 'Project tasks' }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByLabel('Close project details').click();
@@ -162,7 +162,7 @@ async function checkMember(browser: any) {
     await page.getByLabel('Close project details').click();
     await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible' });
 
-    await page.getByLabel(`Project details for ${title}`).click();
+    await page.getByLabel(`Project overview for ${title}`).click();
     await page.getByRole('button', { name: `More actions for ${title}` }).click();
     await page.getByRole('menuitem', { name: 'Archive project' }).click();
     const archiveDialog = page.getByRole('dialog', { name: 'Archive project?' });
@@ -206,8 +206,8 @@ async function checkPi(browser: any) {
     await page.getByText('85%').first().waitFor({ state: 'visible' });
     assert.equal(await page.getByRole('heading', { name: 'Project planning brief' }).count(), 0, 'Planning brief is removed from Projects.');
     assert.equal(await page.getByRole('heading', { name: 'Members', exact: true }).count(), 0, 'Members list is removed from Projects.');
-    await page.getByLabel(`Project details for ${title}`).click();
-    await page.getByRole('tab', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
+    await page.getByLabel(`Project overview for ${title}`).click();
+    await page.getByRole('tab', { name: 'Overview', exact: true }).waitFor({ state: 'visible' });
   } finally {
     await context.close();
   }
@@ -219,8 +219,8 @@ async function checkAdmin(browser: any) {
     await page.getByRole('tab', { name: /^Active/ }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: title, exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible' });
-    await page.getByLabel(`Project details for ${createdTitle}`).click();
-    await page.getByRole('tab', { name: 'Details', exact: true }).waitFor({ state: 'visible' });
+    await page.getByLabel(`Project overview for ${createdTitle}`).click();
+    await page.getByRole('tab', { name: 'Overview', exact: true }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: 'Edit details' }).click();
     const editor = page.locator('.project-modal:not(.project-detail-modal)');
     assert.equal(await editor.getByLabel('Owner').isDisabled(), false);
