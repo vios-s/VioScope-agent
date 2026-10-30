@@ -215,7 +215,7 @@ async function checkCoordinator(browser: any) {
   assert.match(await page.locator('.theme-update-form .mt-static-field').first().innerText(), /UI Theme B/);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
-  await expectVisible(page, 'Members of the themes you coordinate.');
+  await page.getByRole('heading', { name: 'Theme meeting', exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
   await page.getByText('Theme B', { exact: true }).first().waitFor({ state: 'visible', timeout: 10_000 });
   await page.close();
 }
@@ -240,7 +240,8 @@ async function checkPlanningOnly(browser: any, username: string) {
   await expectVisible(page, 'meeting restored.');
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
-  await expectVisible(page, 'Schedule, reminders, slot lengths and theme membership.');
+  // Global editors (PI/admin) get the editable schedule fields, including each theme's title.
+  await page.getByLabel('Title', { exact: true }).first().waitFor({ state: 'visible', timeout: 10_000 });
   await page.getByText('Theme A', { exact: true }).first().waitFor({ state: 'visible', timeout: 10_000 });
   await page.close();
 }
@@ -255,7 +256,8 @@ async function checkAdminMember(browser: any) {
   assert.match(await page.locator('.theme-update-form .mt-static-field').first().innerText(), /UI Theme D/);
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.getByRole('button', { name: 'Theme meeting', exact: true }).click();
-  await expectVisible(page, 'Schedule, reminders, slot lengths and theme membership.');
+  // Global editors (PI/admin) get the editable schedule fields, including each theme's title.
+  await page.getByLabel('Title', { exact: true }).first().waitFor({ state: 'visible', timeout: 10_000 });
   const themeTitles = await page.getByLabel('Title', { exact: true }).evaluateAll((inputs: Element[]) => inputs.map((input) => (input as HTMLInputElement).value));
   assert.ok(themeTitles.includes('UI Theme D'), 'Admin should be able to edit every theme title.');
   await page.close();

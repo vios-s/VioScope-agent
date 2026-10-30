@@ -147,21 +147,28 @@ async function checkMember(browser: any) {
     await page.getByLabel(`Update ${title}`).click();
     const form = page.locator('.project-update-form');
     await form.waitFor({ state: 'visible' });
-    await form.locator('select').nth(1).selectOption('3');
-    await form.locator('input[type="number"]').fill('85');
-    await form.locator('select').nth(2).selectOption('on_track');
-    await form.locator('input[type="checkbox"]').check();
-    await form.locator('textarea').nth(0).fill('Finish memory ablation and compare feedback quality.');
-    await form.locator('textarea').nth(1).fill('');
-    await form.locator('textarea').nth(2).fill(Array.from({ length: 51 }, (_, index) => `word${index}`).join(' '));
+    // Targets/blockers and status/classification are collapsed sections; progress text comes first.
+    await form.getByText('Targets and blockers', { exact: true }).click();
+    await form.getByText('Status and classification', { exact: true }).click();
+    // These labels wrap their controls, so the accessible name includes the selected value: match the label caption.
+    const field = (caption: string) => form.locator(`label:has(> span:text-is("${caption}"))`).locator('select, input');
+    await field('Stage').selectOption('3');
+    await field('Stage progress (%)').fill('85');
+    await field('Status').selectOption('on_track');
+    await form.getByLabel('Milestone reached').check();
+    await form.getByLabel('Target', { exact: true }).fill('Finish memory ablation and compare feedback quality.');
+    await form.getByLabel('Blocker', { exact: true }).fill('');
+    const progressField = form.getByLabel(/^Progress text/);
+    await progressField.fill(Array.from({ length: 51 }, (_, index) => `word${index}`).join(' '));
     await page.getByRole('button', { name: 'Add update' }).click();
     await page.getByText('Progress update must be 50 words or fewer.').waitFor({ state: 'visible' });
 
     const progressText = 'Finished baseline memory wiring and reached milestone for tutor evaluation.';
-    await form.locator('textarea').nth(2).fill(progressText);
+    await progressField.fill(progressText);
     await page.getByRole('button', { name: 'Add update' }).click();
     await page.getByText(progressText).waitFor({ state: 'visible', timeout: 15_000 });
-    await page.getByText('Stage 3 (85%)').waitFor({ state: 'visible' });
+    // The Update tab lists the saved entry with its stage; the Stage rail caption lives on Overview.
+    await page.getByText('Stage 3 · 85%').first().waitFor({ state: 'visible' });
     await page.getByLabel('Close project details').click();
     await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible' });
 
@@ -227,8 +234,8 @@ async function checkAdmin(browser: any) {
     await page.getByRole('button', { name: 'Edit details' }).click();
     const editor = page.locator('.project-modal:not(.project-detail-modal)');
     assert.equal(await editor.getByLabel('Owner').isDisabled(), false);
-    await editor.getByText('Advanced', { exact: true }).click();
-    assert.equal(await editor.getByLabel('Slug').inputValue(), autoCreatedSlug, 'Administrators see the generated slug under Advanced.');
+    // Administrators see the generated slug directly in the editor (the Advanced section was removed).
+    assert.equal(await editor.getByLabel('Slug').inputValue(), autoCreatedSlug, 'Administrators see the generated slug.');
   } finally {
     await context.close();
   }

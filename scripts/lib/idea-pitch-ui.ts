@@ -61,7 +61,7 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
       await sharedPage.addLocatorHandler(sharedPage.locator('.welcome-dialog'), async () => { await sharedPage.getByLabel('Close welcome message').click(); });
       await sharedPage.goto(base + '/?view=checklists');
       await railItem(sharedPage, id).click();
-      await sharedPage.getByText('Shared with you · Read only.', { exact: false }).waitFor();
+      await sharedPage.getByText('Read only · Latest pitch.', { exact: false }).waitFor();
       assert.equal(await sharedPage.getByRole('button', { name: 'Save pitch draft', exact: true }).count(), 0);
       assert.equal(await sharedPage.getByRole('button', { name: 'Delete pitch', exact: true }).count(), 0);
       assert.equal(await sharedPage.locator('.idea-history').count(), 0);
@@ -179,6 +179,8 @@ export async function checkIdeaPitchUi(cookieName: string, token: string, peers?
     await page.reload(); await railItem(page, handoffPitch.id).click();
     await panel.getByRole('textbox', { name: 'First next action', exact: true }).fill('Run three synthetic pilot comparisons');
     await panel.getByLabel('Action deadline', { exact: true }).fill('2099-11-06');
+    await panel.getByLabel('Project PI usernames (required)').fill('admincheck');
+    await panel.getByLabel('Lead PDRA reviewer username (required)').fill('bob');
     await panel.getByLabel('I confirm this approved pitch should now become a project.', { exact: true }).check();
     await panel.getByRole('button', { name: 'Create project', exact: true }).click();
     await panel.getByText('Project created. The original pitch is retained.', { exact: true }).waitFor();
