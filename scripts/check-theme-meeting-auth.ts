@@ -12,6 +12,10 @@ import {
   type AuthUser,
   type UserRole,
 } from '../src/mastra/db/users';
+import { coordinatorEditWindowOpen } from '../src/mastra/theme-meetings/planner';
+import type { ThemeMeetingConfig } from '../src/mastra/theme-meetings/schema';
+
+const themeConfigForWindow = { timezone: 'Europe/London' } as ThemeMeetingConfig;
 
 type SnapshotRow = {
   id: string;
@@ -589,6 +593,10 @@ async function main() {
 
     // Past meetings (before the theme's current meeting) are read-only for coordinators; PI and administrator keep full rights.
     const pastDate = '2026-06-24';
+    // The edit window closes at 16:00 UK time on the Friday after the meeting (BST here: 15:00 UTC).
+    assert.equal(coordinatorEditWindowOpen(themeConfigForWindow, pastDate, new Date('2026-06-26T14:59:00Z')), true);
+    assert.equal(coordinatorEditWindowOpen(themeConfigForWindow, pastDate, new Date('2026-06-26T15:00:00Z')), false);
+    assert.equal(coordinatorEditWindowOpen(themeConfigForWindow, '2026-11-04', new Date('2026-11-06T15:59:00Z')), true, 'GMT: 16:00 UK is 16:00 UTC.');
     const coordinatorA = await activeUser('coordinator.a');
     const pastBody = (extra: Record<string, unknown> = {}) => jsonBody({ themeId: 'A', meetingDate: pastDate, ...extra });
     const pastDashboard = await expectJson<any>('coordinator past dashboard',
@@ -604,7 +612,7 @@ async function main() {
       ['past member change', await membersRoute.POST(requestFor(coordinatorA, '/api/theme-meetings/members', { method: 'POST', body: pastBody({ action: 'add', username: 'carla' }) }))],
     ] as const) {
       const body = await expectJson<{ error: string }>(`coordinator ${label}`, response, 403);
-      assert.equal(body.error, 'Past meetings are read-only for coordinators.');
+      assert.equal(body.error, 'Coordinators can change a meeting until 16:00 on the Friday after it.');
     }
     for (const leader of ['theme.pi', 'theme.admin']) {
       const account = await activeUser(leader);

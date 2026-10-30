@@ -3740,7 +3740,7 @@ function ThemeMeetingPanel({
                       )}
                     </p>
                   </div>
-                  {readOnlyActive && <p className="mt-board-note is-subtle" role="note">Past meetings are read-only.</p>}
+                  {readOnlyActive && <p className="mt-board-note is-subtle" role="note">Read-only: coordinators can change a meeting until 16:00 on the Friday after it.</p>}
                   {canEditActive && activeMeeting && (
                     <div className="mt-agenda-actions">
                       {activeMeeting.cancelled ? (

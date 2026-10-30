@@ -219,11 +219,11 @@ try {
   type Entry = { member_username: string; member: string; update_type: string; deferred: boolean; progress_text?: string; questions?: string; project_context?: unknown };
   // Earlier meetings: coordinators read them in full but cannot change them; PI and administrator keep full rights;
   // assignees (a coordinator included) still update their own actions; members see only their own confirmed entries.
-  const pastDate = day(-7);
-  for (const name of ['alice', 'bob']) await planner.submitThemeMeetingUpdate({ meetingDate: pastDate, themeId: 'A', member: name, updateType: 'short_update', progressText: `${name} earlier evidence.`, now: at(-8, '12:00:00') });
-  await planner.submitThemeMeetingUpdate({ meetingDate: pastDate, themeId: 'B', member: 'outsider', updateType: 'short_update', progressText: 'Earlier B evidence.', now: at(-8, '12:00:00') });
+  const pastDate = day(-14);
+  for (const name of ['alice', 'bob']) await planner.submitThemeMeetingUpdate({ meetingDate: pastDate, themeId: 'A', member: name, updateType: 'short_update', progressText: `${name} earlier evidence.`, now: at(-15, '12:00:00') });
+  await planner.submitThemeMeetingUpdate({ meetingDate: pastDate, themeId: 'B', member: 'outsider', updateType: 'short_update', progressText: 'Earlier B evidence.', now: at(-15, '12:00:00') });
   const pastPost = (name: string, body: Record<string, unknown>) => post(name, { meetingDate: pastDate, ...body });
-  async function readOnly(response: Response) { assert.equal(response.status, 403); assert.equal((await response.json()).error, 'Past meetings are read-only for coordinators.'); }
+  async function readOnly(response: Response) { assert.equal(response.status, 403); assert.equal((await response.json()).error, 'Coordinators can change a meeting until 16:00 on the Friday after it.'); }
   const chairPast = await ok(await get('chair', pastDate));
   assert.equal(chairPast.manager, true); assert.equal(chairPast.readOnly, true);
   assert.equal(chairPast.candidates.length, 2, 'Coordinators still read every past submission.');

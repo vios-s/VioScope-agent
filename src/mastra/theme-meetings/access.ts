@@ -1,6 +1,6 @@
 import { AuthError, canSeeAll } from '../auth/session';
 import type { AuthUser } from '../db/users';
-import { nextThemeMeetingDate } from './planner';
+import { coordinatorEditWindowOpen, nextThemeMeetingDate } from './planner';
 import type { ThemeMeetingConfig, ThemeMeetingNotification, ThemeMeetingPlan } from './schema';
 
 function themeById(config: ThemeMeetingConfig, themeId: string) {
@@ -20,16 +20,17 @@ export function canManageTheme(config: ThemeMeetingConfig, themeId: string, user
   return Boolean(theme && normalizeUsername(theme.coordinator_user) === normalizeUsername(user.username));
 }
 
-/** True when a coordinator (theme manager without PI/admin rights) views a meeting before the theme's current/next meeting. */
+/** True when a coordinator (theme manager without PI/admin rights) views a meeting before the theme's current/next meeting
+ * after its edit window (16:00 on the following Friday) has closed. */
 export function isPastMeetingReadOnly(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser, now = new Date()): boolean {
   if (canSeeAll(user) || !canManageTheme(config, themeId, user)) return false;
   const current = nextThemeMeetingDate(config, themeId, now);
-  return Boolean(current && meetingDate < current);
+  return Boolean(current && meetingDate < current && !coordinatorEditWindowOpen(config, meetingDate, now));
 }
 
 export function assertMeetingWritable(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser): void {
   if (isPastMeetingReadOnly(config, themeId, meetingDate, user)) {
-    throw new AuthError('Past meetings are read-only for coordinators.', 403, 'forbidden');
+    throw new AuthError('Coordinators can change a meeting until 16:00 on the Friday after it.', 403, 'forbidden');
   }
 }
 

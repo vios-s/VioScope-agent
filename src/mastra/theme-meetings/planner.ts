@@ -195,6 +195,12 @@ export function upcomingWednesday(now = new Date(), timezone = 'Europe/London'):
   return addDays(today, modulo(targetWeekday - day, 7));
 }
 
+/** Coordinators may still change a meeting until 16:00 (theme timezone) on the Friday after it. */
+export function coordinatorEditWindowOpen(config: ThemeMeetingConfig, meetingDate: string, now = new Date()): boolean {
+  const friday = addDays(meetingDate, modulo(5 - parseDateOnly(meetingDate).getUTCDay(), 7));
+  return localDateTimeString(now, config.timezone) < `${friday}T16:00`;
+}
+
 export function cycleGroupForDate(config: ThemeMeetingConfig, meetingDate: string): string {
   const weekOffset = Math.floor(daysBetween(config.cycle.anchor_date, meetingDate) / 7);
   return config.cycle.rotation[modulo(weekOffset, config.cycle.rotation.length)];

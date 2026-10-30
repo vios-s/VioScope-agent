@@ -15,7 +15,7 @@ const updatesPath = join(runDir, 'theme-meeting-updates.yaml');
 const notificationsPath = join(runDir, 'theme-meeting-notifications.yaml');
 // The weekly theme's current meeting: coordinators may act on it, while earlier meetings are read-only for them.
 const meetingDate = upcomingWednesday();
-const pastMeetingDate = new Date(Date.parse(`${meetingDate}T12:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
+const pastMeetingDate = new Date(Date.parse(`${meetingDate}T12:00:00Z`) - 14 * 86_400_000).toISOString().slice(0, 10);
 const password = 'ReleaseHardening1!';
 const users = {
   coordinator: `release.hardening.coord.${stamp}`,
@@ -204,7 +204,7 @@ async function main() {
     }));
     const pastResponse = await pastReminder(coordinator);
     assert.equal(pastResponse.status, 403, 'Coordinators cannot send reminders for a past meeting.');
-    assert.equal((await pastResponse.json()).error, 'Past meetings are read-only for coordinators.');
+    assert.equal((await pastResponse.json()).error, 'Coordinators can change a meeting until 16:00 on the Friday after it.');
     assert.equal((await pastReminder(pi)).status, 200, 'PIs keep full rights on past meetings.');
 
     console.log('Release hardening check passed.');

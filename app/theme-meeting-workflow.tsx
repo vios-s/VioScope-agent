@@ -507,7 +507,7 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
             <MeetingProjectSummary context={entry.project_context} />
           </li>)}</ol>}
         </>}
-        {data.manager && data.readOnly && <p className="ops-muted-line" role="note">Past meetings are read-only.</p>}
+        {data.manager && data.readOnly && <p className="ops-muted-line" role="note">Read-only: coordinators can change a meeting until 16:00 on the Friday after it.</p>}
         {data.manager && !data.readOnly && !data.confirmation && !data.cancelled && <p className="ops-muted-line">Confirm the agenda before recording decisions and actions.</p>}
         {data.manager && !data.readOnly && data.confirmation && !data.cancelled && <form className="theme-workflow-panel" onSubmit={(event) => { event.preventDefault(); void save({ operation: 'add_action', action: { ...action, projectId: action.projectId || null } }); }}>
           <fieldset disabled={busy}><legend>Record a decision and action</legend>

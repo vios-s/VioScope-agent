@@ -38,7 +38,7 @@ async function context(request: Request, key: z.infer<typeof keySchema>) {
   const readOnly = isPastMeetingReadOnly(payload.config, key.themeId, key.meetingDate, user);
   return { user, meeting, manager, readOnly, payload };
 }
-const readOnlyError = () => new AuthError('Past meetings are read-only for coordinators.', 403, 'forbidden');
+const readOnlyError = () => new AuthError('Coordinators can change a meeting until 16:00 on the Friday after it.', 403, 'forbidden');
 // Sends the latest confirmed version to the cutoff-agenda audience; deliveries dedupe per version and recipient.
 async function emailConfirmedAgenda(request: Request, command: z.infer<typeof keySchema> & { version: number }) {
   const { user, meeting, manager, readOnly, payload } = await context(request, command);
