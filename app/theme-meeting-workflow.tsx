@@ -1,5 +1,5 @@
 'use client';
-import { themeUpdateTypeLabels } from '../src/mastra/theme-meetings/schema';
+import { themeAgendaTypeLabels, isAgendaPlaceholder } from '../src/mastra/theme-meetings/schema';
 
 import { MeetingProjectSummary } from './meeting-project-summary';
 import { ConfirmDialog } from './confirm-dialog';
@@ -140,12 +140,12 @@ function startTimes(meetingTime: string, minutes: number[]) {
 
 function initialSelections(payload: Payload): Selection[] {
   const existing = payload.confirmation?.entries || [];
-  const index = (username?: string) => { const i = existing.findIndex((item) => item.member_username === username); return i < 0 ? existing.length : i; };
+  const index = (username?: string) => { const i = existing.findIndex((item) => item.member_username === username); return i < 0 ? username === ':triage_admin' ? -1 : username === ':assignments' ? existing.length + payload.candidates.length : existing.length : i; };
   return [...payload.candidates].sort((a, b) => index(a.member_username) - index(b.member_username)).map((item) => {
     const saved = existing.find((entry) => entry.member_username === item.member_username);
     // Per-item skipping was retired: a new version always schedules every submission (older deferred entries stay read-only).
     return { username: item.member_username || '', deferred: false,
-      minutes: item.update_type === 'short_update' ? 5 : item.update_type === 'nothing_to_report' ? 0 : saved?.update_type === item.update_type ? saved.duration_minutes : item.duration_minutes };
+      minutes: item.update_type === 'nothing_to_report' ? 0 : saved?.update_type === item.update_type ? (item.update_type === 'short_update' ? Math.max(5, Math.min(7, saved.duration_minutes)) : saved.duration_minutes) : item.duration_minutes };
   });
 }
 
@@ -160,7 +160,7 @@ function scrollParent(element: HTMLElement): HTMLElement {
 function ItemSummary({ item, projectLink }: { item: ThemeMeetingAgendaItem; projectLink: ProjectLink }) {
   return <span className="mt-item-main">
     <strong>{item.project_context?.title || item.member}</strong>
-    <span>{item.project_context ? `${item.member} · Project stage ${item.project_context.stage ?? 'not recorded'}` : 'No linked project'}</span>
+    <span>{isAgendaPlaceholder(item) ? item.progress_text : item.project_context ? `${item.member} · Project stage ${item.project_context.stage ?? 'not recorded'}` : 'No linked project'}</span>
     {item.project_context && <details className="mt-snapshot"><summary>Project snapshot</summary>
       <MeetingProjectSummary context={item.project_context} title={projectLink(item.project_context.projectId, item.project_context.title)} /></details>}
   </span>;
@@ -228,7 +228,7 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
   const duration = data?.duration || 60;
   const total = scheduled.reduce((sum, row) => sum + countable(row.minutes), 0);
   const over = total > duration;
-  const minutesInvalid = editable && scheduled.some((row) => row.item.update_type !== 'nothing_to_report' && !validMinutes(row.minutes));
+  const minutesInvalid = editable && scheduled.some((row) => row.item.update_type !== 'nothing_to_report' && (!validMinutes(row.minutes) || (row.item.update_type === 'short_update' && (row.minutes < 5 || row.minutes > 7))));
   const changedSinceConfirmation = Boolean(canEdit && confirmation && (confirmation.entries.length !== data!.candidates.length ||
     data!.candidates.some((item) => !confirmation.entries.some((entry) => entry.member_username === item.member_username && entry.submitted_at === item.submitted_at))));
   const confirmedSelections = (confirmation?.entries || []).map((entry) => ({ username: entry.member_username || '', minutes: entry.duration_minutes, deferred: entry.deferred }));
@@ -360,9 +360,11 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
 
   function row({ item, minutes, skipped: isSkipped }: Row, start: string, index: number) {
     const username = item.member_username || item.member;
-    const fixed = item.update_type !== 'deep_dive';
+    const fixed = item.update_type === 'nothing_to_report';
+    const min = item.update_type === 'short_update' ? 5 : 1;
+    const max = item.update_type === 'short_update' ? 7 : 60;
     const dragging = drag?.username === username;
-    return <li key={username} className={`${isSkipped ? 'is-skipped' : ''}${dragging ? ' is-dragging' : ''}`} style={isSkipped ? undefined : shift(index)}>
+    return <li key={username} className={`${isAgendaPlaceholder(item) ? 'is-placeholder ' : ''}${isSkipped ? 'is-skipped' : ''}${dragging ? ' is-dragging' : ''}`} style={isSkipped ? undefined : shift(index)}>
       {editable && (<button className="mt-drag-handle" type="button" data-agenda-handle={username}
         aria-label={`Reorder ${item.member}, position ${index + 1} of ${scheduled.length}`} aria-describedby={`mt-drag-hint-${themeId}`} disabled={busy}
         onPointerDown={(event) => startDrag(event, username)} onPointerMove={moveDrag} onPointerUp={() => endDrag(true)} onPointerCancel={() => endDrag(false)}
@@ -371,14 +373,14 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
       <time className="vs-mono" aria-label={start ? `Planned start ${start}` : undefined}>{isSkipped ? '—' : start}</time>
       <ItemSummary item={item} projectLink={projectLink} />
       {editable ? <span className="mt-arrange-controls">
-        <span className={`mt-slot mt-slot-${item.update_type}`}>{themeUpdateTypeLabels[item.update_type]}</span>
-        {fixed ? <span className="mt-minutes-text" title={`${themeUpdateTypeLabels[item.update_type]} slots are fixed at ${minutes} minutes`}>{minutes} min</span> : <label className="mt-minutes" title="Deep Dive minutes can be edited (1–60)">
-          <input type="number" inputMode="numeric" step={1} min={1} max={60} required value={Number.isFinite(minutes) ? minutes : ''}
+        <span className={`mt-slot mt-slot-${item.update_type}`}>{themeAgendaTypeLabels[item.update_type]}</span>
+        {fixed ? <span className="mt-minutes-text" title={`${themeAgendaTypeLabels[item.update_type]} slots are fixed at ${minutes} minutes`}>{minutes} min</span> : <label className="mt-minutes" title={`Slot minutes can be edited (${min}–${max})`}>
+          <input type="number" inputMode="numeric" step={1} min={min} max={max} required value={Number.isFinite(minutes) ? minutes : ''}
             disabled={busy} aria-label={`Minutes for ${item.member}`}
-            aria-invalid={!validMinutes(minutes) ? true : undefined}
+            aria-invalid={!validMinutes(minutes) || minutes < min || minutes > max ? true : undefined}
             onChange={(event) => update(username, { minutes: event.target.value === '' ? Number.NaN : Math.round(Number(event.target.value)) })} />
           <span aria-hidden="true">min</span></label>}
-      </span> : <span className={`mt-slot mt-slot-${item.update_type}`}>{themeUpdateTypeLabels[item.update_type]}{isSkipped ? '' : ` · ${minutes} min`}</span>}
+      </span> : <span className={`mt-slot mt-slot-${item.update_type}`}>{themeAgendaTypeLabels[item.update_type]}{isSkipped ? '' : ` · ${minutes} min`}</span>}
     </li>;
   }
 
@@ -389,19 +391,25 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
       <p className={`mt-board-state ${loading || !canAccess ? 'is-loading' : confirmation ? 'is-confirmed' : 'is-draft'}`}>
         {loading ? <strong>{error ? 'Agenda unavailable' : 'Loading agenda…'}</strong>
           // Without workflow access the confirmation state is unknown, so never label the plan a draft.
-          : !canAccess ? <><strong>Planned agenda</strong> · Confirmation details are shown to theme members and managers.</> : confirmation ? <><strong>Confirmed</strong> · Version {confirmation.version} by @{confirmation.confirmedBy}, {ukTime(confirmation.confirmedAt)} (UK time){manager ? (data?.emailedAt ? ` · Emailed ${ukTime(data.emailedAt)}` : ' · Not emailed yet') : ''}</>
-          : <><strong>Draft</strong> · From submitted updates; not yet confirmed by the coordinator.</>}
+          : !canAccess ? <><strong>Planned agenda</strong> · Confirmation visible to members and managers.</> : confirmation ? <><strong>Confirmed</strong> · Version {confirmation.version} by @{confirmation.confirmedBy}, {ukTime(confirmation.confirmedAt)} (UK time){manager ? (data?.emailedAt ? ` · Emailed ${ukTime(data.emailedAt)}` : ' · Not emailed yet') : ''}</>
+          : <><strong>Draft</strong> · Awaiting coordinator confirmation.</>}
       </p>
       {dirty && <p className="mt-unsaved" role="status"><strong>Unsaved order</strong>
         <button className="mt-link-btn" type="button" disabled={busy} onClick={() => { setEdited(null); setAnnouncement('Order reset.'); }} aria-label="Reset agenda to the saved order">
           <RotateCcw aria-hidden="true" />Reset</button></p>}
     </div>
     {error && <p className="form-message error" role="alert">{error}</p>}
-    {changedSinceConfirmation && <p className="mt-board-note" role="note">Submissions changed after version {confirmation!.version} was confirmed. This draft includes them; confirm again to save version {nextVersion}.</p>}
+    {changedSinceConfirmation && <p className="mt-board-note" role="note">Submissions changed since version {confirmation!.version}. Reconfirm to save version {nextVersion}.</p>}
     {editable && legacyDeferred.length > 0 && <p className="mt-board-note is-subtle" role="note">Deferred in an earlier version: {legacyDeferred.join(', ')}. A new version schedules every submitted update; adjust Deep Dive minutes instead.</p>}
-    {!changedSinceConfirmation && confirmation && editable && !upToDate && <p className="mt-board-note is-subtle" role="note">This draft differs from confirmed version {confirmation.version}. Email still sends version {confirmation.version} until you confirm again.</p>}
+    {!changedSinceConfirmation && confirmation && editable && !upToDate && <p className="mt-board-note is-subtle" role="note">Draft changed. Email uses version {confirmation.version} until you reconfirm.</p>}
     {message && <p className={`form-message${message.error ? ' error' : ''}`} role={message.error ? 'alert' : 'status'}>{message.text}</p>}
-    {editable && <p id={`mt-drag-hint-${themeId}`} className="mt-board-hint">Drag or use the arrow keys to reorder.</p>}
+    {editable && <p id={`mt-drag-hint-${themeId}`} className="mt-board-hint">Reorder by dragging or arrow keys; set minutes before confirming.</p>}
+    {editable && <details className="mt-template-guide"><summary>Recommended meeting format · 60 minutes</summary>
+      <p>5 min Triage &amp; Admin · 30 min Deep Dive · 20 min Updates · 5 min Assignments.</p>
+      <p>One Discussant-led Deep Dive and 2–3 Updates of 5–7 minutes. Move longer discussions to Teams or a future Deep Dive.</p>
+      <p>Adjust freely; all submissions stay in the draft.</p>
+    </details>}
+    {editable && (scheduled.filter(({ item }) => item.update_type === 'deep_dive').length > 1 || scheduled.filter(({ item }) => item.update_type === 'short_update').length > 3) && <p className="mt-board-note" role="note">More than one Deep Dive or three Updates. Review with presenters before confirming.</p>}
     <p className="vs-sr-only" aria-live="polite">{announcement}</p>
     {loading ? (!error && <ol className="mt-agenda-list is-loading" role="status" aria-label="Loading agenda…">
       {Array.from({ length: Math.max(1, fallbackItems.length) }, (_, index) => <li key={index} aria-hidden="true">
@@ -417,7 +425,7 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
     {canEdit && <div className="mt-arrange-footer">
       <div className={`mt-arrange-total${over ? ' is-over' : ''}`} role="status">
         <span className={`mt-meter${over ? ' is-over' : ''}`} aria-hidden="true"><span style={{ width: `${Math.min(100, Math.round((total / duration) * 100))}%` }} /></span>
-        <span className="mt-num">{total} of {duration} min{over ? ` · ${total - duration} min over. Shorten Deep Dive minutes.` : ` · ${duration - total} min free`}</span>
+        <span className="mt-num">{total} of {duration} min{over ? ` · ${total - duration} min over. Adjust slot minutes to fit.` : ` · ${duration - total} min free`}</span>
       </div>
       <div className="mt-arrange-buttons">
         <button className="ops-primary" type="button" disabled={busy || over || !editable || upToDate || minutesInvalid} onClick={() => setDialog('confirm')}
@@ -429,7 +437,7 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
           title={confirmation ? undefined : 'Confirm the agenda first'}>
           <Mail aria-hidden="true" />Email</button>
       </div>
-      {minutesInvalid && <p id={minutesHintId} className="mt-email-hint">Enter whole minutes from 1 to 60 for every Deep Dive.</p>}
+      {minutesInvalid && <p id={minutesHintId} className="mt-email-hint">Enter whole minutes: 5–7 for Updates and 1–60 for other scheduled slots.</p>}
       {!confirmation && <p id={emailHintId} className="vs-sr-only">Confirm the agenda first.</p>}
     </div>}
     <ConfirmDialog id={`mt-confirm-agenda-${themeId}`} open={dialog === 'confirm'} tone="default" title="Confirm this agenda?"
@@ -503,11 +511,11 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
         {date !== meetingDate && <>
           <p className={`theme-workflow-state ${data.confirmation ? 'is-confirmed' : 'is-draft'}`}>{data.confirmation ? `Confirmed version ${data.confirmation.version} by @${data.confirmation.confirmedBy}, ${ukTime(data.confirmation.confirmedAt)}` : `No confirmed agenda for ${formatDay(date)}.`}</p>
           {data.confirmation && <ol className="theme-workflow-confirmed">{data.confirmation.entries.map((entry) => <li key={entry.member_username || entry.member}>
-            <strong>{entry.member}</strong> <span>{themeUpdateTypeLabels[entry.update_type]} · {entry.duration_minutes} min{entry.deferred ? ' · Deferred, not scheduled' : ''}</span>
+            <strong>{entry.member}</strong> <span>{themeAgendaTypeLabels[entry.update_type]} · {entry.duration_minutes} min{entry.deferred ? ' · Deferred, not scheduled' : ''}</span>
             <MeetingProjectSummary context={entry.project_context} />
           </li>)}</ol>}
         </>}
-        {data.manager && data.readOnly && <p className="ops-muted-line" role="note">Read-only: coordinators can change a meeting until 16:00 on the Friday after it.</p>}
+        {data.manager && data.readOnly && <p className="ops-muted-line" role="note">Read only after Friday, 16:00 UK time.</p>}
         {data.manager && !data.readOnly && !data.confirmation && !data.cancelled && <p className="ops-muted-line">Confirm the agenda before recording decisions and actions.</p>}
         {data.manager && !data.readOnly && data.confirmation && !data.cancelled && <form className="theme-workflow-panel" onSubmit={(event) => { event.preventDefault(); void save({ operation: 'add_action', action: { ...action, projectId: action.projectId || null } }); }}>
           <fieldset disabled={busy}><legend>Record a decision and action</legend>

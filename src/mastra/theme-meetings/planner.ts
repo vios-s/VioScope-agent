@@ -19,6 +19,8 @@ import {
 import { getUserById, getUserByUsername, listUsersForAdmin, type AuthUser } from '../db/users';
 import { notificationEmailEnabled, registeredNotificationEmail, sendNotificationEmail } from '../email';
 import { renderThemeMeetingAgendaEmail, type ConfirmedAgendaEmail } from './agenda-email';
+import { defaultAgenda } from './agenda-template';
+import { themeAgendaTypeLabels } from './schema';
 import { listThemeAgendaSubscriptions } from '../db/theme-agenda-subscriptions';
 import { themeAgendaPreviewRecipients, themeAgendaRecipients } from './agenda-recipients';
 import {
@@ -463,7 +465,7 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
       );
       const submittedEntries = cancelled ? [] : entries.filter((entry) => getUpdateForEntry(updateByMember, entry));
       const missingEntries = cancelled ? [] : entries.filter((entry) => !getUpdateForEntry(updateByMember, entry));
-      const agendaItems = (cancelled ? [] : entries)
+      const submittedItems = (cancelled ? [] : entries)
         .map((entry) => getUpdateForEntry(updateByMember, entry))
         .filter((update): update is ThemeMeetingUpdate => Boolean(update))
         .map((update) => ({
@@ -479,6 +481,7 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
           questions: update.questions,
           submitted_at: update.submitted_at,
         }));
+      const agendaItems = cancelled ? [] : defaultAgenda(submittedItems, meetingDate, theme.theme_id, theme.title);
       const plannedMinutes = agendaItems.reduce((total, item) => total + item.duration_minutes, 0);
 
       return {
@@ -875,7 +878,7 @@ export function renderThemeMeetingPlan(plan: ThemeMeetingPlan): string {
         ? meeting.agenda_items
             .map(
               (item) =>
-                `  - ${item.member}: ${themeUpdateTypeLabels[item.update_type]} (${item.duration_minutes} min) - ${item.progress_text}${
+                `  - ${item.member}: ${themeAgendaTypeLabels[item.update_type]} (${item.duration_minutes} min) - ${item.progress_text}${
                   item.questions ? ` Questions: ${item.questions}` : ''
                 }${item.project_context ? `\n${formatMeetingProject(item.project_context)}` : ''}`,
             )

@@ -29,7 +29,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   const [confirmed, setConfirmed] = useState(false);
   const [createConfirmed, setCreateConfirmed] = useState(false);
   const [initialAction, setInitialAction] = useState('');
-  const [setup, setSetup] = useState({track:'A',piUsername:'',pdraUsername:'',collaborators:''});
+  const [setup, setSetup] = useState({track:'A',piUsername:'',pdraUsername:'',otherPdras:'',collaborators:''});
   const [actionDueDate, setActionDueDate] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [operationBusy, setBusy] = useState(false);
@@ -149,7 +149,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       const target = await ensurePitch();
       const result = await requestJson<{ unchanged?: boolean }>(target, 'Could not save idea check.', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ operation, version: data.current?.version || 0,
-          ...(operation === 'save' ? { title, draft, source } : operation === 'decide' ? { decision, confirmed } : { confirmed: createConfirmed, initialAction: { text: initialAction, dueDate: actionDueDate }, setup: {...setup,piUsername:setup.piUsername||null,pdraUsername:setup.pdraUsername||null,collaborators:setup.collaborators.split(',').map(value=>value.trim()).filter(Boolean)} }) }) });
+          ...(operation === 'save' ? { title, draft, source } : operation === 'decide' ? { decision, confirmed } : { confirmed: createConfirmed, initialAction: { text: initialAction, dueDate: actionDueDate }, setup: {track:setup.track,piUsername:setup.piUsername.split(',').map(v=>v.trim()).filter(Boolean)[0]||null,pdraUsername:setup.pdraUsername||null,piUsernames:setup.piUsername.split(',').map(v=>v.trim()).filter(Boolean),pdraUsernames:[setup.pdraUsername,...setup.otherPdras.split(',')].map(v=>v.trim()).filter(Boolean),collaborators:setup.collaborators.split(',').map(value=>value.trim()).filter(Boolean)} }) }) });
       removeChecklistDraft(storageKey); restored.current = null;
       const payload = await requestJson<IdeaCheckPayload>(target, 'Saved, but could not refresh. Reload to see the saved record.');
       setData(payload); setExportFormat(defaultPitchExportFormat(payload.current?.source?.name)); setTitle(payload.pitch.title); setDraft(ideaDraftSchema.parse(payload.current!.draft)); if (payload.current!.draft.track) setSetup(current => ({ ...current, track: payload.current!.draft.track })); setConfirmed(false); setCreateConfirmed(false);
@@ -168,7 +168,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
   const reviewIsStale = (pitchVersion: number) => JSON.stringify(data?.history.find((revision) => revision.version === pitchVersion)?.draft) !== JSON.stringify(data?.current?.draft);
   return <section className="checklist-record project-idea-check" aria-busy={busy}>
     <div className="checklist-record-main">
-    {conflictingDraft && <section role="status" className="ops-notice"><p>Your local draft is retained separately because the saved version changed. Choose which text to continue with before saving.</p>
+    {conflictingDraft && <section role="status" className="ops-notice"><p>The saved version changed. Choose your local draft or the saved version.</p>
       <div className="checklist-inline-actions">
         <button type="button" className="ops-secondary" onClick={() => { setTitle(conflictingDraft.title); setDraft(conflictingDraft.draft); setSource(conflictingDraft.source); setPasted(conflictingDraft.pasted); setConflictingDraft(null); }}>Restore local draft</button>
         <button type="button" className="ops-secondary" onClick={() => setConflictingDraft(null)}>Use saved version</button>
@@ -192,26 +192,26 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
           </label>
           {resolvedId.current && data.canEdit && <button type="button" className="ops-secondary checklist-quiet-button" disabled={locked} onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" />Delete pitch</button>}
         </div>
-        <p className="checklist-hint">Draft text is kept in this browser tab until sign-out. Use Save pitch draft to save a version. Select uploaded files again after refreshing.</p>
+        <p className="checklist-hint">Draft text stays until sign-out; files must be reselected after refresh.</p>
       </div>
-      {!data.canManage && <p role="status" className="ops-notice">Shared with you · Read only. You can see the latest saved pitch; private history, source documents and AI reviews are not shared.</p>}
+      {!data.canManage && <p role="status" className="ops-notice">Read only · Latest pitch. History, sources and AI reviews are private.</p>}
       {source && <details className="checklist-import"><summary>Source text: {source.name}</summary><pre className="checklist-source-text">{source.text}</pre></details>}
       {data.canEdit && <details className="checklist-import idea-import" open={importOpen} onToggle={event => setImportOpen(event.currentTarget.open)}>
         <summary>Start from an existing document</summary>
-        <p id={`${prefix}-import-hint`} className="checklist-hint">Upload TXT, MD, DOCX, text-based PDF or PPTX (up to 5 MB), or paste up to 32,000 characters. Only exact excerpts are placed into blocks. Check extracted text for missing images or equations.</p>
+        <p id={`${prefix}-import-hint`} className="checklist-hint">32,000 characters max. Text-based PDFs only; check for missing images or equations.</p>
         <fieldset disabled={locked} className="idea-source-inputs"><legend className="vs-sr-only">Upload or paste</legend>
           <label className="idea-dropzone"><Upload aria-hidden="true" /><span className="idea-dropzone-title">Upload pitch document</span><span className="idea-dropzone-hint">{upload ? upload.name : 'TXT, MD, DOCX, PDF or PPTX, up to 5 MB'}</span><input type="file" aria-describedby={`${prefix}-import-hint`} accept=".txt,.md,.docx,.pdf,.pptx" onChange={(event) => { setUpload(event.target.files?.[0] || null); setPreview(null); }} /></label>
-          <label className="idea-paste">Or paste the full pitch <textarea aria-describedby={`${prefix}-import-hint`} rows={5} maxLength={32000} value={pasted} placeholder="Paste text here, then preview the extracted blocks." onChange={(event) => { setPasted(event.target.value); setPreview(null); }} /></label>
+          <label className="idea-paste">Or paste the full pitch <textarea aria-describedby={`${prefix}-import-hint`} rows={5} maxLength={32000} value={pasted} placeholder="Paste pitch text" onChange={(event) => { setPasted(event.target.value); setPreview(null); }} /></label>
           <div className="idea-import-actions">
             <button type="button" className="ops-secondary" disabled={(!upload && !pasted.trim()) || Boolean(upload && pasted.trim())} onClick={() => void prepareImport()}>Preview extracted blocks</button>
             {upload && pasted.trim() && <p>Clear the file or the pasted text to choose one source.</p>}
           </div>
         </fieldset>
         {preview && <div className="idea-preview"><h4>Review extracted blocks before applying</h4>
-          <p>Only exact excerpts are placed into blocks. Missing information stays empty. Applying replaces the current blocks but does not save them.</p>
+          <p>Apply replaces blocks without saving. Missing fields stay empty.</p>
           <details><summary>Extracted source: {preview.source.name}</summary><pre className="checklist-source-text">{preview.source.text}</pre></details>
           <dl>{preview.title && <div><dt>Suggested title</dt><dd>{preview.title}</dd></div>}<div><dt>Track</dt><dd>{preview.draft.track || 'Missing — fill in yourself'}</dd></div>{ideaFields.map((field) => <div key={field.key}><dt>{field.label}</dt><dd>{preview.draft[field.key] || 'Missing — fill in yourself'}</dd></div>)}</dl>
-          {preview.title && preview.title !== title && <p>{title.trim() ? 'The pitch title is kept. Use the suggested title only if it fits better.' : 'The suggested title will fill the empty pitch title.'}</p>}
+          {preview.title && preview.title !== title && <p>{title.trim() ? 'Your title stays unless you choose the suggestion.' : 'The suggestion fills the empty title.'}</p>}
           <div className="checklist-inline-actions">
             <button type="button" className="ops-secondary" disabled={locked} onClick={() => { setDraft(preview.draft); setSource(preview.source); if (!title.trim() && preview.title) setTitle(preview.title); setPreview(null); setConfirmed(false); setCreateConfirmed(false); setStatus('Preview applied to unsaved blocks. Review and save the draft.'); }}>Replace blocks with this preview</button>
             {preview.title && title.trim() && preview.title !== title && <button type="button" className="ops-secondary" disabled={locked} onClick={() => { setTitle(preview.title!); setConfirmed(false); setCreateConfirmed(false); }}>Use suggested title</button>}
@@ -237,30 +237,31 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       </form>
       {data.canManage && (data.pitch.projectId ? <p role="status" className="form-message">Created project: {data.pitch.title}. Find it under Projects.</p> : conversionOpen && <form id={`${prefix}-convert`} className="idea-convert" onSubmit={(event) => { event.preventDefault(); void save('create_project'); }}>
         <fieldset disabled={locked}><legend>Create a project from this pitch</legend>
-          <p>The approved Why becomes the research question, the What becomes the core claim, the De-Risk becomes the validation plan and the Resources become the resource notes. The Context stays with the linked pitch origin. The original approved pitch remains unchanged.</p>
+          <p>Creates a project; locks the approved pitch.</p>
           <p>Approved next milestone: {savedDecision!.nextMilestone}</p>
           <div className="checklist-field-grid">
             <label>Project track<select value={setup.track} onChange={event=>{setSetup({...setup,track:event.target.value});setCreateConfirmed(false);}}><option value="A">Track A — Flagship</option><option value="B">Track B — Momentum</option></select></label>
-            <label>Project PI username<input value={setup.piUsername} onChange={event=>{setSetup({...setup,piUsername:event.target.value});setCreateConfirmed(false);}} placeholder="Optional active PI account" /></label>
-            <label>PDRA reviewer username<input value={setup.pdraUsername} onChange={event=>{setSetup({...setup,pdraUsername:event.target.value});setCreateConfirmed(false);}} placeholder="Optional active reviewer account" /></label>
+            <label>Project PI usernames (required)<input required value={setup.piUsername} onChange={event=>{setSetup({...setup,piUsername:event.target.value});setCreateConfirmed(false);}} placeholder="Comma-separated active PI accounts" /></label>
+            <label>Lead PDRA reviewer username (required)<input required value={setup.pdraUsername} onChange={event=>{setSetup({...setup,pdraUsername:event.target.value});setCreateConfirmed(false);}} placeholder="Required active reviewer account" /></label>
+            <label>Other PDRA usernames<input value={setup.otherPdras} onChange={event=>{setSetup({...setup,otherPdras:event.target.value});setCreateConfirmed(false);}} placeholder="Comma-separated optional reviewer accounts" /></label>
             <label>Project collaborator usernames<input value={setup.collaborators} onChange={event=>{setSetup({...setup,collaborators:event.target.value});setCreateConfirmed(false);}} placeholder="Comma-separated account usernames" /></label>
           </div>
-          <p>Confirm project access separately. Pitch viewers and the approving PI are not assigned automatically.</p>
+          <p>Assign project access here; pitch access does not carry over.</p>
           <label>First next action <textarea required maxLength={240} rows={2} value={initialAction} onChange={(event) => { setInitialAction(event.target.value); setCreateConfirmed(false); }} /></label>
           <label className="checklist-field-narrow">Action deadline <input required type="date" value={actionDueDate} onChange={(event) => { setActionDueDate(event.target.value); setCreateConfirmed(false); }} /></label>
-          <p>@{data.pitch.ownerUsername} is responsible for this action. Manage further tasks in Projects. Attach the project when submitting a theme meeting update.</p>
+          <p>Action owner: @{data.pitch.ownerUsername}. Manage tasks in Projects.</p>
           <label className="checklist-confirm"><input type="checkbox" required checked={createConfirmed} onChange={(event) => setCreateConfirmed(event.target.checked)} /> I confirm this approved pitch should now become a project.</label>
           <button type="submit" className="ops-primary" disabled={!createConfirmed}>Create project</button>
         </fieldset>
       </form>)}
       {(data.canEdit || data.canManage) && <div className="checklist-action-bar">
         <span className={`checklist-bar-state${dirty ? ' is-dirty' : data.current ? '' : ' is-idle'}`}>{dirty ? (changedBlocks ? `Unsaved changes in ${changedBlocks} block${changedBlocks === 1 ? '' : 's'}` : 'Unsaved changes') : data.current ? 'All changes saved' : 'Not saved yet'}</span>
-        {data.canManage && savedDecision?.outcome === 'proceed' && (canExport ? <div className="checklist-export idea-export" aria-label="Download approved pitch" role="group" title="Downloads the confirmed title, pitch sections and human decision. Old drafts, source text and AI review history are excluded.">
+        {data.canManage && savedDecision?.outcome === 'proceed' && (canExport ? <div className="checklist-export idea-export" aria-label="Download approved pitch" role="group" title="Approved title, sections and decision only; excludes drafts, sources and AI reviews.">
           <label>Download format <select value={exportFormat} disabled={locked} onChange={(event) => setExportFormat(event.target.value as PitchExportFormat)}>
             <option value="docx">Word (.docx)</option><option value="pdf">PDF (.pdf)</option><option value="md">Markdown (.md)</option><option value="txt">Plain text (.txt)</option>
           </select></label>
           <button type="button" className="ops-secondary" disabled={locked} onClick={() => void downloadPitch()}><Download aria-hidden="true" />Download approved pitch</button>
-        </div> : <span className="checklist-bar-note">Export is available after saving and confirming a human Proceed decision.</span>)}
+        </div> : <span className="checklist-bar-note">Export requires a saved Proceed decision.</span>)}
         {data.canManage && !data.pitch.projectId && (conversionOpen
           ? <a className="ops-secondary checklist-link-button" href={`#${prefix}-convert`}>Convert to project</a>
           : <button type="button" className="ops-secondary" disabled title="Available after a saved Proceed decision">Convert to project</button>)}
@@ -278,10 +279,10 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
           const readiness = reviewReadiness(data.reviews[0].report);
           return <div className="idea-readiness">
             <span className={`checklist-advice-status is-${readinessTone[readiness.tone]}`}>{readiness.label}</span>
-            <small className="checklist-advice-meta">Derived by a fixed rule from the saved review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span>{reviewIsStale(data.reviews[0].pitchVersion) ? ', before the latest changes' : ''}. It is not a decision.</small>
+            <small className="checklist-advice-meta">Based on review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span>{reviewIsStale(data.reviews[0].pitchVersion) ? ', before the latest changes' : ''}. Advisory only.</small>
           </div>;
         })()}
-        <p className="checklist-advice-meta">{data.reviews[0] ? <>Latest review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span> · <span className="vs-mono">{formatDayTime(data.reviews[0].at)}</span>. </> : 'No AI review yet. '}The agent gives suggestions on evidence and feasibility. It cannot approve, decide or change a stage.</p>
+        <p className="checklist-advice-meta">{data.reviews[0] ? <>Latest review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span> · <span className="vs-mono">{formatDayTime(data.reviews[0].at)}</span>. </> : 'No AI review yet. '}Advisory only; approval is separate.</p>
         {data.reviews.map((review) => <details key={review.id} className="idea-review" open={review === data.reviews[0]}>
           <summary>Review of <span className="vs-mono">v{review.pitchVersion}</span> · {reviewHeadline(review.report)}{reviewIsStale(review.pitchVersion) ? ' · Draft changed — review again' : ''}</summary>
           <IdeaReviewReport report={review.report} />
@@ -293,12 +294,12 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
       </section>}
       <section className="checklist-step idea-decision" aria-labelledby={`${prefix}-decision-heading`}>
         <h3 id={`${prefix}-decision-heading`}>Human decision</h3>
-        <p>Proceed, Revise or Stop, with a reason and next milestone, recorded by a person after reviewing the saved draft. AI feedback alone is not approval.</p>
+
         <p className="checklist-step-state">{savedDecision ? <Check aria-hidden="true" /> : <Clock aria-hidden="true" />}<span><strong>{savedDecision ? `Current decision: ${ideaOutcomeLabels[savedDecision.outcome]}` : data.current ? 'Awaiting a human decision' : 'Save a draft before a decision'}</strong>{dirty && data.current ? ' · Unsaved changes' : ''}</span></p>
         {savedDecision && <dl className="idea-decision-record"><div><dt>Reason / evidence</dt><dd>{savedDecision.rationale}</dd></div><div><dt>Next milestone or closure</dt><dd>{savedDecision.nextMilestone}</dd></div></dl>}
         {data.canEdit && <form onSubmit={(event) => { event.preventDefault(); void save('decide'); }}>
           <fieldset disabled={locked || !data.current || dirty}><legend className="vs-sr-only">Record the human decision</legend>
-            <p className="checklist-hint">Record the outcome agreed with the supervisory team. After Proceed, download the approved document or create a project. High risk or an early negative result alone is not a reason to stop.</p>
+            <p className="checklist-hint">Risk or early negative results alone do not justify stopping.</p>
             <label>Decision <select value={decision.outcome} onChange={(event) => { setDecision({ ...decision, outcome: event.target.value as IdeaDecision['outcome'] }); setConfirmed(false); setCreateConfirmed(false); }}>
               <option value="revise">Revise and test again</option><option value="proceed">Proceed with this scope</option><option value="stop">Stop this idea</option>
             </select></label>
@@ -310,7 +311,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
           </fieldset>
           {(!data.current || dirty) && <p className="checklist-advice-meta">Save your draft before recording a decision.</p>}
         </form>}
-        {data.canManage && !data.canEdit && <p>This pitch has become a project. Its original approval record is read only and cannot be deleted.</p>}
+        {data.canManage && !data.canEdit && <p>Converted · Read only; cannot be deleted.</p>}
       </section>
       {data.canManage && data.pitch.id && <IdeaPitchSharing pitchId={data.pitch.id} owner={data.pitch.ownerUsername} collaborators={data.collaborators} disabled={locked} onBusyChanged={setSharingBusy} onChanged={async () => {
         const payload = await requestJson<IdeaCheckPayload>(url, 'Sharing changed, but could not refresh the collaborator list.');

@@ -9,6 +9,8 @@ import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import type { AuthUser } from '../../../src/mastra/db/users';
 import {
   chatSessionAccess,
+  chatHistoryForUser,
+  parseMentionUsernames,
   saveChatTurn,
   shareChatSessionWithMentions,
   type ChatMentionResult,
@@ -181,12 +183,14 @@ export async function POST(request: Request) {
     }
 
     const threadId = text(body.threadId) || `web-${randomUUID()}`;
-    // Access is checked before any model call. Shared members continue the owner's thread, so memory uses the owner's resource.
+    // Authorize before loading either public conversation history or private context.
     const access = await chatSessionAccess(threadId, user.id);
     if (access && !access.member) {
       throw new AuthError('This chat session was not found or is not shared with you.', 404, 'not_found');
     }
-    const memoryResource = access?.ownerUserId || user.id;
+    const privateSession = (!access || !access.shared && access.ownerUserId === user.id)
+      && !parseMentionUsernames(message).some(name => name !== user.username);
+    const history = await chatHistoryForUser(threadId, user.id);
     if (isClearlyOutOfScope(message)) {
       const text = vioscopeChatPolicyConfig.scopeRefusal;
       const mentions = await persistChatAndMentions({
@@ -209,19 +213,20 @@ export async function POST(request: Request) {
     }
 
     const agent = mastra.getAgent('vioscopeAgent');
-    const userDatastoreContext = await loadUserDatastoreContext(user);
+    const userDatastoreContext = privateSession ? await loadUserDatastoreContext(user) : null;
     const preloadedWikiContext = shouldExpandWikiQuery(message) ? await searchWiki(message, 5) : null;
     const agentMessage = messageWithUserContext(message, user, userDatastoreContext, preloadedWikiContext);
     const requestContext = new RequestContext<VioScopeRequestContext>();
     requestContext.set('vioscope-user', user);
     let response: Awaited<ReturnType<typeof agent.generate>>;
     let responseThreadId = threadId;
-    let useMemory = true;
+
     const generate = (input: string) => agent.generate(input, {
       maxSteps: 5,
       providerOptions: openAIProviderOptions,
       requestContext,
-      ...(useMemory ? { memory: { thread: threadId, resource: memoryResource } } : {}),
+      // Do not reopen Mastra history: legacy turns can contain private notes and tool results.
+      context: history,
     });
 
     try {
@@ -232,7 +237,6 @@ export async function POST(request: Request) {
       }
 
       responseThreadId = `web-${randomUUID()}`;
-      useMemory = false;
       response = await generate(agentMessage);
     }
     // System-owned answers are English whatever language is requested; regenerate once if the answer is not.
@@ -248,6 +252,7 @@ export async function POST(request: Request) {
       answer: response.text,
       status: refusalPattern.test(response.text) ? 'refusal' : 'answer',
       sources,
+      requiresPrivateSession: privateSession,
     });
 
     return NextResponse.json({
@@ -279,6 +284,7 @@ async function persistChatAndMentions(input: {
   answer: string;
   status: 'answer' | 'refusal';
   sources: ChatSource[];
+  requiresPrivateSession?: boolean;
 }): Promise<ChatMentionResult> {
   await saveChatTurn({
     sessionId: input.threadId,
@@ -287,6 +293,7 @@ async function persistChatAndMentions(input: {
     assistantText: input.answer,
     assistantStatus: input.status,
     sources: input.sources,
+    requiresPrivateSession: input.requiresPrivateSession,
   });
   const mentions = await shareChatSessionWithMentions({
     sessionId: input.threadId,

@@ -47,7 +47,7 @@ const plan = themeMeetingPlanSchema.parse({
 });
 const state = { confirmations: [], actions: [] };
 const confirmed = confirmAgenda(state, plan.meetings[0], base.meeting_date, [{ username: 'alice', minutes: 5, deferred: false }], 'chair');
-assert.throws(() => confirmAgenda(state, plan.meetings[0], base.meeting_date, [{ username: 'alice', minutes: 10, deferred: false }], 'chair'), /5 minutes/);
+assert.throws(() => confirmAgenda(state, plan.meetings[0], base.meeting_date, [{ username: 'alice', minutes: 10, deferred: false }], 'chair'), /5–7 minutes/);
 project.stage = 4;
 assert.equal(snapshot.stage, 3);
 assert.equal(confirmed.entries[0].project_context!.stage, 3);

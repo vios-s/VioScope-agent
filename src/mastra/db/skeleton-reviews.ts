@@ -1,3 +1,4 @@
+import {projectPIs} from '../projects/review-team';
 import { isDeepStrictEqual } from 'node:util';
 import { AuthError, canSeeAll } from '../auth/session';
 import type { AuthUser } from './users';
@@ -74,8 +75,8 @@ export async function decideSkeletonReview(id: string, input: unknown, user: Aut
     // Separation of duties: the owner never judges their own project, one person never records both steps, and an
     // administrator who is not the assigned reviewer acts only through an explicit, recorded override.
     if (project.ownerUsername === user.username) throw new AuthError('The project owner cannot record the PDRA judgment or PI confirmation for their own project.', 403, 'forbidden');
-    const assigned = command.kind === 'pdra' ? project.pdraUsername : project.piUsername;
-    const override = assigned !== user.username;
+    const assigned = command.kind === 'pdra' ? project.pdraUsername === user.username : projectPIs(project).includes(user.username);
+    const override = !assigned;
     if (override && (user.role !== 'administrator' || !command.override)) throw new AuthError(command.kind === 'pdra'
       ? 'Only the assigned PDRA can record the PDRA judgment. An administrator may record it only as an explicit administrator override.'
       : 'Only the project PI can record the confirmation. An administrator may record it only as an explicit administrator override.', 403, 'forbidden');

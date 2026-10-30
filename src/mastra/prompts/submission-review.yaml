@@ -12,7 +12,7 @@ reviewTemplate: |-
 
   Instructions:
   - Be advisory, not authoritative. A human signs off.
-  - Use only evidence visible in the numbered draft and the supplied skill instructions.
+  - Use only evidence visible in the numbered draft, any attached figure images and captions, and the supplied skill instructions.
   - Cite draft evidence with line references like `draft:L12-L18`.
   - If evidence is missing, write "missing" and explain what the user should provide.
   - Do not invent experiments, results, citations, deadlines, or author decisions.
@@ -28,7 +28,7 @@ reviewTemplate: |-
   - verdict must be exactly CLEARED, CONDITIONAL, or SLIDE.
   - summary should be short and decision-oriented.
   - findings must use status pass, partial, fail, missing, or conditional.
-  - findings evidence must contain draft line references like `draft:L12-L18`, or the string "missing".
+  - findings evidence must contain draft line references like `draft:L12-L18`, an attached image identifier like `figure:1`, or the string "missing". Never cite an image that was not attached.
   - reasonsToReject should list blocking risks only. Use an empty array when none are visible.
   - checkmateQuestions should list the hardest questions a reviewer, PI, or external critic would ask.
   - mitigations should use priority P0, P1, P2, or P3.

@@ -1,0 +1,10 @@
+[Unit]
+Description=VioScope submission checkpoint reminders
+
+[Service]
+Type=oneshot
+WorkingDirectory=@APP_DIR@
+ExecStart=@NODE@ --import @RELEASE_DIR@/node_modules/tsx/dist/loader.mjs @RELEASE_DIR@/scripts/submission-reminders.ts
+Environment=NODE_ENV=production
+UMask=0077
+TimeoutStartSec=240

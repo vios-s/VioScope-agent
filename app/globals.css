@@ -2971,6 +2971,9 @@ button.notification-row:hover {
 
 .collaborator-field {
   position: relative;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
 }
 
 .collaborator-suggestions {

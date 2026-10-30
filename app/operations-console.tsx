@@ -1,4 +1,5 @@
 'use client';
+import { isAgendaPlaceholder } from '../src/mastra/theme-meetings/schema';
 
 import { checklistDraftKey, clearChecklistDrafts, useChecklistDraft } from './checklist-drafts';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type RefObject } from 'react';
@@ -48,6 +49,10 @@ import { ConfirmDialog } from './confirm-dialog';
 import * as fmt from './format';
 import { ArrowUp as ChatSendIcon, Compass as ChatAdvisorIcon } from 'lucide-react';
 import { SkeletonLock } from './skeleton-lock';
+import { CollaboratorInput, collaboratorTokens } from './collaborator-input';
+import { ProjectReviewTeamFields } from './project-reviewer-fields';
+import {projectPIs,projectPDRAs} from '../src/mastra/projects/review-team';
+import { InternalReview } from './internal-review';
 import { IdeaPitches } from './idea-pitches';
 import { ProjectIdeaOrigin } from './project-idea-origin';
 import { ProjectWorkflow, type WorkflowTab } from './project-workflow';
@@ -120,7 +125,8 @@ type ChatMentionResult = {
 
 type ChatNotification = {
   id: string;
-  type: 'chat_mention' | 'feedback_reply';
+  type: 'chat_mention' | 'feedback_reply' | 'internal_review';
+  projectId?: string | null;
   title: string;
   body: string;
   // Chat mentions open the shared session; feedback replies open Feedback at that request.
@@ -230,6 +236,8 @@ type ManagedProject = {
   collaborators: string[];
   piUsername: string | null;
   pdraUsername: string | null;
+  piUsernames?: string[];
+  pdraUsernames?: string[];
   track: string;
   stage: number;
   stageProgress: number;
@@ -275,7 +283,8 @@ type ProjectDraft = {
   title: string;
   ownerUsername: string;
   collaboratorsText: string;
-  piUsername: string;
+  piUsernames: string[];
+  pdraUsernames: string[];
   pdraUsername: string;
   track: ProjectTrack;
   stage: string;
@@ -539,7 +548,7 @@ type SettingsTab =
   | 'about';
 type PasswordStrength = 'weak' | 'medium' | 'strong';
 type AppInfo = { version: string; buildId: string | null };
-type ChecklistTemplateId = 'idea' | 'skeleton';
+type ChecklistTemplateId = 'idea' | 'skeleton' | 'internal';
 
 const notificationPreferenceRows: Array<{
   key: NotificationPreferenceTopic;
@@ -558,7 +567,7 @@ const notificationPreferenceRows: Array<{
   {
     key: 'project_progress_reminders',
     title: 'Project progress reminders',
-    desc: 'Bi-weekly project update nudges before theme meetings.',
+    desc: 'Project update and submission checkpoint reminders.',
   },
   {
     key: 'theme_meeting_reminders',
@@ -581,7 +590,7 @@ const notificationPreferenceRows: Array<{
   {
     key: 'feedback_replies',
     title: 'Feedback replies',
-    desc: 'When an administrator replies to your feedback or changes its status.',
+    desc: 'Replies and status changes to your feedback.',
   },
 ];
 
@@ -672,6 +681,7 @@ const themeMeetingReminderRows = [
 const checklistTemplates: Array<{ id: ChecklistTemplateId; label: string }> = [
   { id: 'idea', label: 'Idea Pitch' },
   { id: 'skeleton', label: 'Skeleton Lock' },
+  { id: 'internal', label: 'Internal Review' },
 ];
 
 // Assignable roles. Coordinator is not a role: it comes from Settings → Theme meeting (coordinator_user).
@@ -768,7 +778,8 @@ function projectDraftFromProject(project: ManagedProject | null, viewer: Current
     title: project?.title || '',
     ownerUsername,
     collaboratorsText: project?.collaborators.join(', ') || '',
-    piUsername: project?.piUsername || '',
+    piUsernames: project ? projectPIs(project) : [],
+    pdraUsernames: project ? projectPDRAs(project) : [],
     pdraUsername: project?.pdraUsername || '',
     track: project?.track === 'B' ? 'B' : 'A',
     stage: String(project?.stage || 1),
@@ -793,7 +804,8 @@ function projectRequestBody(draft: ProjectDraft) {
     title: draft.title,
     ownerUsername: draft.ownerUsername,
     collaborators: collaboratorTokens(draft.collaboratorsText),
-    piUsername: draft.piUsername || null,
+    piUsernames: draft.piUsernames,
+    pdraUsernames: draft.pdraUsernames,
     pdraUsername: draft.pdraUsername || null,
     track: draft.track,
     stage: Number(draft.stage),
@@ -900,24 +912,6 @@ function inferArtifactKind(fileName: string) {
   return 'other';
 }
 
-function collaboratorTokens(value: string) {
-  return value
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function activeCollaboratorToken(value: string) {
-  const parts = value.split(',');
-  return (parts.at(-1) || '').trim().toLowerCase();
-}
-
-function withSelectedCollaborator(value: string, username: string) {
-  const parts = value.split(',');
-  parts[parts.length - 1] = ` ${username}`;
-  return `${parts.map((part) => part.trim()).filter(Boolean).join(', ')}, `;
-}
-
 function projectNeedsAttention(project: ManagedProject) {
   return project.needsUpdate || project.recommendation !== 'none' || project.status !== 'on_track' || Boolean(project.blocker);
 }
@@ -925,10 +919,10 @@ function projectNeedsAttention(project: ManagedProject) {
 /** Why projectNeedsAttention holds, in plain words; a non-on-track status is already shown by its own chip. */
 function projectAttentionReasons(project: ManagedProject) {
   return [
-    project.blocker ? 'Blocker recorded' : null,
+    project.blocker ? 'Blocker' : null,
     project.needsUpdate ? 'Update due' : null,
     project.attentionReason?.includes('deadline soon') ? 'Deadline soon' : null,
-    project.recommendation === 'deep_dive' ? 'Deep Dive suggested' : project.recommendation === 'short_update' ? 'Update slot suggested' : null,
+    project.recommendation === 'deep_dive' ? 'Deep Dive suggested' : project.recommendation === 'short_update' ? 'Update suggested' : null,
   ].filter((reason): reason is string => Boolean(reason));
 }
 
@@ -1573,7 +1567,7 @@ function WelcomeDialog({
           </button>
         </header>
 
-        <p id={descriptionId}>VioScope keeps your projects, theme meetings and checklists in one place. Its advice is advisory; you decide.</p>
+        <p id={descriptionId}>Manage your projects, meetings and reviews.</p>
 
         <ol className="welcome-task-list">
           <li>
@@ -1589,7 +1583,7 @@ function WelcomeDialog({
             <FileText aria-hidden="true" />
             <div>
               <strong>Keep your projects current.</strong>
-              <p>Record progress and materials so briefings and suggestions reflect your real work.</p>
+              <p>Add progress updates and materials.</p>
             </div>
           </li>
           <li>
@@ -1604,7 +1598,7 @@ function WelcomeDialog({
               <ClipboardList aria-hidden="true" />
               <div>
                 <strong>{manager ? 'Review agendas and accounts.' : 'Confirm your theme agenda.'}</strong>
-                <p>{manager ? 'Confirm theme agendas, and manage members and lab settings in Settings.' : 'Confirm the agenda and manage members for the themes you coordinate.'}</p>
+                <p>{manager ? 'Confirm agendas and manage accounts in Settings.' : 'Confirm agendas and manage your theme members.'}</p>
               </div>
             </li>
           )}
@@ -1694,7 +1688,7 @@ function PromptCopyButton({ prompt, label }: { prompt: string; label: string }) 
   }
 
   const text = !ready ? 'Prompt loading' : state === 'copied' ? 'Copied' : state === 'failed' ? 'Copy failed' : 'Copy AI prompt';
-  const tooltip = state === 'failed' ? 'Your browser blocked the clipboard. Try again.' : 'Copies a ready-made prompt to paste into an AI assistant. Nothing is sent from VioScope.';
+  const tooltip = state === 'failed' ? 'Your browser blocked the clipboard. Try again.' : 'Copy a prompt for your AI assistant; nothing is sent.';
 
   return (
     <button className="prompt-copy-button" type="button" disabled={!ready} onClick={copyPrompt} aria-label={label} title={tooltip} data-state={state}>
@@ -1757,7 +1751,7 @@ function AuthFrame({ children }: { children: ReactNode }) {
           </div>
           {children}
         </section>
-        <p className="vs-auth-footer">VIOS Lab · Internal tool. Access is restricted to VIOS Lab members.</p>
+        <p className="vs-auth-footer">VIOS Lab · Members only</p>
       </div>
     </main>
   );
@@ -1765,7 +1759,7 @@ function AuthFrame({ children }: { children: ReactNode }) {
 
 function AuthLoading() {
   return (
-    <main className="vs-auth" role="status" aria-live="polite">
+    <main className="vs-session-loading" role="status" aria-live="polite">
       <span className="vs-auth-loading">Checking session…</span>
     </main>
   );
@@ -1826,7 +1820,7 @@ function LoginView({ onLogin, initialError }: { onLogin: (user: CurrentUser) => 
         <form className="auth-form" onSubmit={requestTemporaryPassword}>
           <div>
             <h1>Reset password</h1>
-            <p>Enter your username or registered email. We will email a one-time temporary password that expires in 15 minutes.</p>
+            <p>We will email a one-time password valid for 15 minutes.</p>
           </div>
           <label>
             <span>Username or email</span>
@@ -1856,7 +1850,7 @@ function LoginView({ onLogin, initialError }: { onLogin: (user: CurrentUser) => 
       <form className="auth-form" onSubmit={submit}>
         <div>
           <h1>Sign in</h1>
-          <p>Use your VioScope account username and password.</p>
+
         </div>
         <label>
           <span>Username</span>
@@ -2218,8 +2212,9 @@ function formatShortDate(value: string | null) {
 function ProjectRecordRail({ project, checkpoints, linked, showPeople = true }: { project: ManagedProject; checkpoints?: ReactNode; linked?: ReactNode; showPeople?: boolean }) {
   const people: Array<[string, string]> = [
     ['Owner', `@${project.ownerUsername}`],
-    ['PI', project.piUsername ? `@${project.piUsername}` : 'Not assigned'],
-    ['PDRA reviewer', project.pdraUsername ? `@${project.pdraUsername}` : 'Not assigned'],
+    ['PIs', projectPIs(project).map(u=>`@${u}`).join(', ')||'Not assigned'],
+    ['Lead PDRA', project.pdraUsername ? `@${project.pdraUsername}` : 'Not assigned'],
+    ['Other PDRAs', projectPDRAs(project).filter(u=>u!==project.pdraUsername).map(u=>`@${u}`).join(', ')||'None'],
     ['Collaborators', project.collaborators.join(', ') || 'None'],
   ];
   return (
@@ -2263,61 +2258,8 @@ function ProjectRecordRail({ project, checkpoints, linked, showPeople = true }: 
   );
 }
 
-function CollaboratorInput({
-  value,
-  onChange,
-  users,
-  className = '',
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  users: MentionableUser[];
-  className?: string;
-}) {
-  const [focused, setFocused] = useState(false);
-  const token = activeCollaboratorToken(value);
-  const existing = new Set(collaboratorTokens(value).map((item) => item.toLowerCase()));
-  const suggestions = users
-    .filter((user) => !existing.has(user.username.toLowerCase()))
-    .filter((user) => {
-      if (!token) return true;
-      return user.username.toLowerCase().includes(token) || user.displayName.toLowerCase().includes(token);
-    })
-    .slice(0, 5);
-
-  return (
-    <label className={['collaborator-field', className].filter(Boolean).join(' ')}>
-      <span>Collaborators</span>
-      <input
-        value={value}
-        onFocus={() => setFocused(true)}
-        onBlur={() => window.setTimeout(() => setFocused(false), 120)}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="yuyang, external collaborator"
-      />
-      {focused && suggestions.length > 0 && (
-        <div className="collaborator-suggestions">
-          {suggestions.map((user) => (
-            <button key={user.id} type="button" onMouseDown={() => onChange(withSelectedCollaborator(value, user.username))}>
-              <strong>{user.displayName}</strong>
-              <span>@{user.username}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </label>
-  );
-}
-
-function ProjectReviewerFields({ draft, users, onChange }: { draft: ProjectDraft; users: MentionableUser[]; onChange: (patch: Partial<ProjectDraft>) => void }) {
-  return <>
-    <label><span>Project PI</span><select value={draft.piUsername} onChange={event => onChange({ piUsername: event.target.value })}>
-      <option value="">Not assigned</option>{users.filter(user => user.role === 'pi' || user.role === 'administrator').map(user => <option key={user.id} value={user.username}>@{user.username}</option>)}
-    </select></label>
-    <label><span>Assigned PDRA reviewer</span><select value={draft.pdraUsername} onChange={event => onChange({ pdraUsername: event.target.value })}>
-      <option value="">Not assigned</option>{users.filter(user => user.username !== draft.ownerUsername).map(user => <option key={user.id} value={user.username}>@{user.username}</option>)}
-    </select></label>
-  </>;
+function ProjectReviewerFields({ draft, users, onChange, required }: { required: boolean; draft: ProjectDraft; users: MentionableUser[]; onChange: (patch: Partial<ProjectDraft>) => void }) {
+  return <ProjectReviewTeamFields required={required} team={draft} owner={draft.ownerUsername} users={users} onChange={team=>onChange(team)}/>;
 }
 
 function ProjectEditorModal({
@@ -2460,7 +2402,26 @@ function ProjectEditorModal({
               </output>
             </div>
           )}
-          <ProjectReviewerFields draft={draft} users={collaboratorUsers} onChange={patch => setDraft(current => ({ ...current, ...patch }))} />
+          {(isNew || viewer.role === 'administrator') && (
+              <label className="full">
+                <span>Slug</span>
+                <input
+                  required={isNew}
+                  value={draft.project}
+                  onChange={(event) => {
+                    const nextSlug = slugifyProjectName(event.target.value);
+                    setSlugTouched(true);
+                    setDraft((current) => ({
+                      ...current,
+                      project: event.target.value,
+                      watchPath: generatedWatchPath(current.ownerUsername, nextSlug),
+                    }));
+                  }}
+                  placeholder="toy-segmentation"
+                />
+              </label>
+          )}
+          <ProjectReviewerFields required={isNew} draft={draft} users={collaboratorUsers} onChange={patch => setDraft(current => ({ ...current, ...patch }))} />
           <CollaboratorInput
             value={draft.collaboratorsText}
             users={collaboratorUsers}
@@ -2503,7 +2464,7 @@ function ProjectEditorModal({
               list="venue-hints"
             />
             <datalist id="venue-hints">
-              {['NeurIPS', 'ICML', 'ICLR', 'CVPR', 'ECCV', 'AAAI', 'ToyConf'].map((venue) => (
+              {['NeurIPS', 'ICML', 'ICLR', 'CVPR', 'ECCV', 'AAAI'].map((venue) => (
                 <option key={venue} value={venue} />
               ))}
             </datalist>
@@ -2528,31 +2489,12 @@ function ProjectEditorModal({
             />
           </label>
           {viewer.role === 'administrator' && (
-            <details className="vs-advanced full">
-              <summary>Advanced</summary>
-              <label>
-                <span>Slug</span>
-                <input
-                  value={draft.project}
-                  onChange={(event) => {
-                    const nextSlug = slugifyProjectName(event.target.value);
-                    setSlugTouched(true);
-                    setDraft((current) => ({
-                      ...current,
-                      project: nextSlug,
-                      watchPath: generatedWatchPath(current.ownerUsername, nextSlug),
-                    }));
-                  }}
-                  placeholder="toy-segmentation"
-                />
-              </label>
-              <div className="readonly-field readonly-path-field">
-                <span>Watch path</span>
-                <output aria-label="Watch path" className="readonly-value readonly-path-value">
-                  {generatedWatchPath(draft.ownerUsername, slugifyProjectName(draft.project || draft.title)) || 'Generated after naming'}
-                </output>
-              </div>
-            </details>
+            <div className="readonly-field readonly-path-field full">
+              <span>Watch path</span>
+              <output aria-label="Watch path" className="readonly-value readonly-path-value">
+                {generatedWatchPath(draft.ownerUsername, slugifyProjectName(draft.project || draft.title)) || 'Generated after naming'}
+              </output>
+            </div>
           )}
         </div>
 
@@ -2633,6 +2575,10 @@ function ProjectDetailModal({
   useEffect(() => {
     setMode(initialMode);
   }, [initialMode, project.id]);
+
+  useEffect(() => {
+    if (editingUpdateId) document.getElementById(`project-update-heading-${project.id}`)?.focus();
+  }, [editingUpdateId, project.id]);
 
   useEffect(() => {
     setArtifactToRemove(null);
@@ -2892,7 +2838,7 @@ function ProjectDetailModal({
           <div className="vs-section-head">
             <div>
               <h2>Materials</h2>
-              <p>VioScope reads the current summaries by default.</p>
+
             </div>
           </div>
           <div className="artifact-list">
@@ -2969,134 +2915,6 @@ function ProjectDetailModal({
 
         {mode === 'progress' && (
           <div className="project-progress-layout">
-        {project.access.canAddUpdate && (
-          <form className="project-update-form" onSubmit={submitUpdate} aria-labelledby={`project-update-heading-${project.id}`}>
-            <div className="vs-form-head full">
-              <h3 id={`project-update-heading-${project.id}`}>{editingUpdateId ? 'Edit update' : 'Add update'}</h3>
-              <p>{project.title}</p>
-            </div>
-            <label>
-              <span>Type</span>
-              <select value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as ProjectUpdateType }))}>
-                {(Object.keys(projectUpdateTypeLabels) as ProjectUpdateType[]).map((type) => (
-                  <option key={type} value={type}>
-                    {projectUpdateTypeLabels[type]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Date</span>
-              <input type="date" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} />
-            </label>
-            <label>
-              <span>Stage</span>
-              <select value={draft.stage} onChange={(event) => setDraft((current) => ({ ...current, stage: event.target.value }))}>
-                {[1, 2, 3, 4, 5].map((stage) => (
-                  <option key={stage} value={stage}>
-                    {stageLabels[stage]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>Stage progress (%)</span>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={draft.stageProgress}
-                onChange={(event) => setDraft((current) => ({ ...current, stageProgress: event.target.value }))}
-              />
-            </label>
-            <label>
-              <span>Status</span>
-              <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as ProjectStatus }))}>
-                {(Object.keys(statusLabels) as ProjectStatus[]).map((status) => (
-                  <option key={status} value={status}>
-                    {statusLabels[status]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={draft.milestone}
-                onChange={(event) => setDraft((current) => ({ ...current, milestone: event.target.checked }))}
-              />
-              <span>Milestone reached</span>
-            </label>
-            <div className="prompt-field full">
-              <div className="prompt-field-head">
-                <label htmlFor={targetFieldId}>Target</label>
-                <PromptCopyButton prompt={projectTargetPrompt(uiCopyPrompts, project)} label="Copy AI prompt for target" />
-              </div>
-              <textarea id={targetFieldId} rows={2} value={draft.target} onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))} />
-            </div>
-            <div className="prompt-field full">
-              <div className="prompt-field-head">
-                <label htmlFor={blockerFieldId}>Blocker</label>
-                <PromptCopyButton prompt={projectBlockerPrompt(uiCopyPrompts, project)} label="Copy AI prompt for blocker" />
-              </div>
-              <textarea id={blockerFieldId} rows={2} value={draft.blocker} onChange={(event) => setDraft((current) => ({ ...current, blocker: event.target.value }))} />
-            </div>
-            <div className="prompt-field full">
-              <div className="prompt-field-head">
-                <label htmlFor={progressFieldId}>Progress text ({countWords(draft.text)}/50 words)</label>
-                <PromptCopyButton prompt={projectProgressPrompt(uiCopyPrompts, project)} label="Copy AI prompt for progress" />
-              </div>
-              <textarea id={progressFieldId} rows={4} value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} />
-            </div>
-            <div className="full artifact-upload-field">
-              <span>{editingUpdateId ? 'Attach file or image' : 'Attach material or image'}</span>
-              <span className="artifact-upload-row">
-                <input
-                  id={`artifact-upload-${project.id}`}
-                  type="file"
-                  accept="image/png,image/jpeg,image/gif,image/webp,.docx,.pptx,.pdf,.zip,.md,.markdown,.txt,.tex,.latex,.rst,.csv,.json,.yaml,.yml"
-                  onChange={(event) => {
-                    const file = event.currentTarget.files?.[0] || null;
-                    if (file && file.size > projectArtifactMaxBytes) {
-                      event.currentTarget.value = '';
-                      setError('File is too large. The limit is 20 MB.');
-                      setDraft((current) => ({ ...current, artifactFile: null, artifactFileName: '' }));
-                      return;
-                    }
-                    setError(null);
-                    setDraft((current) => ({ ...current, artifactFile: file, artifactFileName: file?.name || '' }));
-                  }}
-                />
-                <label className="ops-secondary" htmlFor={`artifact-upload-${project.id}`} aria-label="Choose material or image" title="Choose material or image">
-                  <Upload aria-hidden="true" />
-                </label>
-                <strong>{draft.artifactFileName || 'No file selected'}</strong>
-                {draft.artifactFileName && <small>{titleCase(inferArtifactKind(draft.artifactFileName))}</small>}
-              </span>
-            </div>
-            {uploadProgress !== null && (
-              <div className="upload-progress full">
-                <span style={{ width: `${uploadProgress}%` }} />
-                <strong>{uploadProgress < 100 ? `Uploading ${uploadProgress}%` : 'Upload complete. Summarising…'}</strong>
-              </div>
-            )}
-            {error && <div className="form-message error full" role="alert">{error}</div>}
-            {notice?.kind === 'update' && <p className="form-message full" role="status">{notice.text}</p>}
-            <div className="vs-form-footer full">
-              <p>Saving adds an entry to the project history. It does not record a checkpoint decision.</p>
-              {editingUpdateId && (
-                <button className="ops-secondary" type="button" onClick={() => { setEditingUpdateId(null); setDraft(defaultTimelineDraft(project)); }}>
-                  Cancel edit
-                </button>
-              )}
-              <button className="ops-primary" type="submit" disabled={busy === 'update'}>
-                <Plus aria-hidden="true" />
-                {busy === 'update' ? 'Saving' : editingUpdateId ? 'Save update' : 'Add update'}
-              </button>
-            </div>
-          </form>
-        )}
-
         <section className="project-timeline-panel">
           <div className="vs-section-head">
             <div>
@@ -3188,10 +3006,140 @@ function ProjectDetailModal({
             )}
           </div>
         </section>
+
+        {project.access.canAddUpdate && (
+          <form className="project-update-form" onSubmit={submitUpdate} aria-labelledby={`project-update-heading-${project.id}`}>
+            <div className="vs-form-head full">
+              <h3 id={`project-update-heading-${project.id}`} tabIndex={-1}>{editingUpdateId ? 'Edit update' : 'Add update'}</h3>
+              <p>{project.title}</p>
+            </div>
+            <div className="full artifact-upload-field">
+              <span className="artifact-upload-row">
+                <input
+                  id={`artifact-upload-${project.id}`}
+                  type="file"
+                  accept="image/png,image/jpeg,image/gif,image/webp,.docx,.pptx,.pdf,.zip,.md,.markdown,.txt,.tex,.latex,.rst,.csv,.json,.yaml,.yml"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0] || null;
+                    if (file && file.size > projectArtifactMaxBytes) {
+                      event.currentTarget.value = '';
+                      setError('File is too large. The limit is 20 MB.');
+                      setDraft((current) => ({ ...current, artifactFile: null, artifactFileName: '' }));
+                      return;
+                    }
+                    setError(null);
+                    setDraft((current) => ({ ...current, artifactFile: file, artifactFileName: file?.name || '' }));
+                  }}
+                />
+                <button type="button" className="ops-secondary" onClick={() => document.getElementById(`artifact-upload-${project.id}`)?.click()} aria-label="Upload material or image" title="Upload material or image (up to 20 MB)">
+                  <Upload aria-hidden="true" />Upload
+                </button>
+                <strong role="status" title={draft.artifactFileName || undefined}>{draft.artifactFileName || 'No file selected'}</strong>
+              </span>
+            </div>
+            <div className="prompt-field full">
+              <div className="prompt-field-head">
+                <label htmlFor={progressFieldId}>Progress text ({countWords(draft.text)}/50 words)</label>
+                <PromptCopyButton prompt={projectProgressPrompt(uiCopyPrompts, project)} label="Copy AI prompt for progress" />
+              </div>
+              <textarea id={progressFieldId} rows={4} value={draft.text} onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))} />
+            </div>
+            <details className="project-update-options full"><summary>Targets and blockers</summary><div className="project-update-fields">
+            <div className="prompt-field full">
+              <div className="prompt-field-head">
+                <label htmlFor={targetFieldId}>Target</label>
+                <PromptCopyButton prompt={projectTargetPrompt(uiCopyPrompts, project)} label="Copy AI prompt for target" />
+              </div>
+              <textarea id={targetFieldId} rows={2} value={draft.target} onChange={(event) => setDraft((current) => ({ ...current, target: event.target.value }))} />
+            </div>
+            <div className="prompt-field full">
+              <div className="prompt-field-head">
+                <label htmlFor={blockerFieldId}>Blocker</label>
+                <PromptCopyButton prompt={projectBlockerPrompt(uiCopyPrompts, project)} label="Copy AI prompt for blocker" />
+              </div>
+              <textarea id={blockerFieldId} rows={2} value={draft.blocker} onChange={(event) => setDraft((current) => ({ ...current, blocker: event.target.value }))} />
+            </div>
+            </div></details>
+            <details className="project-update-options full"><summary>Status and classification</summary><div className="project-update-fields">
+            <label>
+              <span>Type</span>
+              <select value={draft.type} onChange={(event) => setDraft((current) => ({ ...current, type: event.target.value as ProjectUpdateType }))}>
+                {(Object.keys(projectUpdateTypeLabels) as ProjectUpdateType[]).map((type) => (
+                  <option key={type} value={type}>
+                    {projectUpdateTypeLabels[type]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Date</span>
+              <input type="date" value={draft.date} onChange={(event) => setDraft((current) => ({ ...current, date: event.target.value }))} />
+            </label>
+            <label>
+              <span>Stage</span>
+              <select value={draft.stage} onChange={(event) => setDraft((current) => ({ ...current, stage: event.target.value }))}>
+                {[1, 2, 3, 4, 5].map((stage) => (
+                  <option key={stage} value={stage}>
+                    {stageLabels[stage]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Stage progress (%)</span>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={draft.stageProgress}
+                onChange={(event) => setDraft((current) => ({ ...current, stageProgress: event.target.value }))}
+              />
+            </label>
+            <label>
+              <span>Status</span>
+              <select value={draft.status} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as ProjectStatus }))}>
+                {(Object.keys(statusLabels) as ProjectStatus[]).map((status) => (
+                  <option key={status} value={status}>
+                    {statusLabels[status]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={draft.milestone}
+                onChange={(event) => setDraft((current) => ({ ...current, milestone: event.target.checked }))}
+              />
+              <span>Milestone reached</span>
+            </label>
+            </div></details>
+            {uploadProgress !== null && (
+              <div className="upload-progress full">
+                <span style={{ width: `${uploadProgress}%` }} />
+                <strong>{uploadProgress < 100 ? `Uploading ${uploadProgress}%` : 'Upload complete. Summarising…'}</strong>
+              </div>
+            )}
+            {error && <div className="form-message error full" role="alert">{error}</div>}
+            {notice?.kind === 'update' && <p className="form-message full" role="status">{notice.text}</p>}
+            <div className="vs-form-footer full">
+
+              {editingUpdateId && (
+                <button className="ops-secondary" type="button" onClick={() => { setEditingUpdateId(null); setDraft(defaultTimelineDraft(project)); }}>
+                  Cancel edit
+                </button>
+              )}
+              <button className="ops-primary" type="submit" disabled={busy === 'update'}>
+                <Plus aria-hidden="true" />
+                {busy === 'update' ? 'Saving' : editingUpdateId ? 'Save update' : 'Add update'}
+              </button>
+            </div>
+          </form>
+        )}
           </div>
         )}
         </div>
-        <ProjectRecordRail project={project} showPeople={mode !== 'details'} />
+        {mode === 'details' && <ProjectRecordRail project={project} showPeople={false} />}
         </div>
         )}
 
@@ -3254,14 +3202,12 @@ function ProjectMeetingSuggestion({ project, onUseSlot, onUseDraft }: {
   const [generated, setGenerated] = useState<{ key: string; suggestion: ThemeSuggestion } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [askedKey, setAskedKey] = useState('');
   const advice = suggestThemeMeetingSlot(project);
   const suggestion = generated?.key === contextKey ? generated.suggestion : null;
   if (!advice) return null;
   const suggestedSlot = suggestion ? suggestion.slot : advice.slot;
-  const askLabel = askedKey === contextKey ? 'Suggest again' : 'Suggest';
   async function regenerate() {
-    setBusy(true); setError(null); setGenerated(null); setAskedKey(contextKey);
+    setBusy(true); setError(null); setGenerated(null);
     try {
       const result = await requestJson<{ suggestion: ThemeSuggestion }>('/api/theme-meetings/suggestion', 'Could not generate a meeting suggestion.', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: project.id }),
@@ -3273,11 +3219,13 @@ function ProjectMeetingSuggestion({ project, onUseSlot, onUseDraft }: {
   return (
     <article className="theme-project-advice" aria-label={`Meeting suggestion for ${project.title}`} aria-busy={busy}>
       <div className="theme-advice-top">
-        <p className="theme-advice-head"><span className="vs-caps theme-advice-badge">Advisory</span> <strong>{suggestion ? 'AI suggested slot' : 'Suggested slot'}: {suggestedSlot ? themeSlotOptionLabels[suggestedSlot] : 'Update progress first'}</strong></p>
+        <p className="theme-advice-head"><span className="vs-caps theme-advice-badge">Advisory</span> <strong>Suggested slot: {suggestedSlot ? themeSlotOptionLabels[suggestedSlot] : 'Update progress first'}</strong></p>
         <div className="theme-advice-actions">
-          <button className="ops-secondary" type="button" disabled={busy} aria-label={`${askLabel} with AI`} onClick={() => void regenerate()}>{busy ? 'Generating…' : askLabel}</button>
-          {suggestion && onUseDraft ? <button className="ops-secondary" type="button" aria-label="Use suggestion as your draft update" onClick={() => onUseDraft(suggestion)}>Use suggestion</button> : onUseSlot && suggestedSlot && (
-            <button className="ops-secondary" type="button" aria-label="Use suggestion: select the suggested slot" onClick={() => onUseSlot(suggestedSlot)}>Use suggestion</button>
+          <button className="ops-secondary" type="button" disabled={busy} aria-label="Suggest with AI" onClick={() => void regenerate()}>{busy ? 'Generating…' : 'Suggest'}</button>
+          {(onUseDraft || onUseSlot) && (
+            <button className="ops-secondary" type="button" disabled={busy || (!(suggestion && onUseDraft) && !(onUseSlot && suggestedSlot))}
+              aria-label={suggestion && onUseDraft ? 'Use suggestion as your draft update' : 'Use suggestion: select the suggested slot'}
+              onClick={() => { if (suggestion && onUseDraft) onUseDraft(suggestion); else if (suggestedSlot && onUseSlot) onUseSlot(suggestedSlot); }}>Use suggestion</button>
           )}
         </div>
       </div>
@@ -3289,13 +3237,15 @@ function ProjectMeetingSuggestion({ project, onUseSlot, onUseDraft }: {
             <div><dt>Reason</dt><dd>{suggestion.rationale}</dd></div>
             <div><dt>Draft progress</dt><dd className="is-pre">{suggestion.progress}</dd></div>
             {suggestion.questions && <div><dt>Draft questions</dt><dd className="is-pre">{suggestion.questions}</dd></div>}
-            <div><dt>Project evidence</dt><dd><ul>{suggestion.evidence.map((item, index) => <li key={index}>{evidenceSourceLabel(item.source)}: “{item.quote}”</li>)}</ul></dd></div>
           </> : <>
             <div><dt>Evidence</dt><dd>{advice.evidence}</dd></div>
             <div><dt>How to prepare</dt><dd>{advice.preparation}</dd></div>
           </>}
         </dl>
-        <MeetingProjectSummary context={meetingProjectContext(project)} />
+        {suggestion ? <details className="theme-advice-evidence"><summary>Project evidence</summary>
+          <ul>{suggestion.evidence.map((item, index) => <li key={index}>{evidenceSourceLabel(item.source)}: “{item.quote}”</li>)}</ul>
+          <MeetingProjectSummary context={meetingProjectContext(project)} />
+        </details> : <MeetingProjectSummary context={meetingProjectContext(project)} />}
       </details>
     </article>
   );
@@ -3365,7 +3315,7 @@ function ThemeMeetingPanel({
       member_count: meeting.members.length,
       submitted_count: meeting.submitted_members.length,
       planned_minutes: meeting.planned_minutes,
-      agenda_count: meeting.agenda_items.length,
+      agenda_count: meeting.agenda_items.filter((item) => !isAgendaPlaceholder(item)).length,
       overbooked: meeting.overbooked,
       cancelled: meeting.cancelled,
     }));
@@ -3427,7 +3377,8 @@ function ThemeMeetingPanel({
   }, [member, submitMembers]);
 
   useEffect(() => {
-    setUpdateType(submittedUpdate?.update_type || 'short_update');
+    const type = submittedUpdate?.update_type;
+    setUpdateType(type === 'deep_dive' || type === 'nothing_to_report' ? type : 'short_update');
     setProgressText(submittedUpdate?.progress_text || '');
     setQuestions(submittedUpdate?.questions || '');
     setSourceProjectId(submittedUpdate?.project_context?.projectId || (submittedUpdate ? 'none' : ''));
@@ -3654,7 +3605,7 @@ function ThemeMeetingPanel({
   return (
     <section className="theme-meeting-panel mt-panel">
       {!viewer.notificationPreferences.theme_meeting_reminders.email && (
-        <p className="theme-meeting-message ops-muted-line">Email delivery is off. Turn on Theme meeting reminders email in Settings to receive agendas.</p>
+        <p className="theme-meeting-message ops-muted-line">Agenda emails are off. Enable them in Settings → Notifications.</p>
       )}
 
       {formError && <div id="theme-update-error" className="theme-meeting-message form-message error" role="alert">{formError}</div>}
@@ -3740,7 +3691,7 @@ function ThemeMeetingPanel({
                       )}
                     </p>
                   </div>
-                  {readOnlyActive && <p className="mt-board-note is-subtle" role="note">Read-only: coordinators can change a meeting until 16:00 on the Friday after it.</p>}
+                  {readOnlyActive && <p className="mt-board-note is-subtle" role="note">Read only after Friday, 16:00 UK time.</p>}
                   {canEditActive && activeMeeting && (
                     <div className="mt-agenda-actions">
                       {activeMeeting.cancelled ? (
@@ -4000,7 +3951,7 @@ function ThemeMeetingPanel({
                   />
                 </div>
                 <div className="mt-form-footer">
-                  <p>The coordinator confirms the final agenda.</p>
+
                   {submitNotice && (
                     <p id="mt-submit-notice" className={`mt-submit-notice form-message${submitNotice.error ? ' error' : ''}`} role={submitNotice.error ? 'alert' : 'status'}>
                       {submitNotice.text}
@@ -4086,7 +4037,7 @@ function ThemeMeetingPanel({
         open={Boolean(suggestionToUse)}
         tone="default"
         title="Replace your draft?"
-        message="The AI suggestion will replace the progress and questions you have typed. Nothing is submitted until you choose Submit."
+        message="Replace your progress and questions with this suggestion? Submit separately to save it."
         confirmLabel="Replace draft"
         cancelLabel="Keep my text"
         onCancel={() => setSuggestionToUse(null)}
@@ -4120,7 +4071,7 @@ function BriefingView({
   onOpenProject: (projectId: string) => void;
   onOpenMeeting: () => void;
   onOpenNotifications: () => void;
-  onOpenChatSession: (sessionId: string | null, notificationId?: string, feedbackId?: string | null) => void;
+  onOpenChatSession: (sessionId: string | null, notificationId?: string, feedbackId?: string | null, reviewProjectId?: string | null) => void;
   onOpenMeetingNotification: (notification: ThemeMeetingNotification) => void;
 }) {
   const projects = projectsPayload?.projects || [];
@@ -4141,7 +4092,7 @@ function BriefingView({
     member_count: meeting.members.length,
     submitted_count: meeting.submitted_members.length,
     planned_minutes: meeting.planned_minutes,
-    agenda_count: meeting.agenda_items.length,
+    agenda_count: meeting.agenda_items.filter((item) => !isAgendaPlaceholder(item)).length,
     overbooked: meeting.overbooked,
     duration_minutes: meeting.duration_minutes,
     cancelled: meeting.cancelled,
@@ -4162,7 +4113,7 @@ function BriefingView({
     ? `${themeNotifications.length === 1 ? 'One meeting alert is' : `${themeNotifications.length} meeting alerts are`} active.`
     : 'Meeting alerts are quiet.';
   const recentNotifications = [
-    ...chatNotifications.map((notification) => ({ id: notification.id, title: notification.title, source: notification.feedbackId ? 'Feedback' : 'Chat', at: notification.createdAt, unread: !notification.readAt, open: () => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id, notification.feedbackId) })),
+    ...chatNotifications.map((notification) => ({ id: notification.id, title: notification.title, source: notification.projectId ? 'Internal Review' : notification.feedbackId ? 'Feedback' : 'Chat', at: notification.createdAt, unread: !notification.readAt, open: () => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id, notification.feedbackId, notification.projectId) })),
     ...(themePayload?.notifications || []).map((notification) => ({ id: notification.id, title: notification.title, source: 'Meetings', at: notification.created_at, unread: !notification.read, open: () => onOpenMeetingNotification(notification) })),
   ]
     .sort((left, right) => right.at.localeCompare(left.at))
@@ -4220,7 +4171,7 @@ function BriefingView({
               <div className="bf-section-head">
                 <div>
                   <h2 id="bf-ledger-title">Needs a decision or follow-up</h2>
-                  <p>Items most likely to need a coordinator or PI before the next meeting.</p>
+                  <p>Needs coordinator or PI attention before the next meeting.</p>
                 </div>
               </div>
               {!projectsPayload ? (
@@ -4291,7 +4242,7 @@ function BriefingView({
                 <div className="bf-section-head">
                   <div>
                     <h2 id="bf-activity-title">Recent activity</h2>
-                    <p>Recorded project updates across projects you can see.</p>
+
                   </div>
                 </div>
                 <ol className="bf-activity">
@@ -4520,7 +4471,6 @@ function ProjectsView({
   return (
     <ConsolePageFrame
       title="Projects"
-      subtitle="Status, stage, targets and linked materials for every project you can see."
       className="vs-projects-page"
       actions={
         <button className="ops-primary" type="button" onClick={openCreateProject}>
@@ -4707,7 +4657,7 @@ function ProjectsView({
               <div className="vs-section-head">
                 <div>
                   <h2 id="project-meeting-prep-title">Prepare for your theme meeting</h2>
-                  <p>Slot suggestions and AI-drafted updates are in Meetings, beside your update form, where you can use them as a draft and submit it.</p>
+                  <p>Find slot suggestions and draft updates in Meetings.</p>
                 </div>
               </div>
               <button className="vs-link-button" type="button" onClick={onOpenMeeting}>Open Meetings</button>
@@ -4818,7 +4768,6 @@ function MeetingView({
     <ConsolePageFrame
       title="Theme meetings"
       eyebrow={eyebrow}
-      subtitle={plan ? 'Submitting your update and confirming the agenda are separate steps.' : undefined}
       actions={<BrowserNotificationsButton />}
       className="meeting-page"
       wide
@@ -5265,7 +5214,7 @@ function ChatView({
             </div>
           ) : (
             <p className="chat-history-empty">
-              {historyMode === 'shared' ? 'No shared chat sessions yet.' : 'No saved chat sessions yet.'}
+              {historyMode === 'shared' ? 'No shared chats yet.' : 'No saved chats yet.'}
             </p>
           )}
           </div>
@@ -5389,8 +5338,8 @@ function ChatView({
                                   </div>
                                   <p className="chat-advice-note">
                                     {message.sources?.some((source) => source.cited === false)
-                                      ? 'These pages matched the question, but the answer does not cite them; check them before relying on the answer.'
-                                      : 'Advice based on the cited sources.'}{' '}Decisions and stage changes are recorded by named people in the project workflow.
+                                      ? 'Uncited sources; verify before use.'
+                                      : 'Advice based on the cited sources.'}
                                   </p>
                                 </>
                               )}
@@ -5463,7 +5412,7 @@ function ChatView({
             {sendStatus && <small className="chat-send-status" role="status">{sendStatus}</small>}
             {sendError && <small className="chat-send-status form-message error" role="alert">{sendError} Your message is still in the box; send it again to retry.</small>}
             <p className="chat-footnote">
-              Mentioning someone shares this conversation only, never your memory or project access.
+              @mentions share this chat. Memory and project access stay private.
             </p>
           </div>
         </section>
@@ -5516,8 +5465,9 @@ function ChatView({
     </section>
   );
 }
-function ChecklistsView({ userId, onProjectCreated }: { userId: string; onProjectCreated: () => Promise<void> }) {
+function ChecklistsView({ userId, onProjectCreated, reviewProjectId, reviewRequest }: { userId: string; onProjectCreated: () => Promise<void>; reviewProjectId?: string | null; reviewRequest?: number }) {
   const [activeChecklistId, setActiveChecklistId] = useChecklistDraft<ChecklistTemplateId>(checklistDraftKey(userId, 'tab'), 'idea');
+  useEffect(() => { if (reviewProjectId) setActiveChecklistId('internal'); }, [reviewProjectId, reviewRequest, setActiveChecklistId]);
   const activeChecklist = checklistTemplates.find((template) => template.id === activeChecklistId) || checklistTemplates[0];
 
   const checklistTabs = (
@@ -5541,7 +5491,6 @@ function ChecklistsView({ userId, onProjectCreated }: { userId: string; onProjec
   return (
     <ConsolePageFrame
       title="Checklists"
-      subtitle="Structured reviews for each research checkpoint. Agent advice informs; named people decide."
       className="checklists-page"
       wide
       tabs={checklistTabs}
@@ -5549,7 +5498,7 @@ function ChecklistsView({ userId, onProjectCreated }: { userId: string; onProjec
 
       {activeChecklist.id === 'idea'
         ? <IdeaPitches userId={userId} onProjectCreated={onProjectCreated} />
-        : <SkeletonLock userId={userId} />}
+        : activeChecklist.id === 'skeleton' ? <SkeletonLock userId={userId} /> : <InternalReview key={reviewRequest} focusProjectId={reviewProjectId} />}
     </ConsolePageFrame>
   );
 }
@@ -5575,7 +5524,7 @@ function TopbarNotificationCenter({
   themeNotifications: ThemeMeetingNotification[];
   attentionProjects: ManagedProject[];
   onToggle: () => void;
-  onOpenChatSession: (sessionId: string | null, notificationId?: string, feedbackId?: string | null) => void;
+  onOpenChatSession: (sessionId: string | null, notificationId?: string, feedbackId?: string | null, reviewProjectId?: string | null) => void;
   onOpenProject: (projectId: string) => void;
   onMarkAllMessagesRead: () => void;
   onOpenMeetingNotification: (notification: ThemeMeetingNotification) => void;
@@ -5671,7 +5620,7 @@ function TopbarNotificationCenter({
                     className={`notification-row${notification.readAt ? '' : ' unread'}`}
                     key={notification.id}
                     type="button"
-                    onClick={() => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id, notification.feedbackId)}
+                    onClick={() => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id, notification.feedbackId, notification.projectId)}
                   >
                     <AvatarCircle
                       user={{
@@ -5917,7 +5866,7 @@ function AdminConfigurationPanel() {
     <section className="settings-section settings-section-config">
       <div className="settings-section-heading">
         <h2>Configuration</h2>
-        <p>Runtime settings for the VioScope service.</p>
+
       </div>
       {error && <div className="form-message error">{error}</div>}
       {message && <div className="form-message">{message}</div>}
@@ -6203,7 +6152,7 @@ function ThemeMeetingSettingsPanel() {
       <div className="settings-section-heading with-action">
         <div>
           <h2>Theme meeting</h2>
-          {payload && <p>{canEditGlobal ? 'Schedule, reminders, slot lengths and theme membership.' : 'Members of the themes you coordinate.'}</p>}
+
         </div>
         {loaded && draft && (
           <div className="button-row">
@@ -6300,7 +6249,7 @@ function ThemeMeetingSettingsPanel() {
                 <div className="theme-settings-row">
                   <div>
                     <strong>Progress word target</strong>
-                    <p>Project progress summaries should stay brief.</p>
+
                   </div>
                   <div className="theme-settings-control">
                     <input
@@ -6319,7 +6268,7 @@ function ThemeMeetingSettingsPanel() {
                   <div className="theme-settings-row" key={type}>
                     <div>
                       <strong>{updateTypeLabels[type]}</strong>
-                      <p>Minutes reserved on the agenda.</p>
+                      <p>Agenda minutes</p>
                     </div>
                     <div className="theme-settings-control">
                       <input
@@ -6510,7 +6459,7 @@ function AuditLogSettingsPanel() {
     <section className="settings-section settings-section-audit">
       <div className="settings-section-heading">
         <h2>Audit log</h2>
-        <p>Recorded account, chat, meeting, notification and review actions.</p>
+
       </div>
       <div className="audit-browser">
         <aside className="ops-panel audit-file-list" aria-label="Days with audit entries">
@@ -6828,7 +6777,7 @@ function UserMemorySettingsPanel() {
   return (
     <MarkdownEditorPanel
       title="Notes for VioScope"
-      description="Private notes VioScope reads in your own chats only. Markdown is supported."
+      description="Private to your own chats. Markdown supported."
       endpoint="/api/user-memory"
       saveLabel="Save notes"
     />
@@ -6839,12 +6788,12 @@ function TeamProfilesSettingsPanel() {
   return (
     <MarkdownEditorPanel
       title="Public team"
-      description="The lab's public team profiles, used for names and roles in VioScope."
+      description="Public names and roles used by VioScope."
       endpoint="/api/team-profile-markdown"
       saveLabel="Save changes"
       importLabel="Save and import"
       importFlag="importProfiles"
-      importHelp="Save and import also updates team member profiles from this text."
+      importHelp="Import also updates team member profiles."
     />
   );
 }
@@ -7260,13 +7209,6 @@ function UsersView({
     </button>
   );
 
-  const settingsSubtitle = user.role === 'administrator'
-    ? 'Your profile and preferences, lab administration and service configuration.'
-    : user.role === 'pi'
-      ? 'Your profile and preferences, and lab administration.'
-      : canManageThemeSettings
-        ? 'Your profile and preferences, and the themes you coordinate.'
-        : 'Your profile, notes for VioScope and notifications.';
   const viewerRole = user.role;
   // PIs may only assign member-level roles; the API enforces the same rule.
   const assignableRoles = user.role === 'administrator' ? userPermissionOptions : userPermissionOptions.filter((role) => role === 'member' || role === 'viewer');
@@ -7274,7 +7216,6 @@ function UsersView({
   return (
     <ConsolePageFrame
       title="Settings"
-      subtitle={settingsSubtitle}
       className="users-page settings-page"
       wide
     >
@@ -7303,7 +7244,7 @@ function UsersView({
             <div className="settings-section">
               <div className="settings-section-heading">
                 <h2>General</h2>
-                <p>Your profile and password.</p>
+
               </div>
               <AccountDetailsPanel user={user} onUserChanged={onUserChanged} />
             </div>
@@ -7313,7 +7254,7 @@ function UsersView({
             <section className="settings-section">
               <div className="settings-section-heading">
                 <h2>Notifications</h2>
-                <p>Choose what reaches you, and where.</p>
+
               </div>
               <div className="settings-list-panel">
                 <div className="notification-grid-head">
@@ -7369,8 +7310,8 @@ function UsersView({
                         : notificationPermission === 'granted'
                           ? 'Allowed in this browser.'
                           : notificationPermission === 'denied'
-                            ? 'Blocked in this browser. Allow notifications for this site in your browser settings.'
-                            : 'Show web notifications on your desktop as well as in VioScope.'}
+                            ? 'Blocked. Allow this site in your browser’s notification settings.'
+                            : 'Show desktop notifications.'}
                     </p>
                   </div>
                   {notificationPermission === 'default' && (
@@ -7402,7 +7343,7 @@ function UsersView({
             <section className="settings-section">
               <div className="settings-section-heading">
                 <h2>About</h2>
-                <p>VioScope is advisory: it surfaces evidence and citations, and a person always decides.</p>
+                <p>Evidence-based AI advice. Decisions remain yours.</p>
               </div>
               <dl className="about-panel">
                 <div><dt>Version</dt><dd>{appInfo?.version || 'Not available'}</dd></div>
@@ -7415,7 +7356,7 @@ function UsersView({
               <div className="settings-section-heading with-action">
                 <div>
                   <h2>User management</h2>
-                  <p>Accounts and roles. Every change is recorded in the audit log.</p>
+
                 </div>
                 <button
                   className="ops-primary"
@@ -7449,7 +7390,7 @@ function UsersView({
           <div className="members-empty">
             <Users aria-hidden="true" />
             <h3>No members yet</h3>
-            <p>Add the lab&apos;s researchers, coordinators and PIs.</p>
+
             <button
               className="ops-primary"
               type="button"
@@ -8005,7 +7946,7 @@ function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocus
   const formError = error && !loadFailed && !titleError && !descriptionError ? error : null;
 
   return (
-    <ConsolePageFrame title="Feedback" subtitle="Report a problem or request a change to VioScope. Administrators reply here." wide className="feedback-page">
+    <ConsolePageFrame title="Feedback" subtitle="Report an issue or request a change." wide className="feedback-page">
       <div className="feedback-layout">
         <section className="feedback-submit-panel" aria-labelledby="feedback-submit-title">
           <form className="feedback-form" onSubmit={submit} noValidate aria-busy={submitting}>
@@ -8053,7 +7994,7 @@ function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocus
               />
             </label>
             <p id="feedback-description-help" className="feedback-privacy">
-              Do not include passwords, API keys, research data or sensitive personal data. Your name is visible to administrators.
+              Administrators can see your name. Exclude credentials, research data and sensitive personal details.
             </p>
             {formError && <p className="feedback-message error" role="alert">{formError}</p>}
             {message && <p className="feedback-message success" role="status">{message}</p>}
@@ -8446,9 +8387,14 @@ export function OperationsConsole() {
   }, [activeView]);
   const handleProjectOpenRequestHandled = useCallback(() => setProjectOpenRequest(null), []);
 
-  function openChatSessionFromNotification(sessionId: string | null, notificationId?: string, feedbackId?: string | null) {
+  const [reviewFocus, setReviewFocus] = useState<{projectId: string; request: number} | null>(null);
+
+  function openChatSessionFromNotification(sessionId: string | null, notificationId?: string, feedbackId?: string | null, reviewProjectId?: string | null) {
     setNotificationsOpen(false);
-    if (feedbackId) {
+    if (reviewProjectId) {
+      setReviewFocus(previous => ({ projectId: reviewProjectId, request: (previous?.request || 0) + 1 }));
+      selectView('checklists');
+    } else if (feedbackId) {
       setFeedbackFocusId(feedbackId);
       selectView('feedback');
     } else if (sessionId) {
@@ -8475,7 +8421,7 @@ export function OperationsConsole() {
 
   const unreadChatNotificationCount = chatNotifications.filter((notification) => !notification.readAt).length;
   // The Chat nav dot counts chat mentions only; feedback replies live in the bell's Messages.
-  const unreadChatMentionCount = chatNotifications.filter((notification) => !notification.readAt && !notification.feedbackId).length;
+  const unreadChatMentionCount = chatNotifications.filter((notification) => !notification.readAt && notification.type === 'chat_mention').length;
   const unreadMeetingNotificationCount = (themePayload?.notifications || []).filter((notification) => !notification.read).length;
   const attentionProjectNotifications =
     projectsPayload?.projects?.filter((project) => projectInProgress(project) && projectNeedsAttention(project)) || [];
@@ -8768,7 +8714,7 @@ export function OperationsConsole() {
             />
             </>
           )}
-          {activeView === 'checklists' && <ChecklistsView key={user.id} userId={user.id} onProjectCreated={loadProjects} />}
+          {activeView === 'checklists' && <ChecklistsView key={user.id} userId={user.id} onProjectCreated={loadProjects} reviewProjectId={reviewFocus?.projectId} reviewRequest={reviewFocus?.request} />}
           {activeView === 'feedback' && <FeedbackView focusId={feedbackFocusId} onFocused={() => setFeedbackFocusId(null)} />}
           {activeView === 'users' && (
             <UsersView

@@ -1,3 +1,4 @@
+import {projectPIs,projectPDRAs} from '../projects/review-team';
 import { z } from 'zod';
 import type { ProjectRecord } from '../db/projects';
 import type { SubmissionReviewResult } from './review';
@@ -37,6 +38,8 @@ export function assertSkeletonStage(project: Pick<ProjectRecord, 'stage'>) {
 }
 export function skeletonProjectSnapshot(project: ProjectRecord) {
   return { id: project.id, title: project.title, ownerUsername: project.ownerUsername, piUsername: project.piUsername,
+    ...(projectPIs(project).length>1?{piUsernames:[...projectPIs(project)].sort()}:{}),
+    ...(projectPDRAs(project).length>1?{pdraUsernames:[...projectPDRAs(project)].sort()}:{}),
     pdraUsername: project.pdraUsername, collaborators: project.collaborators, venue: project.venue,
     submissionDeadline: project.submissionDeadline, target: project.target };
 }

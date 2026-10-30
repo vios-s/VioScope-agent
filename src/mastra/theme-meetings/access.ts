@@ -1,3 +1,4 @@
+import { isAgendaPlaceholder } from './schema';
 import { AuthError, canSeeAll } from '../auth/session';
 import type { AuthUser } from '../db/users';
 import { coordinatorEditWindowOpen, nextThemeMeetingDate } from './planner';
@@ -58,7 +59,7 @@ export function visiblePlanForUser(plan: ThemeMeetingPlan, config: ThemeMeetingC
             normalizeUsername(meeting.member_usernames[index]) === normalizeUsername(user.username),
         );
         const agendaItems = meeting.agenda_items.filter(
-          (item) => normalizeUsername(item.member_username) === normalizeUsername(user.username),
+          (item) => (members.length > 0 && isAgendaPlaceholder(item)) || normalizeUsername(item.member_username) === normalizeUsername(user.username),
         );
         return {
           ...meeting,

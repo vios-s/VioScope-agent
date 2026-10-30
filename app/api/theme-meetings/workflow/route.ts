@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { isAgendaPlaceholder } from '../../../../src/mastra/theme-meetings/schema';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
@@ -77,12 +78,12 @@ export async function GET(request: Request) {
       emailAudience: manager && !readOnly && confirmation && !meeting.cancelled
         ? await confirmedAgendaEmailAudience({ ...payload.plan, meetings: [meeting] }, payload.config, key.themeId, confirmation.version) : null,
       viewerId: user.id,
-      candidates: meeting.agenda_items.filter((item) => visible(item.member_username)),
+      candidates: meeting.agenda_items.filter((item) => isAgendaPlaceholder(item) || visible(item.member_username)),
       // Unconfirmed draft submissions stay visible only to their author and managers. For the theme's current/next
       // meeting, members see the confirmed schedule (as the confirmed agenda email circulates it): scheduled entries
       // in full, legacy deferred entries as name and update type only. For earlier meetings members see only their own entries.
       confirmation: confirmation && !manager ? { ...confirmation, entries: confirmation.entries.flatMap((entry): object[] => {
-        if (entry.member_username === user.username) return [entry];
+        if (isAgendaPlaceholder(entry) || entry.member_username === user.username) return [entry];
         if (key.meetingDate !== nextThemeMeetingDate(payload.config, key.themeId)) return [];
         return entry.deferred ? [{ meeting_date: entry.meeting_date, theme_id: entry.theme_id, theme_title: entry.theme_title, member: entry.member,
           member_username: entry.member_username, update_type: entry.update_type, duration_minutes: entry.duration_minutes, deferred: true }] : [entry];

@@ -63,11 +63,17 @@ try {
   assert.equal((await decide('bob',0)).status,409);
   saved=(await ok(await decide('principal',1,'pi','approved'))).review;
   assert.equal(latestSkeletonDecisions(saved.decisions).pi?.outcome,'approved');
+  const {checklistCheckpoints}=await import('../src/mastra/db/checklist-checkpoints');
+  const approvedCheckpoint=(await checklistCheckpoints(project)).find(item=>item.checkpoint==='skeleton_lock')!;
+  assert.equal(approvedCheckpoint.current,true);assert.equal(approvedCheckpoint.outcome,'proceed');
+  assert.equal(approvedCheckpoint.by,'principal','Reuse the original human confirmation identity.');
+  assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM project_decisions WHERE project_id=$1',[project.id])).rows[0].n,0,'Reading a confirmed checklist never writes duplicate decisions.');
   saved=(await ok(await decide('bob',2,'pdra','CLEARED'))).review;
   assert.equal(latestSkeletonDecisions(saved.decisions).pi?.outcome,'approved','Re-recording the same PDRA verdict keeps the PI confirmation.');
   saved=(await ok(await decide('bob',3,'pdra','SLIDE'))).review;
   assert.equal(latestSkeletonDecisions(saved.decisions).pi,null,'Changed PDRA verdict invalidates earlier final approval.');
   assert.equal(saved.decisions.length,4,'Human decision history is retained.');
+  assert.equal((await checklistCheckpoints(project))[0].current,false,'A changed PDRA judgment revokes the projected approval.');
   assert.equal((await decide('principal',4,'pi','approved')).status,400,'PI cannot confirm the lock after a SLIDE verdict.');
   saved=(await ok(await decide('bob',4,'pdra','CONDITIONAL',undefined,{reevaluateOn:londonDay(3)}))).review;
   assert.equal(saved.decisions[4].reevaluateOn,londonDay(3));assert.equal(saved.decisions[4].outcome,'CONDITIONAL');
@@ -82,6 +88,7 @@ try {
   await assert.rejects(records.saveSkeletonReview(project.id,skeletonProjectSnapshot(await projectDb.getProjectForUser(project.id,accounts.get('alice')!)),'New evidence',result,accounts.get('alice')!),/currently at stage 5/);
   await projectDb.updateProject(project.id,{stage:4},accounts.get('alice')!);
   const second=await records.saveSkeletonReview(project.id,skeletonProjectSnapshot(project),'New synthetic evidence',result,accounts.get('alice')!);
+  assert.equal((await checklistCheckpoints(project))[0].outcome,'pending','A new AI version never inherits an older PI approval.');
   assert.deepEqual(second.decisions,[]);assert.match(await (await decide('bob',8)).text(),/newer AI check/,'Old versions cannot be confirmed.');
   await projectDb.updateProject(project.id,{pdraUsername:'outsider'},accounts.get('alice')!);
   assert.equal((await get('bob')).status,404,'Reassignment revokes non-collaborator PDRA access.');
@@ -119,6 +126,12 @@ try {
   assert.equal(paired.decisions[1].override,undefined);
   assert.equal(latestSkeletonDecisions(paired.decisions).pi?.outcome,'approved');
   await assert.rejects(judge(pair.id,'principal','pdra','SLIDE',2,true),/explicit administrator override|another person/);
+  const multiProject=await projectDb.createProject({title:'Synthetic multiple PI skeleton',stage:4,piUsernames:['principal','otherpi'],pdraUsernames:['bob','carol'],pdraUsername:'bob'},accounts.get('alice')!);
+  const multiReview=await records.saveSkeletonReview(multiProject.id,skeletonProjectSnapshot(multiProject),'Synthetic multi-team outline',result,accounts.get('alice')!);
+  await assert.rejects(judge(multiReview.id,'carol','pdra','CLEARED',0),/Only the assigned PDRA/);
+  await judge(multiReview.id,'bob','pdra','CLEARED',0);
+  const multiApproved=await judge(multiReview.id,'otherpi','pi','approved',1);
+  assert.equal(latestSkeletonDecisions(multiApproved.decisions).pi?.by,'otherpi');
   console.log('Project-bound Skeleton Lock passed: inherited identity/context, stage-4 gate for new checks, CLEARED/CONDITIONAL/SLIDE with future re-evaluation dates, legacy PDRA records, completion after a stage change, independent PDRA/PI judgments, owner exclusion, project-PI-only confirmation, labelled administrator override, one person per step, evidence history, stale revisions, new AI versions, reassignment and access revocation.');
 }finally {
   await closePostgresPools(process.env.DATABASE_URL);

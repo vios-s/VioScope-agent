@@ -29,7 +29,7 @@ Minimum useful local values:
 ```bash
 ELM_API_KEY=...
 AUTH_SECRET=...
-DATABASE_URL=postgresql://vioscope:vioscope_dev@localhost:5432/vioscope
+DATABASE_URL=postgresql://app_user:replace-with-local-password@localhost:5432/app_database
 DATASTORE_DIR=/Public
 VIOS_SKILLS_DIR=/Public/skills/vios-research-skills:/Public/skills/vios-private-skills
 ```
@@ -143,6 +143,14 @@ npm run dev
 ```
 
 Studio is typically served at `http://localhost:4111`.
+
+### Chat and personal notes
+
+Web chat uses the latest 20 member-visible messages from the canonical chat records for conversation context. It does not reopen legacy Mastra model history, which may contain private augmented inputs or tool results. Personal profile and memory files are loaded only for a private owner conversation. Shared conversations, including the first message mentioning another username, exclude those files. Sharing during generation rejects an in-flight private-context answer before it is saved; the sender can retry in the shared conversation. Sharing still exposes the conversation's existing visible messages.
+
+The personal notes editor reads the complete saved text, up to the existing 200,000-character write limit. The 6,000-character per-file limit applies only to the copy sent as model context. This prevents future truncation on save; it cannot reconstruct text overwritten by an earlier save.
+
+Run `npm run check:chat-privacy` for isolated database tests with simulated model responses, and `npm run check:user-datastore` for the long-note round-trip regression.
 
 ### Optional Workflows
 

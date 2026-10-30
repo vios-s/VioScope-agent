@@ -80,7 +80,7 @@ async function readFirstExisting(root: string, names: string[]): Promise<{ path:
     try {
       const text = (await readFile(path, 'utf8')).trim();
       if (text) {
-        return { path: relativePath, text: clamp(text) };
+        return { path: relativePath, text };
       }
     } catch {
       continue;
@@ -135,10 +135,13 @@ export async function loadUserDatastoreContext(user: AuthUser): Promise<UserData
     return null;
   }
 
+  const bounded = async (names: string[]) => {
+    const value = await readFirstExisting(root, names);
+    return value ? { ...value, text: clamp(value.text) } : undefined;
+  };
   return {
-    slug: userDatastoreSlug(user),
-    root,
-    profile: await readFirstExisting(root, ['profile.md', 'profile.txt', 'profile.json']),
-    memory: await readFirstExisting(root, ['memory.md', 'memory.txt', 'memory.json']),
+    slug: userDatastoreSlug(user), root,
+    profile: await bounded(['profile.md', 'profile.txt', 'profile.json']),
+    memory: await bounded(['memory.md', 'memory.txt', 'memory.json']),
   };
 }

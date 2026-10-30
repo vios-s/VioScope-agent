@@ -263,6 +263,7 @@ async function main() {
       project: slug,
       title: 'Project manager smoke',
       ownerUsername: owner.username,
+      piUsername: pi.username, pdraUsername: pi.username,
       collaborators: [collaborator.username, 'External Advisor'],
       track: 'A',
       stage: 3,
@@ -288,6 +289,7 @@ async function main() {
       project: `${slug}-dupe`,
       title: 'Project manager smoke',
       ownerUsername: owner.username,
+      piUsername: pi.username, pdraUsername: pi.username,
       track: 'A',
       stage: 1,
     }, owner));
@@ -297,6 +299,7 @@ async function main() {
       project: slug,
       title: 'Project manager smoke',
       ownerUsername: collaborator.username,
+      piUsername: pi.username, pdraUsername: pi.username,
       track: 'A',
       stage: 1,
     }, collaborator));
@@ -311,6 +314,7 @@ async function main() {
       project: `${slug}-bad-track`,
       title: 'Project manager bad track',
       ownerUsername: owner.username,
+      piUsername: pi.username, pdraUsername: pi.username,
       track: 'C',
       stage: 1,
     }, owner));
@@ -337,11 +341,11 @@ async function main() {
     assert.ok(ownerList.projects?.some((nextProject) => nextProject.id === project.id), 'Owner should see project.');
     assert.ok(collaboratorList.projects?.some((nextProject) => nextProject.id === project.id), 'An active named collaborator should see project.');
     assert.equal(outsiderList.projects?.some((nextProject) => nextProject.id === project.id), false, 'Outsider should not see project.');
-    assert.ok(ownerThemeCoordinatorList.projects?.some((nextProject) => nextProject.id === project.id), 'Owner theme coordinator should see project.');
+    assert.equal(ownerThemeCoordinatorList.projects?.some((nextProject) => nextProject.id === project.id), false, 'Theme coordination alone must not grant project access.');
     assert.equal(
       trackNameCoordinatorList.projects?.some((nextProject) => nextProject.id === project.id),
       false,
-      'Coordinator of Theme A should not see a Track A project unless the owner is in that theme.',
+      'Theme coordination and track names must not grant project access.',
     );
     assert.ok(piList.projects?.some((nextProject) => nextProject.id === project.id), 'PI should see project.');
 
@@ -384,6 +388,8 @@ async function main() {
       projectContext(project.id),
     );
     assert.equal(trackNameCoordinatorDetailResponse.status, 404, 'Theme A coordinator should not see Track A project detail by track name.');
+    assert.equal((await projectRoute.GET(getRequest(`/api/projects/${project.id}`, ownerThemeCoordinator), projectContext(project.id))).status, 404,
+      'Coordinating the owner theme must not grant direct project access.');
 
     const ambiguousTodoResponse = await projectRoute.PATCH(
       jsonRequest(`/api/projects/${project.id}`, { todos: [{ text: 'Ambiguous state', done: 'false' }] }, owner, 'PATCH'),
@@ -395,7 +401,7 @@ async function main() {
       jsonRequest(`/api/projects/${project.id}`, { status: 'blocked' }, ownerThemeCoordinator, 'PATCH'),
       projectContext(project.id),
     );
-    assert.notEqual(coordinatorEditResponse.status, 200, 'Owner theme coordinator visibility should not grant project editing.');
+    assert.notEqual(coordinatorEditResponse.status, 200, 'Theme coordination must not grant project editing.');
 
     const piEditResponse = await projectRoute.PATCH(
       jsonRequest(`/api/projects/${project.id}`, { status: 'needs_input', blocker: 'Waiting for baseline rerun.' }, pi, 'PATCH'),

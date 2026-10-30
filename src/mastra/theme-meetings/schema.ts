@@ -17,6 +17,8 @@ const timeStringSchema = z.string().regex(time24Pattern, 'Use a 24-hour time bet
 
 export const themeUpdateTypeSchema = z.enum(['deep_dive', 'short_update', 'nothing_to_report']);
 export const themeUpdateTypeLabels = { deep_dive: 'Deep Dive', short_update: 'Update', nothing_to_report: 'Nothing to Report' } as const;
+export const themeAgendaTypeLabels = { ...themeUpdateTypeLabels, triage_admin: 'Admin', assignments: 'Assignments' } as const;
+export const isAgendaPlaceholder = (item: { update_type: string }) => item.update_type === 'triage_admin' || item.update_type === 'assignments';
 // Normalize retired types only when reading saved records, never for new submissions.
 const storedThemeUpdateTypeSchema = z.preprocess((value) =>
   value === 'milestone_check' ? 'short_update' : value === 'strategic_slot' ? 'deep_dive' : value,
@@ -124,7 +126,7 @@ export const themeMeetingAgendaItemSchema = z.object({
   theme_title: z.string(),
   member: z.string(),
   member_username: z.string().optional(),
-  update_type: storedThemeUpdateTypeSchema,
+  update_type: z.union([storedThemeUpdateTypeSchema, z.enum(['triage_admin', 'assignments'])]),
   duration_minutes: z.number().int().nonnegative(),
   progress_text: z.string(),
   project_context: meetingProjectContextSchema.optional(),

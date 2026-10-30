@@ -74,7 +74,7 @@ try {
   assert.equal(suggestionCalls, 0);
   await form.getByRole('button', { name: 'Suggest with AI', exact: true }).click();
   await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).waitFor();
-  assert.equal(await form.getByRole('button', { name: 'Suggest again with AI', exact: true }).count(), 1, 'The button reads "Suggest again" only after a suggestion.');
+  assert.equal(await form.getByRole('button', { name: 'Suggest with AI', exact: true }).count(), 1, 'The Suggest action keeps its label after generation.');
   assert.equal(await form.getByRole('textbox', { name: /^Progress/ }).inputValue(), '', 'Generating advice does not overwrite the draft.');
   assert.equal(submitted, undefined, 'AI advice does not submit a meeting update.');
   await form.getByRole('button', { name: 'Use suggestion as your draft update', exact: true }).click();

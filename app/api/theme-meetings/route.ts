@@ -1,3 +1,4 @@
+import { isAgendaPlaceholder } from '../../../src/mastra/theme-meetings/schema';
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
 import { canSeeAll, requireSessionUser } from '../../../src/mastra/auth/session';
@@ -46,7 +47,7 @@ function summarizePlan(plan: ThemeMeetingPlan) {
       member_count: meeting.members.length,
       submitted_count: meeting.submitted_members.length,
       planned_minutes: meeting.planned_minutes,
-      agenda_count: meeting.agenda_items.length,
+      agenda_count: meeting.agenda_items.filter((item) => !isAgendaPlaceholder(item)).length,
       overbooked: meeting.overbooked,
       cancelled: meeting.cancelled,
     })),

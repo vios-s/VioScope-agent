@@ -61,16 +61,16 @@ function artifactContext(artifactId: string) {
   return { params: Promise.resolve({ artifactId }) };
 }
 
-async function seedUser(): Promise<AuthUser> {
+async function seedUser(account = username, role: 'member' | 'pi' = 'member'): Promise<AuthUser> {
   await upsertLocalUser({
-    username,
-    email: `${username}@example.test`,
+    username: account,
+    email: `${account}@example.test`,
     password: 'ArtifactCheck1!',
-    role: 'member',
-    displayName: username,
+    role,
+    displayName: account,
     source: 'project_artifact_check',
   });
-  const user = await getUserByUsername(username);
+  const user = await getUserByUsername(account);
   assert.ok(user, 'Expected artifact check user to exist.');
   return user;
 }
@@ -89,7 +89,7 @@ async function cleanup(paths: string[] = []) {
         [username, `%${slug}%`],
       )
       .catch(() => undefined);
-    await postgres.pool.query('DELETE FROM users WHERE username = $1', [username]).catch(() => undefined);
+    await postgres.pool.query('DELETE FROM users WHERE username = ANY($1::text[])', [[username, `${username}.reviewer`]]).catch(() => undefined);
   } finally {
     await postgres.disconnect();
   }
@@ -191,6 +191,7 @@ async function uploadArtifact(
 async function main() {
   await cleanup();
   const user = await seedUser();
+  await seedUser(`${username}.reviewer`, 'pi');
   const projectsRoute = await import('../app/api/projects/route');
   const updatesRoute = await import('../app/api/projects/[projectId]/updates/route');
   const artifactRoute = await import('../app/api/project-artifacts/[artifactId]/route');
@@ -203,6 +204,7 @@ async function main() {
       project: slug,
       title: 'Educational Agent with Memory',
       ownerUsername: user.username,
+      piUsername: `${username}.reviewer`, pdraUsername: `${username}.reviewer`,
       collaborators: ['External Education Partner'],
       track: 'A',
       stage: 2,

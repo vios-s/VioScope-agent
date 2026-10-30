@@ -4,6 +4,11 @@ import { requireSessionUser } from '../../../src/mastra/auth/session';
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { listChatNotificationsForUser, markChatNotificationsRead } from '../../../src/mastra/db/chat';
+import { listSubmissionNotifications, markSubmissionNotificationsRead } from '../../../src/mastra/submission/reminders';
+
+async function notificationsFor(user:Awaited<ReturnType<typeof requireSessionUser>>) {
+  return [...await listChatNotificationsForUser(user.id),...await listSubmissionNotifications(user)].sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+}
 
 export const runtime = 'nodejs';
 
@@ -14,7 +19,7 @@ function text(value: unknown): string | undefined {
 export async function GET(request: Request) {
   try {
     const user = await requireSessionUser(request);
-    return NextResponse.json({ notifications: await listChatNotificationsForUser(user.id) });
+    return NextResponse.json({ notifications: await notificationsFor(user) });
   } catch (error) {
     return errorResponse(error, 500);
   }
@@ -26,11 +31,13 @@ export async function PATCH(request: Request) {
     const body = (await request.json()) as Record<string, unknown>;
     const notificationId = text(body.notificationId);
     const all = body.all === true;
-    const notifications = await markChatNotificationsRead({
+    await markChatNotificationsRead({
       userId: user.id,
       notificationId,
       all,
     });
+    await markSubmissionNotificationsRead(user,notificationId,all);
+    const notifications=await notificationsFor(user);
     await recordAuditLog({
       actor: user,
       action: all ? 'notification.mark_all_read' : 'notification.mark_read',

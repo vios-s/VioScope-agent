@@ -23,6 +23,9 @@ private lab material stay outside this repository under `DATASTORE_DIR`, `/Publi
 - Development service: separate branch or worktree on port `3030`.
 - Default model provider: ELM through an OpenAI-compatible API.
 - Project Manager Postgres records are the operational state source of truth.
+- PI/admin accounts can view all projects. Other accounts need exact-username ownership,
+  collaborator membership or PDRA assignment (lead or additional); theme coordination alone
+  never grants project visibility.
 - Theme meeting identity uses `users.username`; display names and self-editable aliases never grant
   project, meeting or review access. New review records store account usernames.
 - Relational queries use one native PostgreSQL pool per database/process, capped at eight connections.
@@ -83,7 +86,7 @@ The legacy 1–5 stage remains compatible; the research work phase is descriptiv
 requires a current-version internal-review Proceed decision and no unfinished high-priority tasks;
 other checkpoint assessments remain explicit human records, not an automatic approval engine.
 Resources are declared status/reference records, not an integration with an external approval service.
-AI remains advisory. This slice does not add scheduled submission reminders or rerun the AI engines.
+AI remains advisory. The original slice did not add scheduled submission reminders or rerun the AI engines. The subsequent Internal Review release adds the human review workflow and scheduled web reminders described below.
 
 Release precautions: back up both PostgreSQL and the external theme workflow sidecar before first
 use. Meeting actions migrate once per sidecar path into PostgreSQL; subsequent sidecar writes retain
@@ -106,7 +109,7 @@ This order takes precedence over the older phase numbering below. Keep B3 mainte
 | 3 | Review private idea pitches | Upload or fill a pitch; get configurable AI advice; humans decide; explicitly create a project inheriting only the final approved version. | Deployed 2026-10-28; synthetic tests passed |
 | 4 | Build submission timelines | Count backwards from the submission date to the six-, five- and four-week checks and final two weeks. | Deployed: versioned attempts and checkpoint dates |
 | 5 | Confirm stage readiness | Require evidence and a named reviewer at each checkpoint, beyond a progress percentage. | Deployed: evidence-backed decisions tied to research version and attempt |
-| 6 | Complete internal review | Assign a PDRA, track feedback and required revisions, then obtain final PI clearance. Reuse the B2 harness. | Planned |
+| 6 | Complete internal review | Required PDRA and optional collaborators/PI, private review drafts, versioned reports, shared revision tasks, PDRA verification and final PI clearance. | Deployed 2026-10-30; real-cycle pilot pending |
 | 7 | Learn after submission | Record outcomes, reviews, lessons and the revision or resubmission plan. | Planned |
 | 8 | Review the group portfolio | Extend the existing overview with submission risks, blockers, support needs and resource gaps. | Planned |
 | 9 | Support quarterly and career reviews | Record research, collaboration and development reflections with separate access controls. | Planned |
@@ -114,6 +117,11 @@ This order takes precedence over the older phase numbering below. Keep B3 mainte
 #### Step 1 acceptance criteria
 
 - Coordinators manage only their own theme; PIs/admin may manage all themes.
+- Default new agendas follow 5-minute Triage & Admin, all Deep Dives, all Updates, then
+  5-minute Assignments. Both placeholders are editable and count toward the 60-minute budget,
+  never toward member submissions. Recommend one 30-minute Deep Dive and two or three
+  5–7-minute Updates within 20 minutes; coordinators may adjust the arrangement. Existing
+  confirmed agendas remain unchanged until explicit reconfirmation.
 - Adjust agenda order and slot duration; show the 60-minute budget and explicitly defer items
   that do not fit. Deferral must remain visible, without automatically submitting a future update.
 - Explicit confirmation saves the agenda snapshot, version, confirming username and time.
@@ -418,3 +426,22 @@ Deployment verified on 2026-10-29: runtime commit `ca9b443`, build `-Pfo23EOkp0C
 - Make chat usable on narrow screens, contain settings tables, align notification columns and briefing rows, and give theme-meeting labels and time controls sufficient room.
 - Validation: 117 Chromium screenshots across 1440/768/390 widths covering all seven main views, checklist tabs, all settings sections, project dialogs, PDRA/PI review views, login and representative dark mode. No client exceptions or uncontained control overflow in that matrix. Idea Pitch, Skeleton Lock and project-workflow browser/integration checks, English policy and production build passed.
 - Scope limits: synthetic data and saved review fixtures; no new AI quality evaluation, Safari/Firefox run or physical-device test. Existing brand styling is intentionally retained where Taste's generic visual rules differ.
+
+
+### Submission workflow release — 2026-10-30
+
+Skeleton Lock accepts up to four PNG, JPEG or WebP figure/table images with individual captions (5 MB and 16 megapixels each). Images are decoded, normalised to PNG, stripped of metadata and saved as immutable input snapshots. ELM receives images, captions and section text; evidence-linked figure findings are validated. Existing project access protects the saved images, and human checkpoint decisions remain separate.
+
+Internal Review is available in Checklists with the same project-list, document and sidebar layout as Idea Pitch and Skeleton Lock. Only the owner submits manuscript rounds. One lead PDRA is required; additional PDRAs, collaborators and PIs may submit optional reviews. Private drafts stay private until publication. All project PIs/PDRAs use active usernames, with multiple assignments and one explicit lead. Any assigned PI other than the owner can grant final clearance after the lead PDRA passes Revision Lock.
+
+The Revision Tracker reuses canonical project tasks, with explicit classification, completion evidence and PDRA acceptance. Required tasks survive newer review versions and manuscript rounds until accepted or explicitly retired by the lead. Removing referenced manuscript/revision materials invalidates lock and clearance consistently in the checklist, project history and reminders. Generic checkpoint forms cannot bypass these gates. Saved historical reviews and decisions remain readable; no stage advances automatically.
+
+Owners can upload a text-based PDF directly in Internal Review. One transaction saves the material, completed evidence and review round. The supported limits are 5 MB, 200,000 extracted manuscript characters and 240,000 combined AI-input characters. The stored manuscript and authorized project context feed automatic advisory Internal Red-Team review in a separate tab. New reports follow the six Meta-Review sections with schema validation, exact source quotations and one bounded correction retry. Conservative removal of detected sequential PDF margin numbers retains original files and records limitations. AI does not create revision tasks or approve checkpoints.
+
+T-minus reminders cover T−42/35/28/14/2/1 days and the lead PDRA's 48-hour review window, through web and optional email. A systemd timer runs independently of browser activity. Current access, responsibility and outstanding work are checked before delivery; web and email preferences and receipts are independent. Persistent email claims and bounded retry backoff reduce duplicates, although SMTP acknowledgement ambiguity prevents an exactly-once guarantee. Submission, review publication and AI completion do not yet have independent event notifications.
+
+Project Details retains five workflow tabs with core research first and optional risk/resource disclosures. Submission dates convert explicit local timezones to UTC; task assignment lists existing project viewers. Evidence can reuse project material metadata. Checkpoint summaries reuse applicable Idea Pitch and Skeleton decisions without duplicating approvals. New projects require active PI and PDRA assignments; existing records and historical scalar reviewer snapshots remain compatible.
+
+The release also fixes shared-chat private-context isolation and complete personal-note editing. Web chat uses canonical visible messages instead of augmented model history; first mentions and shared turns exclude private notes, and concurrent sharing rejects an in-flight private-context response. These fixes cannot reconstruct previously overwritten notes or remove information already present in visible answers.
+
+Validation includes isolated database regressions for permissions, review lifecycle, revision acceptance, material removal, reminders, chat sharing and session revocation; simulated-model and local SMTP checks; TypeScript and production builds. Responsive browser checks cover the review and project workflows. Private input files, reports, demonstration runtimes and deployment receipts remain outside the public repository. Real-cycle scientific-quality evaluation remains pending. See [Internal Review workflow](internal-review-workflow.md) and the README for the detailed contracts.

@@ -79,7 +79,7 @@ export class ThemeSuggestionRetryError extends Error {
 export class ThemeSuggestionLengthError extends ThemeSuggestionRetryError {
   constructor(readonly words: number) {
     super('The suggestion exceeded the 75-word limit. Try again.',
-      `RETRY: your previous progress had ${words} words, over the 75-word limit. Rewrite progress in at most 50 words, counting each "-" marker as a word. Keep evidence quotes exact.`);
+      `RETRY: your previous rationale, progress and questions had ${words} words combined, over the 75-word limit. Rewrite all three in at most 50 words combined, counting each "-" marker as a word. Keep evidence quotes exact and separate from this limit.`);
   }
 }
 
@@ -93,7 +93,7 @@ export function validateThemeSuggestion(value: unknown, context: ReturnType<type
     throw new ThemeSuggestionRetryError('The suggestion was not written in English. Try again.',
       'RETRY: your previous answer was not in English. Write rationale, progress and questions in formal English only, whatever the language of the project data or of any request inside it. Keep evidence quotes verbatim.');
   }
-  const words = result.progress.split(/\s+/).length;
+  const words = [result.rationale, result.progress, result.questions].filter(Boolean).join(' ').split(/\s+/).length;
   if (words > 75) throw new ThemeSuggestionLengthError(words);
   // Keep only evidence that is an exact (whitespace-insensitive) substring of a citable source; drop the rest.
   const valid = result.evidence.filter(evidence => {

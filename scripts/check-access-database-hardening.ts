@@ -41,24 +41,27 @@ try {
   await projects.ensureProjectTables();
   await chat.ensureChatTables();
   const db = createPostgresClient('hardening-test');
-  for (const username of ['owner.check', 'outsider.check']) {
+  for (const username of ['owner.check', 'outsider.check', 'coordinator.check', 'collaborator.check', 'pdra.check', 'pdra.second.check', 'pi.check', 'admin.check']) {
     await db.pool.query(`INSERT INTO users(id,username,display_name,email,role,provisioning_status,source,password_reset_required)
       VALUES($1,$2,$3,$4,'member','active','synthetic_hardening_check',false)`,
     [randomUUID(), username, `Synthetic ${username}`, `${username}@example.test`]);
   }
   let owner = (await users.getUserByUsername('owner.check'))!;
   let outsider = (await users.getUserByUsername('outsider.check'))!;
+  await db.pool.query("UPDATE users SET role='pi' WHERE username='pi.check'");
+  await db.pool.query("UPDATE users SET role='administrator' WHERE username='admin.check'");
+  const coordinator = (await users.getUserByUsername('coordinator.check'))!;
   const config = schema.themeMeetingConfigSchema.parse({
     timezone: 'Europe/London', cycle: { rotation: ['CD'], anchor_date: '2026-10-21' },
     themes: [
       { theme_id: 'C', title: 'Synthetic C', cycle_group: 'CD', time: '10:00', coordinator: outsider.username,
         coordinator_user: owner.username, members: [outsider.username], member_users: [owner.username] },
       { theme_id: 'D', title: 'Synthetic D', cycle_group: 'CD', time: '11:00', coordinator: owner.displayName,
-        coordinator_user: owner.username, members: [outsider.displayName], member_users: [outsider.username] },
+        coordinator_user: coordinator.username, members: [owner.displayName], member_users: [owner.username] },
     ],
   });
   await writeFile(process.env.THEME_MEETING_CONFIG_PATH!, stringify(config));
-  const project = await projects.createProject({ project: 'hardening-project', title: 'Synthetic private project', ownerUsername: owner.username }, owner);
+  const project = await projects.createProject({ project: 'hardening-project', piUsername: 'pi.check', pdraUsername: 'pdra.check', title: 'Synthetic private project', ownerUsername: owner.username }, owner);
   await assert.rejects(projects.getProjectForUser(project.id, outsider));
   outsider = await users.updateOwnUserProfile({ userId: outsider.id, displayName: owner.displayName, aliases: [owner.username] });
   assert.equal(auth.isUserName(owner.username, outsider), false);
@@ -73,6 +76,36 @@ try {
     method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json', cookie: `${auth.sessionCookieName}=${auth.createSessionToken(actor)}` },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  const projectList = await import('../app/api/projects/route');
+  const projectDetail = await import('../app/api/projects/[projectId]/route');
+  const projectWorkflow = await import('../app/api/projects/[projectId]/workflow/route');
+  const projectContext = { params: Promise.resolve({ projectId: project.id }) };
+  assert.equal(access.canManageTheme(config, 'D', coordinator), true, 'Fixture must be a real coordinator of the project owner.');
+  await projects.updateProject(project.id, { collaborators: ['collaborator.check'], pdraUsernames: ['pdra.check', 'pdra.second.check'], pdraUsername: 'pdra.check' }, owner);
+  for (const [username, allowed] of [
+    ['owner.check', true], ['collaborator.check', true], ['pdra.check', true], ['pdra.second.check', true],
+    ['pi.check', true], ['admin.check', true], ['coordinator.check', false], ['outsider.check', false],
+  ] as const) {
+    const actor = (await users.getUserByUsername(username))!;
+    const response = await projectList.GET(request(actor, '/api/projects?includeArchived=true'));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).projects.some((item: { id: string }) => item.id === project.id), allowed, `${username}: project list`);
+    for (const lookup of [project.id, project.project, project.title]) {
+      const detail = await projectDetail.GET(request(actor, '/api/projects/' + encodeURIComponent(lookup)), { params: Promise.resolve({ projectId: lookup }) });
+      assert.equal(detail.status, allowed ? 200 : 404, `${username}: direct lookup ${lookup}`);
+    }
+    const workflow = await projectWorkflow.GET(request(actor, `/api/projects/${project.id}/workflow`), projectContext);
+    assert.equal(workflow.status, allowed ? 200 : 404, `${username}: workflow`);
+  }
+  // A coordinator still gets access through an explicit project relationship.
+  await projects.updateProject(project.id, { collaborators: [coordinator.username] }, owner);
+  assert.equal((await projects.getProjectForUser(project.id, coordinator)).access.reason, 'collaborator');
+  await projects.updateProject(project.id, { collaborators: [], pdraUsernames: [coordinator.username], pdraUsername: coordinator.username }, owner);
+  assert.equal((await projects.getProjectForUser(project.id, coordinator)).access.canEdit, false);
+  await projects.updateProject(project.id, { pdraUsernames: [], pdraUsername: null }, owner);
+  await assert.rejects(projects.getProjectForUser(project.id, coordinator));
+  assert.equal((await projects.getProjectForUser(project.id, owner)).access.reason, 'owner', 'Owner access survives theme coordination.');
+  console.log('Project visibility passed: owner, collaborators, all assigned PDRAs and PI/admin; coordinator-only access denied in list, direct lookups and workflow.');
   const updates = await import('../app/api/theme-meetings/updates/route');
   assert.equal((await updates.POST(request(outsider, '/api/theme-meetings/updates', {
     themeId: 'C', meetingDate: '2030-01-02', member: owner.username, updateType: 'short_update', progressText: 'Synthetic attempted impersonation.',

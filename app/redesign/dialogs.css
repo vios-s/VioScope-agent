@@ -710,7 +710,24 @@ dialog.vs-dialog-form {
   text-shadow: 0 0 8px rgba(255, 255, 255, 0.9);
 }
 
+.vs-session-loading {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--vs-surface);
+  font: var(--vs-text-body);
+}
+
 .vs-auth-loading {
   color: var(--vs-ink-3);
   font-size: 13px;
 }
+
+/* Native multi-account selection in Add/Edit project. */
+.users-modal select[multiple] { height: auto; min-height: 112px; background-image: none; padding: 6px 8px; }
+.users-modal select[multiple] option { padding: 4px 6px; }
+
+.project-reviewer-field { display: grid; gap: 6px; min-width: 0; }
+
+.users-modal .collaborator-field { gap: 6px; align-content: start; }
+.field-required { color: var(--danger-fg); }

@@ -1,4 +1,5 @@
 'use client';
+import {projectPIs,projectPDRAs} from '../src/mastra/projects/review-team';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { ProjectRecord } from '../src/mastra/db/projects';
@@ -10,6 +11,7 @@ import { requestJson } from './client-request';
 import { ConfirmDialog } from './confirm-dialog';
 import { ChevronDown, Download, Plus } from 'lucide-react';
 import { formatDay, formatDayTime, formatShortDay } from './format';
+import { SavedSkeletonFigures, SkeletonFigureUploads, type FigureDraft } from './skeleton-figures';
 
 // The list carries each project's latest check and its check count; one project's earlier checks arrive with an opened check.
 type Summary = Pick<SkeletonRecord, 'id' | 'projectId' | 'createdAt' | 'revision' | 'projectSnapshot' | 'decisions'> & { verdict: string; count: number };
@@ -60,6 +62,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
   const [mode, setMode] = useChecklistDraft(key('mode'), 'blocks');
   const [text, setText] = useChecklistDraft(key('text'), '');
   const [file, setFile] = useState<File | null>(null);
+  const [figures, setFigures] = useState<FigureDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -101,7 +104,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
   const checkNumber = (review: { id: string }) => totalChecks - Math.max(0, projectReviews.findIndex(item => item.id === review.id));
   const administrator = Boolean(data?.viewer.administrator);
   const pdraAvailable = administrator || Boolean(data?.projects.some(item => item.pdraUsername === viewer));
-  const piAvailable = administrator || Boolean(data?.projects.some(item => item.piUsername === viewer));
+  const piAvailable = administrator || Boolean(data?.projects.some(item => projectPIs(item).includes(viewer || '')));
   const show: Show = (showChoice === 'pdra' && !pdraAvailable) || (showChoice === 'pi' && !piAvailable) ? 'all' : showChoice;
   const showOptions = (['all', 'pdra', 'pi'] as const).filter(value => value === 'all' || (value === 'pdra' ? pdraAvailable : piAvailable));
   // Only steps the viewer can act on: their own assignment (administrators: all), active projects, and a PDRA judgment before the PI step.
@@ -109,7 +112,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
     const latest = byProject.get(item.id);
     if (!latest || item.lifecycle !== 'active') return false;
     const decisions = latestSkeletonDecisions(latest.decisions);
-    return show === 'pdra' ? !decisions.pdra && (administrator || item.pdraUsername === viewer) : Boolean(decisions.pdra) && !decisions.pi && (administrator || item.piUsername === viewer);
+    return show === 'pdra' ? !decisions.pdra && (administrator || item.pdraUsername === viewer) : Boolean(decisions.pdra) && !decisions.pi && (administrator || projectPIs(item).includes(viewer || ''));
   };
   const query = search.trim().toLowerCase();
   // The open project stays listed after its judgment is recorded, so the record never loses its list entry.
@@ -122,7 +125,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
   const saved = selected && selected.projectId === projectId && selected.id === selectedId ? selected : null;
   const loadingCheck = Boolean(!saved && selectedId && latestOfProject);
   const canCompose = Boolean(project && project.stage === 4 && project.access.canEdit && project.lifecycle === 'active');
-  const hasInput = Boolean(text.trim() || file || Object.values(draft).some(value => value.trim()));
+  const hasInput = Boolean(text.trim() || file || figures.length || Object.values(draft).some(value => value.trim()));
   // Reviews saved before the rename carry the generic B2 report heading.
   // Older reports also listed the server path of each skill; show only the skill name and version.
   const reportText = (saved?.result.report || '').replace(/^# VIOS B2 Pre-Submission Review/, '# VIOS Skeleton Lock review')
@@ -148,7 +151,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
   }
   // Selecting a project shows its latest check, or the empty sections for a new one.
   function switchProject(id: string) {
-    setPendingProjectId(null); setProjectId(id); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null); setError(''); setMessage('');
+    setPendingProjectId(null); setProjectId(id); setDraft(skeletonDraftSchema.parse({})); setText(''); setFile(null); setFigures([]); setError(''); setMessage('');
     const latest = byProject.get(id);
     if (latest) openReview(latest.id); else { setSelectedId(''); setSelected(null); }
     if ((recordRef.current?.getBoundingClientRect().top ?? 0) < 0) recordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -157,7 +160,10 @@ export function SkeletonLock({ userId }: { userId: string }) {
     event.preventDefault(); setBusy(true); setError(''); setMessage('');
     try {
       const form = new FormData(); form.set('projectId', projectId); form.set('mode', mode);
-      if (mode === 'blocks') form.set('blocks', JSON.stringify(draft));
+      if (mode === 'blocks') {
+        form.set('blocks', JSON.stringify(draft));
+        for (const figure of figures) { form.append('figures', figure.file); form.append('figureCaptions', figure.caption); }
+      }
       if (mode === 'paste') form.set('text', text);
       if (mode === 'upload' && file) form.set('file', file);
       const result = await requestJson<{ review: SkeletonRecord }>('/api/skeleton-lock', 'Could not complete the AI check. Your input is retained.', { method: 'POST', body: form });
@@ -181,7 +187,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
   const mayJudge = (kind: 'pdra' | 'pi') => {
     if (!saved || !project || !latest || project.ownerUsername === viewer) return null;
     if (kind === 'pdra' ? saved.decisions.some(item => item.kind === 'pi' && item.by === viewer) : latest.pdra?.by === viewer) return null;
-    if ((kind === 'pdra' ? project.pdraUsername : project.piUsername) === viewer) return 'assigned';
+    if (kind === 'pdra' ? project.pdraUsername === viewer : projectPIs(project).includes(viewer || '')) return 'assigned';
     return administrator ? 'override' : null;
   };
   // Why the server would refuse a judgment on this check right now; the form is replaced by the reason.
@@ -226,7 +232,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
             })}</ul>
           </div>)}
         </div>
-        <p className="checklist-list-note">Project details are inherited; edit them in Projects. Section text is kept in this browser tab until you sign out.</p>
+        <p className="checklist-list-note">Edit details in Projects. Draft text stays until sign-out.</p>
       </aside>
       <div ref={recordRef} className="checklist-record-host">
         {!project ? <div className="ops-empty checklist-empty"><strong>Choose a project</strong><span>Skeleton Lock checks open for projects at stage 4 (Pre-Submission). Earlier checks stay readable at any stage.</span></div>
@@ -237,35 +243,36 @@ export function SkeletonLock({ userId }: { userId: string }) {
               <h2 className="checklist-record-title">{project.title}</h2>
               <div className="checklist-record-meta">
                 <span className="vs-mono">{saved ? `Check ${checkNumber(saved)} · saved ${formatDayTime(saved.createdAt)} · revision ${saved.revision}` : 'New check · not run yet'}</span>
-                {people && <span>Lead @{people.ownerUsername} · PDRA {people.pdraUsername ? `@${people.pdraUsername}` : 'not assigned'} · PI {people.piUsername ? `@${people.piUsername}` : 'not assigned'} · Collaborators {people.collaborators?.length ? people.collaborators.map(name => `@${name}`).join(', ') : 'none'}</span>}
+                {people && <span>Lead @{people.ownerUsername} · PDRA {people.pdraUsername ? `@${people.pdraUsername}` : 'not assigned'} · PIs {projectPIs(people).map(u=>`@${u}`).join(', ')||'not assigned'} · Other PDRAs {projectPDRAs(people).filter(u=>u!==people.pdraUsername).map(u=>`@${u}`).join(', ')||'none'} · Collaborators {people.collaborators?.length ? people.collaborators.map(name => `@${name}`).join(', ') : 'none'}</span>}
                 {people && <span><span>{people.venue || 'Venue not set'}</span> · due <span className="vs-mono">{people.submissionDeadline ? formatDay(people.submissionDeadline) : 'not set'}</span></span>}
                 {projectReviews.length > 0 && <label className="checklist-inline-field">Check<select value={saved || loadingCheck ? selectedId : ''} disabled={busy} onChange={event => { if (event.target.value) openReview(event.target.value); else newCheck(); }}>
                   {canCompose ? <option value="">New check</option> : !saved && <option value="" disabled>Choose a saved check</option>}
                   {projectReviews.map((review, index) => <option key={review.id} value={review.id}>Check {totalChecks - index} · {formatDayTime(review.createdAt)}</option>)}
                 </select></label>}
               </div>
-              {saved && <p className="checklist-hint">Saved snapshot of the evidence and project details. A judgment requires the latest check and unchanged project details.</p>}
+              {saved && <p className="checklist-hint">Judgments require the latest check and unchanged project details.</p>}
             </div>
-            {!saved && !loadingCheck && canCompose && (!project.piUsername || !project.pdraUsername || !project.venue || !project.submissionDeadline) && <p className="ops-notice">Some project details are missing. Set the PI, assigned PDRA, target venue and deadline in Projects. Missing values will remain explicit in the AI check.</p>}
-            {!saved && !loadingCheck && project.stage !== 4 && <p className="ops-notice" role="status">Skeleton Lock opens at stage 4 (Pre-Submission). This project is currently at stage {project.stage}; update the stage in Projects when it is ready.{projectReviews.length ? ' Earlier checks remain available from the Check list.' : ''}</p>}
-            {!saved && !loadingCheck && project.stage === 4 && !canCompose && <p className="ops-notice" role="status">Project checks are created by the project owner, PI or administrator of an active project. You may read checks permitted by your project access.</p>}
+            {!saved && !loadingCheck && canCompose && (!project.piUsername || !project.pdraUsername || !project.venue || !project.submissionDeadline) && <p className="ops-notice">Set the missing PI, PDRA, venue or deadline in Projects.</p>}
+            {!saved && !loadingCheck && project.stage !== 4 && <p className="ops-notice" role="status">Requires stage 4 (Pre-Submission); currently stage {project.stage}. Update in Projects when ready.{projectReviews.length ? ' Earlier checks remain available from the Check list.' : ''}</p>}
+            {!saved && !loadingCheck && project.stage === 4 && !canCompose && <p className="ops-notice" role="status">Read only · Only the owner, PI or administrator can start checks.</p>}
             {loadingCheck && <p role="status" className="checklist-hint">Loading the saved check…</p>}
             {!saved && !loadingCheck && canCompose && <form id={formId} onSubmit={run} className="checklist-record-form">
               <details className="checklist-import" open={mode !== 'blocks'}>
                 <summary>Start from an existing document</summary>
                 <fieldset disabled={busy}><legend className="vs-sr-only">Existing document</legend>
-                  <p className="checklist-hint">Paste an outline or upload a draft or deck to check it instead of the sections. The AI reads the document as supplied; nothing is copied into the sections.</p>
+
                   <label className="checklist-field-narrow">Input method <select value={mode} onChange={event => setMode(event.target.value)}><option value="blocks">Fill the skeleton sections</option><option value="paste">Paste an outline or draft</option><option value="upload">Upload a draft or deck</option></select></label>
                   {mode === 'paste' && <label>Paste outline <textarea required rows={10} value={text} aria-describedby="skeleton-paste-length" onChange={event => setText(event.target.value)} />
                     <span id="skeleton-paste-length" className="checklist-hint" role={text.length > 55000 ? 'alert' : undefined}>{text.length > 55000 ? `The pasted text has ${text.length.toLocaleString('en-GB')} characters; the limit is 55,000. Shorten it or upload the document instead.` : `${text.length.toLocaleString('en-GB')} of 55,000 characters.`}</span></label>}
-                  {mode === 'upload' && <label>Upload outline <input required type="file" accept=".txt,.md,.markdown,.tex,.latex,.rst,.docx,.pdf,.pptx" onChange={event => setFile(event.target.files?.[0] || null)} /><span className="checklist-hint">TXT, Markdown, LaTeX, RST, DOCX, text-based PDF or PPTX. Text: 2 MB; DOCX and PDF: 5 MB; decks: 25 MB. Check the extracted text in the saved check for missing images or equations.</span></label>}
+                  {mode === 'upload' && <label>Upload outline <input required type="file" accept=".txt,.md,.markdown,.tex,.latex,.rst,.docx,.pdf,.pptx" onChange={event => setFile(event.target.files?.[0] || null)} /><span className="checklist-hint">TXT/MD/LaTeX/RST: 2 MB · DOCX/text-based PDF: 5 MB · PPTX: 25 MB. Check extracted text for missing images or equations.</span></label>}
                 </fieldset>
               </details>
               <fieldset disabled={busy} className="checklist-blocks"><legend className="vs-sr-only">Skeleton sections</legend>
                 {mode === 'blocks' ? skeletonFields.map((field, index) => <div key={field.key} className="checklist-block">
-                  <div className="checklist-block-head"><span className="checklist-block-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><label htmlFor={`skeleton-input-${field.key}`}>{field.label}</label>{!draft[field.key].trim() && <span className="checklist-empty-chip">Empty</span>}</div>
+                  <div className="checklist-block-head"><span className="checklist-block-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><label htmlFor={`skeleton-input-${field.key}`}>{field.label}</label>{!draft[field.key].trim() && !(field.key === 'figures' && figures.length) && <span className="checklist-empty-chip">Empty</span>}</div>
                   <textarea id={`skeleton-input-${field.key}`} placeholder={field.hint} rows={4} maxLength={6000} value={draft[field.key]} onChange={event => setDraft(current => ({ ...current, [field.key]: event.target.value }))} />
-                </div>) : <p className="checklist-hint">The AI check will read the {mode === 'paste' ? 'pasted outline' : 'uploaded document'}. Choose “Fill the skeleton sections” under Start from an existing document to use the sections instead.</p>}
+                  {field.key === 'figures' && <SkeletonFigureUploads figures={figures} onChange={setFigures} />}
+                </div>) : <p className="checklist-hint">Checks the {mode === 'paste' ? 'pasted outline' : 'uploaded document'} only; sections are not used or filled.</p>}
               </fieldset>
             </form>}
             {saved && <>
@@ -273,6 +280,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
                 {sections ? sections.map((field, index) => <div key={field.key} className="checklist-block">
                   <div className="checklist-block-head"><span className="checklist-block-num" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><label htmlFor={`skeleton-saved-${field.key}`}>{field.label}</label>{!field.text && <span className="checklist-empty-chip">Not provided</span>}</div>
                   <textarea id={`skeleton-saved-${field.key}`} readOnly rows={2} value={field.text} />
+                  {field.key === 'figures' && saved.result.figureInputs?.length ? <SavedSkeletonFigures figures={saved.result.figureInputs} /> : null}
                 </div>) : <div className="checklist-block"><div className="checklist-block-head"><span className="checklist-block-num" aria-hidden="true">01</span><label htmlFor="skeleton-saved-document">Submitted document</label></div>
                   <textarea id="skeleton-saved-document" readOnly rows={8} value={saved.draftText.slice(saved.draftText.indexOf('\n\n') + 2)} /></div>}
               </div>
@@ -294,7 +302,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
                 <span className={`checklist-advice-status is-${verdictTone[verdict] || 'muted'}`}>Suggested verdict: {skeletonVerdictLabels[verdict] || verdict}</span>
                 <p className="checklist-advice-meta">From <span className="vs-mono">Check {checkNumber(saved)}</span> · <span className="vs-mono">{formatDayTime(saved.createdAt)}</span>. Advice only; the PDRA records the verdict.</p>
                 <p>{saved.result.structured.summary}</p>
-                {saved.result.structured.paperSkeleton ? <PaperSkeletonChecklist items={saved.result.structured.paperSkeleton} /> : sections && <p className="checklist-advice-meta">The Paper Skeleton checklist applies to full drafts. Paste or upload the draft to check it.</p>}
+                {saved.result.structured.paperSkeleton ? <PaperSkeletonChecklist items={saved.result.structured.paperSkeleton} /> : sections && <p className="checklist-advice-meta">Paste or upload a full draft for the Paper Skeleton checklist.</p>}
                 {saved.result.structured.findings.length > 0 && <section className="skeleton-findings" aria-labelledby="skeleton-findings-heading">
                   <h4 id="skeleton-findings-heading">Findings</h4>
                   <ul className="checklist-advice-list">{saved.result.structured.findings.map((item, index) => <li key={index}>
@@ -308,9 +316,9 @@ export function SkeletonLock({ userId }: { userId: string }) {
                 {canCompose && <button type="button" className="ops-secondary checklist-advice-run" disabled={busy} onClick={newCheck}>Start a new check</button>}
               </> : <>
                 <p>{loadingCheck ? 'Loading the saved check…' : canCompose ? 'No AI check for this draft yet.' : 'No AI check to show.'}</p>
-                <p className="checklist-advice-meta">The agent reads the skeleton against the VIOS Skeleton Lock checklist and the Paper Skeleton minimum content. It cannot approve, decide or change a stage.</p>
+                <p className="checklist-advice-meta">AI checks the VIOS requirements; human approval is separate.</p>
                 {canCompose && !loadingCheck && <button type="submit" form={formId} className="ops-secondary checklist-advice-run" disabled={busy || (mode === 'paste' && text.length > 55000)}>{busy ? 'Checking…' : 'Check skeleton with AI'}</button>}
-                {canCompose && !loadingCheck && <p className="checklist-advice-meta">Each check is saved separately to the project.</p>}
+                {canCompose && !loadingCheck && <p className="checklist-advice-meta">Each check is saved to the project.</p>}
               </>}
             </section>
             <section className="checklist-step" aria-labelledby="skeleton-pdra-heading">
@@ -321,7 +329,7 @@ export function SkeletonLock({ userId }: { userId: string }) {
             </section>
             <section className="checklist-step" aria-labelledby="skeleton-pi-heading">
               <h3 id="skeleton-pi-heading">2 · PI confirmation</h3>
-              {latest?.pi ? <DecisionRecord decision={latest.pi} /> : <p className="checklist-step-state">Awaiting {people?.piUsername ? `@${people.piUsername}` : 'the project PI'}. Only the project PI can confirm; an administrator may record an explicit administrator override. The project owner and the PDRA who judged this check cannot confirm it.</p>}
+              {latest?.pi ? <DecisionRecord decision={latest.pi} /> : <p className="checklist-step-state">Awaiting {people && projectPIs(people).length ? projectPIs(people).map(u=>`@${u}`).join(' or ') : 'a project PI'}. Any assigned PI or administrator override only; the owner and judging PDRA cannot confirm.</p>}
               {saved && mayJudge('pi') && (piBlocked ? <p className="checklist-hint" role="status">{piBlocked}</p> : <JudgmentForm key={`pi-${saved.id}-${saved.revision}`} kind="pi" override={mayJudge('pi') === 'override'} busy={busy} onSave={judge} approvable={latest?.pdra?.outcome !== 'SLIDE' && latest?.pdra?.outcome !== 'revise'} />)}
             </section>
             {saved && <section className="checklist-step skeleton-judgment-history" aria-labelledby="skeleton-history-heading">
@@ -349,10 +357,10 @@ function JudgmentForm({ kind, override, busy, onSave, approvable = true }: { kin
   const conditional = kind === 'pdra' && outcome === 'CONDITIONAL';
   return <form className="skeleton-judgment" onSubmit={event => { event.preventDefault(); void onSave(kind, outcome, note, override, conditional ? reevaluateOn : undefined); }}><fieldset disabled={busy}>
     <legend>{override ? 'Administrator override — ' : ''}{kind === 'pdra' ? 'PDRA judgment' : 'PI skeleton checkpoint confirmation'}</legend>
-    {kind === 'pi' && !approvable && <p className="checklist-hint">The PDRA judged that this check should slide or be revised, so the skeleton lock cannot be confirmed. Return it for revision or run a new check.</p>}
-    {override && <p className="checklist-hint">You are not the assigned {kind === 'pdra' ? 'PDRA' : 'project PI'}. This judgment is recorded and shown as an administrator override.</p>}
+    {kind === 'pi' && !approvable && <p className="checklist-hint">PDRA requested revision or SLIDE. Return for revision or run a new check before confirmation.</p>}
+    {override && <p className="checklist-hint">Not the assigned {kind === 'pdra' ? 'PDRA' : 'project PI'}; recorded as an administrator override.</p>}
     <label>Judgment <select required value={outcome} onChange={event => { setOutcome(event.target.value); setConfirmed(false); }}>{kind === 'pdra' && <option value="" disabled>Choose a verdict</option>}{(kind === 'pdra' ? [['CLEARED', skeletonVerdictLabels.CLEARED], ['CONDITIONAL', skeletonVerdictLabels.CONDITIONAL], ['SLIDE', skeletonVerdictLabels.SLIDE]] : [['needs_revision', 'Return for revision'], ...(approvable ? [['approved', 'Confirm skeleton lock']] : [])]).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-    {conditional && <label>Re-evaluation date (Europe/London) <input type="date" required min={addDays(today, 1)} value={reevaluateOn} onChange={event => { setReevaluateOn(event.target.value); setConfirmed(false); }} /><span className="checklist-hint">72-hour sprint on the named gaps, then re-evaluate on this date.</span></label>}
+    {conditional && <label>Re-evaluation date (Europe/London) <input type="date" required min={addDays(today, 1)} value={reevaluateOn} onChange={event => { setReevaluateOn(event.target.value); setConfirmed(false); }} /><span className="checklist-hint">72-hour sprint, then re-evaluate.</span></label>}
     <label>Reason, evidence and required actions <textarea required rows={4} maxLength={4000} value={note} onChange={event => { setNote(event.target.value); setConfirmed(false); }} /></label>
     <label className="checklist-confirm"><input type="checkbox" required checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />I have reviewed the source evidence and AI advice and confirm this is my human judgment{override ? ', recorded as an administrator override' : ''}.</label>
     <button type="submit" className="ops-primary" disabled={!confirmed}>{kind === 'pdra' ? 'Record PDRA judgment' : 'Record PI confirmation'}</button>
@@ -369,7 +377,7 @@ function SkeletonFollowUp({ review, owner }: { review: SkeletonRecord; owner: st
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not create task.'); } finally { setBusy(false); }
   }
   return <details className="checklist-import"><summary>Create a project follow-up task</summary><form onSubmit={submit}><fieldset disabled={busy}><legend className="vs-sr-only">Project follow-up task</legend>
-    <p className="checklist-hint">This task links to this saved check. Review the suggested action before creating it.</p>
+    <p className="checklist-hint">Review before adding; links to this check.</p>
     <label>Follow-up action<textarea name="task" required defaultValue={review.result.structured.findings.find(item => item.requiredAction)?.requiredAction || ''} /></label>
     <div className="checklist-field-grid"><label>Assignee username<input name="owner" defaultValue={owner} required /></label><label>Due date<input name="dueDate" type="date" /></label><label>Priority<select name="priority"><option value="normal">Normal</option><option value="high">High — required before submission clearance</option></select></label></div>
     <label className="checklist-confirm"><input type="checkbox" required />I confirm this action should be added to the project.</label><button type="submit" className="ops-primary">Create follow-up task</button>{status && <p role="status" className="form-message">{status}</p>}{error && <p role="alert" className="ops-notice error">{error}</p>}
@@ -380,7 +388,7 @@ function PaperSkeletonChecklist({ items }: { items: NonNullable<SubmissionReview
   const groups = [...new Set(paperSkeletonRequirements.map(item => item.group))];
   return <section className="skeleton-paper" aria-labelledby="skeleton-paper-heading">
     <h4 id="skeleton-paper-heading">Paper Skeleton minimum content</h4>
-    <p className="checklist-advice-meta">AI reading of the VIOS Paper Skeleton requirements. Measured values are counted by VioScope from the supplied text and may differ from the AI reading.</p>
+    <p className="checklist-advice-meta">AI assessment of VIOS requirements. Text measurements may differ from the AI assessment.</p>
     {groups.map(group => <div key={group} className="skeleton-paper-group"><h5 className="vs-caps">{group}</h5>
       <ul className="checklist-advice-list">{paperSkeletonRequirements.filter(item => item.group === group).map(requirement => {
         const item = items.find(entry => entry.id === requirement.id);

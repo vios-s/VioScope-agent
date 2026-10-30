@@ -1,10 +1,9 @@
+import { projectPIs, projectPDRAs } from '../projects/review-team';
 import type { ProjectTask } from '../projects/workflow';
 import { ensureProjectWorkflowTables } from './project-workflow-schema';
 import { importProjectTodos, taskColumns, replaceLegacyProjectTodos, taskAsTodo } from './project-tasks';
 import { randomUUID } from 'node:crypto';
 import { AuthError, canSeeAll } from '../auth/session';
-import { canManageTheme } from '../theme-meetings/access';
-import { readThemeMeetingConfig } from '../theme-meetings/store';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { ensureUsersTable, getUserByUsername, type AuthUser } from './users';
 
@@ -53,6 +52,8 @@ export type ProjectCreateInput = {
   collaborators?: string[];
   piUsername?: string | null;
   pdraUsername?: string | null;
+  piUsernames?: string[];
+  pdraUsernames?: string[];
   track?: string;
   stage?: number;
   stageProgress?: number;
@@ -132,6 +133,8 @@ export type ProjectRecord = {
   collaborators: string[];
   piUsername: string | null;
   pdraUsername: string | null;
+  piUsernames: string[];
+  pdraUsernames: string[];
   track: string;
   stage: number;
   stageProgress: number;
@@ -160,7 +163,7 @@ export type ProjectRecord = {
     canArchive: boolean;
     canAddUpdate: boolean;
     canComment: boolean;
-    reason: 'owner' | 'collaborator' | 'coordinator' | 'pi_admin';
+    reason: 'owner' | 'collaborator' | 'pi_admin';
   };
 };
 
@@ -172,6 +175,8 @@ type ProjectRow = {
   collaborator_usernames: string[] | null;
   pi_username: string | null;
   pdra_username: string | null;
+  pi_usernames: string[];
+  pdra_usernames: string[];
   track: string;
   stage: number | string;
   stage_progress: number | string | null;
@@ -427,28 +432,12 @@ function isProjectUpdateType(value?: string): value is ProjectUpdateType {
   return projectUpdateTypes.includes(value as ProjectUpdateType);
 }
 
-async function managedOwnerUsernamesForUser(user: AuthUser): Promise<Set<string>> {
-  try {
-    const { config } = await readThemeMeetingConfig();
-    return new Set(
-      config.themes
-        .filter((theme) => canManageTheme(config, theme.theme_id, user))
-        .flatMap((theme) => theme.member_users)
-        .map((username) => cleanUsername(username || ''))
-        .filter(Boolean),
-    );
-  } catch {
-    return new Set();
-  }
-}
-
-function accessReason(row: ProjectRow, user: AuthUser, managedOwnerUsernames: Set<string>): ProjectRecord['access']['reason'] | null {
+function accessReason(row: ProjectRow, user: AuthUser): ProjectRecord['access']['reason'] | null {
   const username = cleanUsername(user.username);
   if (canSeeAll(user)) return 'pi_admin';
   if (cleanUsername(row.owner_username) === username) return 'owner';
   if (user.provisioningStatus === 'active' && (row.collaborator_usernames || []).some((name) => cleanUsername(name) === username)) return 'collaborator';
-  if (user.provisioningStatus === 'active' && row.pdra_username === username) return 'collaborator';
-  if (managedOwnerUsernames.has(cleanUsername(row.owner_username))) return 'coordinator';
+  if (user.provisioningStatus === 'active' && (row.pdra_username === username || (row.pdra_usernames || []).includes(username))) return 'collaborator';
   return null;
 }
 
@@ -493,11 +482,10 @@ function toUpdate(row: UpdateRow, comments: ProjectUpdateCommentRecord[]): Proje
 function toProject(
   row: ProjectRow,
   user: AuthUser,
-  managedOwnerUsernames: Set<string>,
   artifacts: ProjectArtifactRecord[],
   updates: ProjectUpdateRecord[],
 ): ProjectRecord | null {
-  const reason = accessReason(row, user, managedOwnerUsernames);
+  const reason = accessReason(row, user);
   if (!reason) return null;
   const canEdit = canEditFromReason(reason);
   const latestUpdate = updates[0];
@@ -520,6 +508,8 @@ function toProject(
     collaborators: row.collaborator_usernames || [],
     piUsername: row.pi_username || null,
     pdraUsername: row.pdra_username || null,
+    piUsernames: row.pi_usernames?.length ? row.pi_usernames : row.pi_username ? [row.pi_username] : [],
+    pdraUsernames: row.pdra_usernames?.length ? row.pdra_usernames : row.pdra_username ? [row.pdra_username] : [],
     track: row.track,
     stage: Number(row.stage),
     stageProgress: Number(row.stage_progress || 0),
@@ -592,6 +582,9 @@ async function ensureProjectTablesOnce(): Promise<void> {
       )
     `);
     await postgres.pool.query('ALTER TABLE project_records ADD COLUMN IF NOT EXISTS pi_username TEXT, ADD COLUMN IF NOT EXISTS pdra_username TEXT');
+    await postgres.pool.query("ALTER TABLE project_records ADD COLUMN IF NOT EXISTS pi_usernames TEXT[] NOT NULL DEFAULT '{}', ADD COLUMN IF NOT EXISTS pdra_usernames TEXT[] NOT NULL DEFAULT '{}'");
+    await postgres.pool.query("UPDATE project_records SET pi_usernames=ARRAY[pi_username] WHERE pi_username IS NOT NULL AND cardinality(pi_usernames)=0");
+    await postgres.pool.query("UPDATE project_records SET pdra_usernames=ARRAY[pdra_username] WHERE pdra_username IS NOT NULL AND cardinality(pdra_usernames)=0");
     await postgres.pool.query('ALTER TABLE project_records DROP CONSTRAINT IF EXISTS project_records_slug_key');
     await postgres.pool.query("ALTER TABLE project_records ADD COLUMN IF NOT EXISTS todos JSONB NOT NULL DEFAULT '[]'::jsonb");
     await postgres.pool.query("UPDATE project_records SET track = 'A' WHERE track NOT IN ('A', 'B')");
@@ -669,7 +662,6 @@ async function ensureProjectTablesOnce(): Promise<void> {
 
 async function hydrateProjects(rows: ProjectRow[], user: AuthUser): Promise<ProjectRecord[]> {
   if (!rows.length) return [];
-  const managedOwnerUsernames = await managedOwnerUsernamesForUser(user);
   const projectIds = rows.map((row) => row.id);
   const postgres = createPostgresClient('vioscope-projects');
 
@@ -748,7 +740,6 @@ async function hydrateProjects(rows: ProjectRow[], user: AuthUser): Promise<Proj
         toProject(
           row,
           user,
-          managedOwnerUsernames,
           artifactsByProject.get(row.id) || [],
           updatesByProject.get(row.id) || [],
         ),
@@ -766,7 +757,7 @@ export async function listProjectsForUser(user: AuthUser, input: { includeArchiv
   try {
     const result = await postgres.pool.query<ProjectRow>(
       `
-        SELECT id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, track, stage, stage_progress,
+        SELECT id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, pi_usernames, pdra_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, todos, archived_at, created_at, updated_at
         FROM project_records
@@ -788,7 +779,7 @@ async function projectRowsByIdOrSlug(projectId: string): Promise<ProjectRow[]> {
   try {
     const result = await postgres.pool.query<ProjectRow>(
       `
-        SELECT id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, track, stage, stage_progress,
+        SELECT id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, pi_usernames, pdra_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, todos, archived_at, created_at, updated_at
         FROM project_records
@@ -803,19 +794,33 @@ async function projectRowsByIdOrSlug(projectId: string): Promise<ProjectRow[]> {
   }
 }
 
-async function validateProjectReviewers(pi: string | null | undefined, pdra: string | null | undefined, owner: string) {
-  const piUsername = pi ? cleanUsername(pi) : null;
-  const pdraUsername = pdra ? cleanUsername(pdra) : null;
-  if (piUsername) {
-    const account = await getUserByUsername(piUsername);
+async function validateProjectReviewers(input: ProjectCreateInput, owner: string, current?: ProjectRecord) {
+  const cleanList = (names: string[]) => {
+    if (!Array.isArray(names) || names.length > 100 || names.some(name => typeof name !== 'string')) throw new Error('Choose at most 100 reviewer usernames.');
+    return [...new Set(names.map(cleanUsername).filter(Boolean))];
+  };
+  // A legacy scalar edit replaces only the former lead, preserving the other team members.
+  const legacyList = (names: string[], previous: string | null | undefined, next: string | null | undefined) =>
+    next === undefined ? names : [...(next ? [next] : []), ...names.filter(name => name !== previous)];
+  const piUsernames = cleanList(input.piUsernames ?? legacyList(current ? projectPIs(current) : [], current?.piUsername, input.piUsername));
+  const pdraUsernames = cleanList(input.pdraUsernames ?? legacyList(current ? projectPDRAs(current) : [], current?.pdraUsername, input.pdraUsername));
+  const pdraUsername = input.pdraUsername === undefined
+    ? (current?.pdraUsername && pdraUsernames.includes(current.pdraUsername) ? current.pdraUsername : pdraUsernames[0] || null)
+    : input.pdraUsername ? cleanUsername(input.pdraUsername) : null;
+  if (pdraUsernames.length && !pdraUsername) throw new Error('Choose one lead PDRA from the assigned PDRAs.');
+  if (pdraUsername && !pdraUsernames.includes(pdraUsername)) throw new Error('The lead PDRA must be included in the assigned PDRAs.');
+  for (const username of piUsernames) {
+    const account = await getUserByUsername(username);
     if (!account || account.provisioningStatus !== 'active' || !canSeeAll(account)) throw new Error('Project PI must be an active PI or administrator account.');
   }
-  if (pdraUsername) {
-    const account = await getUserByUsername(pdraUsername);
+  for (const username of pdraUsernames) {
+    const account = await getUserByUsername(username);
     if (!account || account.provisioningStatus !== 'active') throw new Error('Project PDRA must be an active account.');
-    if (pdraUsername === owner) throw new Error('The project owner cannot be their own PDRA reviewer.');
+    if (username === owner) throw new Error('The project owner cannot be their own PDRA reviewer.');
   }
-  return { piUsername, pdraUsername };
+  if (!current && !piUsernames.length) throw new Error('Assign at least one project PI to create a project.');
+  if (!current && !pdraUsernames.length) throw new Error('Assign at least one project PDRA to create a project.');
+  return { piUsername: current?.piUsername && piUsernames.includes(current.piUsername) ? current.piUsername : piUsernames[0] || null, pdraUsername, piUsernames, pdraUsernames };
 }
 
 async function assertActiveOwner(username: string): Promise<void> {
@@ -895,7 +900,7 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
 
   await assertActiveOwner(ownerUsername);
   const collaborators = await cleanCollaborators(input.collaborators);
-  const reviewers = await validateProjectReviewers(input.piUsername, input.pdraUsername, ownerUsername);
+  const reviewers = await validateProjectReviewers(input, ownerUsername);
   await assertProjectNameAvailable({ ownerUsername, title, slug });
 
   const stage = cleanStage(input.stage ?? 1);
@@ -913,10 +918,10 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
         INSERT INTO project_records (
           slug, title, owner_username, collaborator_usernames, track, stage, stage_progress, lifecycle, status,
           stage_since, last_update, blocker, target, venue, submission_deadline, watch_path, notes, todos,
-          created_by_user_id, pi_username, pdra_username
+          created_by_user_id, pi_username, pdra_username, pi_usernames, pdra_usernames
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::date, $12, $13, $14, $15::date, $16, $17, $18::jsonb, $19, $20, $21)
-        RETURNING id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, track, stage, stage_progress,
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::date, $12, $13, $14, $15::date, $16, $17, $18::jsonb, $19, $20, $21, $22, $23)
+        RETURNING id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, pi_usernames, pdra_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, todos, archived_at, created_at, updated_at
       `,
@@ -942,6 +947,8 @@ export async function createProject(input: ProjectCreateInput, actor: AuthUser):
         actor.id,
         reviewers.piUsername,
         reviewers.pdraUsername,
+        reviewers.piUsernames,
+        reviewers.pdraUsernames,
       ],
     );
     return (await hydrateProjects(result.rows, actor))[0]!;
@@ -966,11 +973,9 @@ async function updateProjectInTransaction(projectId: string, input: ProjectUpdat
     throw new AuthError('Only PI/admin can change the project owner.', 403, 'forbidden');
   }
   await assertActiveOwner(nextOwnerUsername);
-  const nextPi = input.piUsername === undefined ? current.piUsername : input.piUsername;
-  const nextPdra = input.pdraUsername === undefined ? current.pdraUsername : input.pdraUsername;
-  const reviewers = nextPi !== current.piUsername || nextPdra !== current.pdraUsername || nextOwnerUsername !== current.ownerUsername
-    ? await validateProjectReviewers(nextPi, nextPdra, nextOwnerUsername)
-    : { piUsername: current.piUsername, pdraUsername: current.pdraUsername };
+  const teamChanged = input.piUsername !== undefined || input.pdraUsername !== undefined || input.piUsernames !== undefined || input.pdraUsernames !== undefined || nextOwnerUsername !== current.ownerUsername;
+  const reviewers = teamChanged ? await validateProjectReviewers(input, nextOwnerUsername, current)
+    : {piUsername:current.piUsername,pdraUsername:current.pdraUsername,piUsernames:projectPIs(current),pdraUsernames:projectPDRAs(current)};
   const nextCollaborators = input.collaborators === undefined ? current.collaborators : await cleanCollaborators(input.collaborators);
   const nextSlug = cleanSlug(input.project || current.project);
   if (!nextSlug) throw new Error('Project slug is required.');
@@ -1029,10 +1034,12 @@ async function updateProjectInTransaction(projectId: string, input: ProjectUpdat
           todos = $19::jsonb,
           pi_username = $20,
           pdra_username = $21,
+          pi_usernames = $22,
+          pdra_usernames = $23,
           archived_at = CASE WHEN $9 = 'archived' THEN COALESCE(archived_at, now()) ELSE NULL END,
           updated_at = now()
         WHERE id = $1
-        RETURNING id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, track, stage, stage_progress,
+        RETURNING id::text, slug, title, owner_username, collaborator_usernames, pi_username, pdra_username, pi_usernames, pdra_usernames, track, stage, stage_progress,
           lifecycle, status, stage_since, last_update, blocker, target, venue, submission_deadline,
           watch_path, notes, todos, archived_at, created_at, updated_at
       `,
@@ -1058,6 +1065,8 @@ async function updateProjectInTransaction(projectId: string, input: ProjectUpdat
         JSON.stringify(nextTodos),
         reviewers.piUsername,
         reviewers.pdraUsername,
+        reviewers.piUsernames,
+        reviewers.pdraUsernames,
       ],
     );
     return (await hydrateProjects(result.rows, actor))[0]!;
@@ -1170,6 +1179,7 @@ export async function editProjectUpdate(updateId: string, input: EditProjectUpda
     const found = await client.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id = $1', [updateId]);
     const projectId = found.rows[0]?.project_id;
     if (!projectId) throw new AuthError('Project update not found.', 404, 'not_found');
+    await client.query('SELECT id FROM project_records WHERE id=$1 FOR UPDATE', [projectId]);
     const project = await getProjectForUser(projectId, actor);
     if (!project.access.canEdit) throw new AuthError('You do not have permission to edit project updates.', 403, 'forbidden');
 
@@ -1219,6 +1229,7 @@ export async function deleteProjectUpdate(updateId: string, actor: AuthUser): Pr
     const found = await client.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id = $1', [updateId]);
     const projectId = found.rows[0]?.project_id;
     if (!projectId) throw new AuthError('Project update not found.', 404, 'not_found');
+    await client.query('SELECT id FROM project_records WHERE id=$1 FOR UPDATE', [projectId]);
     const project = await getProjectForUser(projectId, actor);
     if (!project.access.canEdit) throw new AuthError('You do not have permission to delete project updates.', 403, 'forbidden');
 
@@ -1314,24 +1325,14 @@ export async function updateProjectArtifactDigest(
 }
 
 export async function removeProjectArtifact(artifactId: string, actor: AuthUser): Promise<ProjectRecord> {
-  const { project } = await getProjectArtifactForUser(artifactId, actor);
-  if (!project.access.canEdit) {
-    throw new AuthError('You do not have permission to remove this artifact.', 403, 'forbidden');
-  }
-
-  const postgres = createPostgresClient('vioscope-projects');
-  try {
-    await postgres.pool.query(
-      `
-        UPDATE project_artifacts
-        SET deleted_at = now(), is_current = false
-        WHERE id = $1 AND deleted_at IS NULL
-      `,
-      [artifactId],
-    );
-    await postgres.pool.query('UPDATE project_records SET updated_at = now() WHERE id = $1', [project.id]);
+  const initial = await getProjectArtifactForUser(artifactId, actor);
+  return withDatabaseTransaction(async () => {
+    const db = createPostgresClient().pool;
+    await db.query('SELECT id FROM project_records WHERE id=$1 FOR UPDATE', [initial.project.id]);
+    const { project } = await getProjectArtifactForUser(artifactId, actor);
+    if (!project.access.canEdit) throw new AuthError('You do not have permission to remove this artifact.', 403, 'forbidden');
+    await db.query('UPDATE project_artifacts SET deleted_at=now(),is_current=false WHERE id=$1 AND deleted_at IS NULL', [artifactId]);
+    await db.query('UPDATE project_records SET updated_at=now() WHERE id=$1', [project.id]);
     return getProjectForUser(project.id, actor);
-  } finally {
-    await postgres.disconnect();
-  }
+  });
 }

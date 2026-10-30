@@ -98,7 +98,7 @@ export function IdeaPitches({ userId, onProjectCreated }: { userId: string; onPr
             </div>;
           })}
         </div>
-        <p className="checklist-list-note">An empty editor does not create a pitch. A pitch is stored only when you save it.</p>
+
       </aside>
       <div ref={editorRef} className="checklist-record-host"><IdeaPitchEditor userId={userId} key={`${selected}-${newDraft}`} pitchId={selected} onProjectCreated={onProjectCreated} onStateChanged={setEditorState} onDeleted={async () => { discardDrafts(); writeChecklistDraft(selectionKey, ''); setPitches(current => current?.filter(pitch => pitch.id !== displayed) || []); setSelected(''); setDisplayed(''); setNewDraft(value => value + 1); setStatus('Pitch deleted.'); try { await load(); } catch { setError('Pitch deleted, but the saved list could not refresh. Retry.'); } }} onChanged={async (id) => { writeChecklistDraft(selectionKey, id); setStatus(''); setDisplayed(id); await load(); }} /></div>
     </div>

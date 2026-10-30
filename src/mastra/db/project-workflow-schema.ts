@@ -26,5 +26,24 @@ export async function ensureProjectWorkflowTables() {
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
  );
  CREATE INDEX IF NOT EXISTS project_tasks_project ON project_tasks(project_id);
+ CREATE TABLE IF NOT EXISTS internal_review_rounds (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), project_id UUID NOT NULL REFERENCES project_records(id) ON DELETE CASCADE,
+  submission_id UUID NOT NULL REFERENCES project_submissions(id), revision INTEGER NOT NULL DEFAULT 0,
+  data JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+ );
+ CREATE INDEX IF NOT EXISTS internal_review_project ON internal_review_rounds(project_id,created_at DESC);
+ CREATE TABLE IF NOT EXISTS submission_notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), project_id UUID NOT NULL REFERENCES project_records(id) ON DELETE CASCADE,
+  recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE, event_key TEXT NOT NULL,
+  title TEXT NOT NULL, body TEXT NOT NULL, read_at TIMESTAMPTZ, resolved_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE(recipient_user_id,event_key)
+ );
+ CREATE TABLE IF NOT EXISTS submission_email_deliveries (
+  recipient_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_key TEXT NOT NULL, project_id UUID NOT NULL REFERENCES project_records(id) ON DELETE CASCADE,
+  attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TIMESTAMPTZ NOT NULL,
+  claim_token UUID, claimed_until TIMESTAMPTZ, sent_at TIMESTAMPTZ, last_error TEXT,
+  PRIMARY KEY(recipient_user_id,event_key)
+ );
  CREATE TABLE IF NOT EXISTS meeting_task_imports(path TEXT PRIMARY KEY, imported_at TIMESTAMPTZ NOT NULL DEFAULT now());`);
 }

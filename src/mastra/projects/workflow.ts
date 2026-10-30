@@ -13,12 +13,12 @@ export const researchSchema = z.object({ question: text.default(''), claim: text
   phase: z.enum(researchPhases).default('unclassified'), resourceNotes: text.default(''), risks: text.default(''), fallback: text.default(''),
   resources: z.array(resourceSchema).max(100).default([]) }).strict();
 export type ResearchProfile = z.infer<typeof researchSchema>;
-export const projectSetupSchema = z.object({ track: z.enum(['A','B']), piUsername: z.string().trim().nullable(), pdraUsername: z.string().trim().nullable(), collaborators: z.array(z.string().trim().min(1)).max(100) }).strict();
+export const projectSetupSchema = z.object({ track: z.enum(['A','B']), piUsername: z.string().trim().nullable(), pdraUsername: z.string().trim().nullable(), piUsernames: z.array(z.string().trim().min(1)).max(100).optional(), pdraUsernames: z.array(z.string().trim().min(1)).max(100).optional(), collaborators: z.array(z.string().trim().min(1)).max(100) }).strict();
 export const submissionSchema = z.object({ venue: z.string().trim().min(1).max(200), cycle: z.string().trim().min(1).max(100),
   deadline: z.iso.datetime({offset:true}), timezone: z.string().refine(value => { try {new Intl.DateTimeFormat('en',{timeZone:value});return true;}catch{return false;} }, 'Use an IANA timezone, such as Europe/London.') }).strict();
 export type SubmissionPlan = z.infer<typeof submissionSchema>;
 export type TaskData = { task: string; owner: string; dueDate: string | null; status: 'open'|'in_progress'|'blocked'|'done'|'cancelled'; priority: 'high'|'normal'; note: string; evidenceIds: string[]; history: {by:string;at:string;status:string;note:string}[]; decision?: string; themeId?: string; meetingDate?: string };
-export type ProjectTask = {id:string;projectId:string|null;sourceKind:'project'|'meeting'|'review';sourceId:string|null;revision:number;data:TaskData};
+export type ProjectTask = {id:string;projectId:string|null;sourceKind:'project'|'meeting'|'review'|'internal_review';sourceId:string|null;revision:number;data:TaskData & { verification?: {by:string;at:string;revision:number;accepted:boolean;reason:string} }};
 const base = { revision: z.number().int().nonnegative(), confirmed: z.literal(true) };
 export const workflowCommandSchema = z.discriminatedUnion('operation', [
  z.object({operation:z.literal('research'),...base,profile:researchSchema,reason:required}).strict(),
@@ -27,7 +27,7 @@ export const workflowCommandSchema = z.discriminatedUnion('operation', [
  z.object({operation:z.literal('evidence'),confirmed:z.literal(true),title:required,claim:required,kind:z.enum(['experiment','proof','feasibility','document']),state:z.enum(['planned','completed']),summary:required,artifactId:z.string().uuid().nullable(),url:z.url().refine(value=>/^https?:\/\//.test(value)).nullable()}).strict(),
  z.object({operation:z.literal('task'),confirmed:z.literal(true),task:required,owner:z.string().trim().min(1),dueDate:dateSchema.nullable(),priority:z.enum(['high','normal']),sourceKind:z.enum(['project','review']),sourceId:z.string().uuid().nullable()}).strict(),
  z.object({operation:z.literal('task_update'),...base,id:z.string().uuid(),status:z.enum(['open','in_progress','blocked','done','cancelled']),note:required,evidenceIds:ids,task:required.optional(),owner:z.string().trim().min(1).optional(),dueDate:dateSchema.nullable().optional(),priority:z.enum(['high','normal']).optional()}).strict(),
- z.object({operation:z.literal('decision'),confirmed:z.literal(true),checkpoint:z.enum(checkpointTypes),submissionId:z.string().uuid().nullable(),outcome:z.enum(['proceed','conditional','revise','defer','stop']),reason:required,conditions:text,reviewDue:dateSchema.nullable(),evidenceIds:ids,profileRevision:z.number().int().nonnegative(),skeletonReviewId:z.string().uuid().nullable(),rulesVersion:z.string().trim().min(1).max(100)}).strict(),
+ z.object({operation:z.literal('decision'),confirmed:z.literal(true),checkpoint:z.enum(checkpointTypes),submissionId:z.string().uuid().nullable(),outcome:z.enum(['proceed','conditional','revise','defer','stop']),reason:required,conditions:text,reviewDue:dateSchema.nullable(),evidenceIds:ids,profileRevision:z.number().int().nonnegative(),skeletonReviewId:z.string().uuid().nullable(),rulesVersion:z.string().trim().min(1).max(100).default('project-checkpoints-v1')}).strict(),
 ]);
 export type WorkflowCommand = z.infer<typeof workflowCommandSchema>;
 

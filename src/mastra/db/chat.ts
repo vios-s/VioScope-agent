@@ -1,3 +1,4 @@
+import { AuthError } from '../auth/session';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { ensureUsersTable, normalizeNotificationPreferences, type AuthUser, type NotificationPreferences } from './users';
 
@@ -295,12 +296,20 @@ export async function saveChatTurn(input: {
   assistantText: string;
   assistantStatus: 'answer' | 'refusal';
   sources: ChatSourceRecord[];
+  requiresPrivateSession?: boolean;
 }): Promise<void> {
   await ensureChatTables();
   const postgres = createPostgresClient('vioscope-chat');
   const title = titleFromMessage(input.userText);
 
   return withDatabaseTransaction(async () => {
+    await postgres.pool.query("SELECT pg_advisory_xact_lock(hashtextextended('chat-session:' || $1, 0))", [input.sessionId]);
+    if (input.requiresPrivateSession) {
+      const access = await chatSessionAccess(input.sessionId, input.actor.id);
+      if (access && (access.shared || access.ownerUserId !== input.actor.id)) {
+        throw new AuthError('This conversation was shared while the answer was being prepared. Send your message again.', 409, 'conflict');
+      }
+    }
     const sessionResult = await postgres.pool.query<{ owner_user_id: string }>(
       'SELECT owner_user_id::text FROM chat_sessions WHERE id = $1',
       [input.sessionId],
@@ -357,21 +366,33 @@ export async function saveChatTurn(input: {
 }
 
 /** Owner and membership of an existing session, or null for a new thread id. Checked before any model call. */
-export async function chatSessionAccess(sessionId: string, userId: string): Promise<{ ownerUserId: string; member: boolean } | null> {
+export async function chatSessionAccess(sessionId: string, userId: string): Promise<{ ownerUserId: string; member: boolean; shared: boolean } | null> {
   await ensureChatTables();
   const postgres = createPostgresClient('vioscope-chat');
   try {
-    const result = await postgres.pool.query<{ owner_user_id: string; member: boolean }>(
+    const result = await postgres.pool.query<{ owner_user_id: string; member: boolean; shared: boolean }>(
       `SELECT owner_user_id::text,
-              EXISTS (SELECT 1 FROM chat_session_members WHERE session_id = $1 AND user_id = $2) AS member
+              EXISTS (SELECT 1 FROM chat_session_members WHERE session_id = $1 AND user_id = $2) AS member,
+              EXISTS (SELECT 1 FROM chat_session_members WHERE session_id = $1 AND user_id <> chat_sessions.owner_user_id) AS shared
        FROM chat_sessions WHERE id = $1`,
       [sessionId, userId],
     );
     const row = result.rows[0];
-    return row ? { ownerUserId: row.owner_user_id, member: row.member } : null;
+    return row ? { ownerUserId: row.owner_user_id, member: row.member, shared: row.shared } : null;
   } finally {
     await postgres.disconnect();
   }
+}
+
+/** Model context contains only turns already visible to this member, never private model/tool history. */
+export async function chatHistoryForUser(sessionId: string, userId: string) {
+  const access = await chatSessionAccess(sessionId, userId);
+  if (!access) return [];
+  if (!access.member) throw new AuthError('Chat session not found.', 404, 'not_found');
+  const rows = (await createPostgresClient().pool.query<{role:'user'|'assistant';content:string}>(
+    `SELECT role,content FROM (SELECT role,content,created_at,id FROM chat_messages
+     WHERE session_id=$1 ORDER BY created_at DESC,role ASC,id DESC LIMIT 20) recent ORDER BY created_at,role DESC,id`, [sessionId])).rows;
+  return rows;
 }
 
 export async function importLocalChatSessions(input: {
@@ -450,6 +471,7 @@ export async function shareChatSessionWithMentions(input: {
   const postgres = createPostgresClient('vioscope-chat');
 
   return withDatabaseTransaction(async () => {
+    await postgres.pool.query("SELECT pg_advisory_xact_lock(hashtextextended('chat-session:' || $1, 0))", [input.sessionId]);
     const userResult = await postgres.pool.query<UserRow>(
       `
         SELECT id::text, username, display_name, role, metadata

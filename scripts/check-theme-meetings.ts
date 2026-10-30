@@ -494,8 +494,8 @@ async function main() {
   if (!themeAAfterNothing?.agenda_items.some((item) => item.member === 'Bob' && item.update_type === 'nothing_to_report' && item.duration_minutes === 0)) {
     throw new Error('Expected Bob nothing-to-report update to appear with zero planned minutes.');
   }
-  if (themeAAfterNothing?.planned_minutes !== 30) {
-    throw new Error(`Expected Theme A planned minutes to remain 30, got ${themeAAfterNothing?.planned_minutes}.`);
+  if (themeAAfterNothing?.planned_minutes !== 40) {
+    throw new Error(`Expected Theme A planned minutes to include 30 discussion + 10 template minutes, got ${themeAAfterNothing?.planned_minutes}.`);
   }
 
   await assert.rejects(

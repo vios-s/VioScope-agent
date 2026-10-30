@@ -983,12 +983,16 @@
   min-height: var(--vs-control-sm);
 }
 
-/* Update tab: add-update form (States "Add update" dialog) then the timeline */
-
+/* Timeline first; the form sits beside it when both columns have room. */
 .project-detail-modal .project-progress-layout {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+  align-items: start;
   gap: 32px;
+}
+
+.project-detail-modal .project-progress-layout > * {
+  min-width: 0;
 }
 
 .users-modal.project-detail-modal .project-update-form {
@@ -1060,8 +1064,24 @@
 }
 
 .users-modal.project-detail-modal .artifact-upload-row {
-  border-color: var(--vs-border-control);
-  border-radius: var(--vs-radius-control);
+  min-width: 0;
+  min-height: var(--vs-control-sm);
+  gap: 8px;
+}
+
+.users-modal.project-detail-modal .artifact-upload-row .ops-secondary {
+  flex: none;
+  width: auto;
+  min-height: var(--vs-control-sm);
+  padding: 0 10px;
+  gap: 6px;
+  border-radius: var(--vs-radius-row-btn);
+  font-size: 13px;
+}
+
+.users-modal.project-detail-modal .artifact-upload-row .ops-secondary svg {
+  width: 14px;
+  height: 14px;
 }
 
 .users-modal.project-detail-modal .artifact-upload-row strong {
@@ -1125,11 +1145,29 @@
 }
 
 .users-modal.project-detail-modal .timeline-body {
+  min-width: 0;
   gap: 6px;
   padding: 14px 0;
   border: 0;
   border-radius: 0;
   background: none;
+}
+
+.users-modal.project-detail-modal .timeline-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  overflow-wrap: anywhere;
+}
+
+.users-modal.project-detail-modal .timeline-attachment {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.users-modal.project-detail-modal .timeline-attachment svg {
+  flex-shrink: 0;
 }
 
 .users-modal.project-detail-modal .timeline-head strong {
@@ -1645,6 +1683,8 @@
 
 .vs-attention-chip {
   display: inline-flex;
+  flex-shrink: 0;
+  white-space: nowrap;
   align-items: center;
   gap: 6px;
   min-height: 24px;
@@ -1977,3 +2017,61 @@
   color: var(--vs-ink-2);
   font-size: 13px;
 }
+
+/* Expanded workflow sections share the same label/control alignment as the main form. */
+.users-modal.project-detail-modal .project-workflow .workflow-section {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--vs-line-soft);
+}
+.users-modal.project-detail-modal .project-workflow .workflow-fields > label {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+  padding: 12px 0;
+  color: var(--vs-ink-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+.users-modal.project-detail-modal .project-workflow .workflow-fields[hidden] { display: none; }
+.users-modal.project-detail-modal .project-workflow form > fieldset fieldset {
+  display: block;
+  min-width: 0;
+}
+.users-modal.project-detail-modal .project-workflow fieldset fieldset legend {
+  float: none;
+  width: auto;
+  margin: 0 0 12px;
+}
+.users-modal.project-detail-modal .project-workflow .workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+  min-width: 0;
+}
+.users-modal.project-detail-modal .project-workflow .workflow-grid > label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--vs-ink-3);
+  font-size: 13px;
+  font-weight: 500;
+}
+.users-modal.project-detail-modal .project-workflow .workflow-wide { grid-column: 1 / -1; }
+.users-modal.project-detail-modal .project-workflow .workflow-grid > button { justify-self: start; }
+.users-modal.project-detail-modal .project-workflow .workflow-evidence > label {
+  display: flex;
+  align-items: start;
+  width: 100%;
+}
+@media (max-width: 680px) {
+  .users-modal.project-detail-modal .project-workflow .workflow-fields > label,
+  .users-modal.project-detail-modal .project-workflow .workflow-grid { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .users-modal.project-detail-modal .project-workflow .workflow-grid { gap: 16px; }
+}
+.project-update-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
+.project-update-fields .full { grid-column: 1 / -1; }
+.project-update-options > summary { cursor: pointer; padding: 8px 0; color: var(--vs-ink-2); }
+.project-update-options[open] > summary { margin-bottom: 8px; }
+@media (max-width: 680px) { .project-update-fields { grid-template-columns: minmax(0, 1fr); } }

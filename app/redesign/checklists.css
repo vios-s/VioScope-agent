@@ -15,6 +15,26 @@
 
 /* ---------- Form primitives inside checklists ---------- */
 
+.skeleton-figure-uploads,
+.skeleton-figure-list,
+.skeleton-figure {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.skeleton-figure-uploads { margin-top: 12px; }
+.skeleton-figure {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius-row-btn);
+}
+.skeleton-figure-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.skeleton-figure img { display: block; max-width: 100%; max-height: 360px; width: auto; height: auto; object-fit: contain; }
+.skeleton-figure figcaption { white-space: pre-wrap; overflow-wrap: anywhere; }
+.skeleton-figure-uploads > .form-message:empty { display: none; }
+
 .checklist-panel {
   min-width: 0;
   color: var(--vs-ink);
@@ -1104,3 +1124,48 @@
     font-size: 0;
   }
 }
+
+/* Internal Review shares the project list, document form and human-step styles above. */
+.internal-review .ir-field,
+.internal-review .ir-select-field,
+.internal-review .ir-round { display: grid; gap: 8px; min-width: 0; }
+.internal-review :is(h3, h4) { font: var(--vs-text-heading); }
+.internal-review :is(h2, h3, h4) { text-wrap: balance; }
+.internal-review p { text-wrap: pretty; }
+.internal-review .ir-prose { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.internal-review .ir-card { display: flex; flex-direction: column; gap: 14px; padding-top: 18px; border-top: 1px solid var(--vs-line); }
+.internal-review .ir-card h4 { font-size: 14px; }
+.internal-review .ir-card > div { display: grid; gap: 6px; }
+.internal-review .ir-card > .checklist-block-head { display: flex; }
+.internal-review details[open] > summary { margin-bottom: 12px; }
+.internal-review .ir-check { padding-block: 12px; border-bottom: 1px solid var(--vs-line-soft); }
+.internal-review .ir-check legend { font-size: 14px; max-width: 100%; }
+.internal-review .ir-editor > form > fieldset { gap: 22px; }
+.internal-review .ir-editor .checklist-action-bar { padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+.internal-review fieldset > button { justify-self: start; }
+.internal-review button { max-width: 100%; }
+.internal-review a { color: var(--vs-accent-strong); }
+.internal-review ul, .internal-review ol { margin-block: 0; }
+.internal-review li + li { margin-top: 4px; }
+.internal-review .ir-tabs { margin: 0; flex-wrap: wrap; gap: 24px; }
+.internal-review .ir-stages li { display: flex; align-items: baseline; gap: 12px; padding-block: 12px; }
+.internal-review .ir-stages .checklist-block-num { flex: none; white-space: nowrap; }
+.internal-review .ir-stages p { margin-top: 4px; }
+.internal-review .ir-rail > .checklist-step:first-child { padding-top: 0; border-top: 0; }
+.ir-embedded .checklist-record { grid-template-columns: minmax(0, 1fr); }
+.ir-embedded .checklist-rail { position: static; max-height: none; margin: 0; padding: 0; }
+
+/* Embedded forms keep checklist spacing inside the project's row-oriented editor. */
+.users-modal.project-detail-modal .project-workflow .ir-embedded form > fieldset { gap: 14px; border-top: 0; }
+.users-modal.project-detail-modal .project-workflow .ir-embedded form > fieldset > label { grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 0; border: 0; color: var(--vs-ink); }
+.users-modal.project-detail-modal .project-workflow .ir-embedded form > fieldset fieldset { grid-template-columns: minmax(0, 1fr); }
+.users-modal.project-detail-modal .project-workflow .ir-embedded fieldset fieldset legend { float: none; }
+.users-modal.project-detail-modal .project-workflow .ir-embedded .checklist-record-title { font: 400 24px/1.2 var(--vs-font-serif); }
+.users-modal.project-detail-modal .project-workflow .ir-embedded :is(h3, h4) { margin: 0; font: var(--vs-text-heading); }
+.users-modal.project-detail-modal .project-workflow .ir-embedded .ir-editor > form > fieldset { gap: 22px; }
+
+/* Internal Review keeps the workflow and reviewer roster in the page scroll. */
+.project-idea-check > .checklist-rail,
+.internal-review .ir-rail { position: static; max-height: none; overflow: visible; }
+
+.internal-review [role="tabpanel"]:not([hidden]) { display: flex; flex-direction: column; gap: 22px; min-width: 0; }

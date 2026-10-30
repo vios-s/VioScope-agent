@@ -15,7 +15,7 @@ const checks = [
     'retries without thread memory',
     /isZdrItemReferenceError\(error\)/.test(source) &&
       /responseThreadId\s*=\s*`web-\$\{randomUUID\(\)\}`/.test(source) &&
-      /useMemory\s*=\s*false;\s*response\s*=\s*await generate\(agentMessage\)/.test(source),
+      !/memory:\s*\{/.test(source) && /context: history/.test(source),
   ],
   ['checks session access before generating', source.indexOf('chatSessionAccess(threadId') > 0 && source.indexOf('chatSessionAccess(threadId') < source.indexOf('agent.generate(')],
   ['uses random thread ids', !/web-\$\{Date\.now\(\)\}/.test(source) && !/web-\$\{Date\.now\(\)\}/.test(uiSource)],

@@ -25,6 +25,7 @@
 /* ---------- Theme summary cards (active pair only) ---------- */
 
 .mt-cards {
+  container-type: inline-size;
   --mt-cols: 2;
   display: grid;
   grid-template-columns: repeat(var(--mt-cols), minmax(0, 1fr));
@@ -352,9 +353,25 @@
   white-space: nowrap;
 }
 
-.mt-slot.mt-slot-nothing_to_report {
+.mt-slot.mt-slot-nothing_to_report,
+.mt-slot.mt-slot-triage_admin,
+.mt-slot.mt-slot-assignments {
   background: var(--vs-muted-bg);
   color: var(--vs-muted-fg);
+}
+
+.mt-template-guide {
+  margin: 0 0 16px;
+  color: var(--vs-ink-3);
+  font-size: 13px;
+}
+
+.mt-template-guide summary {
+  cursor: pointer;
+}
+
+.mt-template-guide p {
+  margin: 8px 0 0;
 }
 
 .mt-agenda-empty {
@@ -652,6 +669,7 @@
 
 /* Advisory suggestion inside the update form */
 .mt-form .theme-project-advice {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1572,18 +1590,39 @@ button.mt-past-row:focus-visible {
 
 
 .theme-advice-top {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 8px 12px;
   width: 100%;
 }
 
 .theme-advice-actions {
   display: flex;
-  flex-wrap: wrap;
+  justify-self: end;
   gap: 6px;
+}
+
+.theme-advice-actions > button:first-child {
+  min-width: 112px;
+}
+
+.theme-advice-actions > button {
+  white-space: nowrap;
+}
+
+@container (max-width: 560px) {
+  .theme-advice-top {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .theme-advice-actions {
+    grid-row: 1;
+  }
+}
+
+.theme-advice-evidence[open] {
+  display: grid;
+  gap: 8px;
 }
 
 .theme-advice-details {
@@ -1889,10 +1928,10 @@ button.mt-past-row:focus-visible {
 }
 
 
-@media (max-width: 767px) {
+@container (max-width: 760px) {
   .mt-card.mt-card-select .mt-card-title {
     padding-right: 0;
-    padding-top: 28px;
+    padding-top: 36px;
   }
 }
 

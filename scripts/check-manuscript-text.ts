@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {manuscriptReadingText} from '../src/mastra/submission/manuscript-text';
+const prose=Array.from({length:70},(_,i)=>`${i+1}   Result 74.2 percent; group ${i+1}; reference [12].`).join('\n');
+const reading=manuscriptReadingText(prose);
+assert.equal(reading.removed,70);
+assert.equal(reading.text,Array.from({length:70},(_,i)=>`Result 74.2 percent; group ${i+1}; reference [12].`).join('\n'));
+for(const ordinary of ['1 First finding\n2 Second finding','2025 Cohort A\n2026 Cohort B','1. Introduction\n2. Methods',Array.from({length:70},(_,i)=>`${100+i*13} measurement`).join('\n')])assert.deepEqual(manuscriptReadingText(ordinary),{text:ordinary,removed:0});
+const numericTable=Array.from({length:70},(_,i)=>`${i+1} 0.73 0.81 31`).join('\n');
+assert.deepEqual(manuscriptReadingText(numericTable),{text:numericTable,removed:0});
+const mixed=prose.replace('35   Result','0.73 0.81\n2024 Cohort measurement\n35   Result');
+assert.ok(manuscriptReadingText(mixed).text.includes('0.73 0.81\n2024 Cohort measurement'));
+const affiliations=prose.replace('4   Result','     1 Institution\n4   Result');
+assert.ok(manuscriptReadingText(affiliations).text.includes('     1 Institution'));
+console.log('Manuscript reading text passed: sequential margins removed; prose, numerical results, references, affiliations and ordinary numbered text preserved.');

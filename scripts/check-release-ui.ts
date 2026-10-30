@@ -187,6 +187,7 @@ async function seedData() {
   await seedUser(users.admin, 'administrator');
   await createProject({
     project: projectSlug,
+    piUsername: users.pi, pdraUsername: users.admin,
     title: projectTitle,
     ownerUsername: receiver.username,
     track: 'A',

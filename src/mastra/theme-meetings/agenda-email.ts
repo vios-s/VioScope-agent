@@ -1,6 +1,7 @@
 import { formatDay, formatDayTime, formatLongDay } from '../../../app/format';
 import { formatMeetingProject } from './project-context';
-import { themeUpdateTypeLabels as slotLabels, type ThemeMeetingAgendaItem, type ThemeMeetingPlan } from './schema';
+import { themeAgendaTypeLabels as slotLabels, isAgendaPlaceholder, type ThemeMeetingAgendaItem, type ThemeMeetingPlan } from './schema';
+import { compareAgendaItems } from './agenda-template';
 
 /** The human-confirmed version being circulated; `skipped` lists legacy entries deferred (not scheduled) in that version. */
 export type ConfirmedAgendaEmail = { version: number; confirmedBy: string; confirmedAt: string; skipped: ThemeMeetingAgendaItem[] };
@@ -78,9 +79,7 @@ function updateHtml(value: string): string {
 function discussionItems(meeting: ThemeMeetingPlan['meetings'][number], confirmed = false) {
   const items = meeting.agenda_items.filter((item) => item.duration_minutes > 0);
   // A confirmed agenda keeps the order the coordinator chose.
-  return confirmed ? items : items.sort((a, b) =>
-    Number(b.update_type === 'deep_dive') - Number(a.update_type === 'deep_dive')
-    || b.duration_minutes - a.duration_minutes);
+  return confirmed ? items : items.sort(compareAgendaItems);
 }
 
 function skipSuggestion(meeting: ThemeMeetingPlan['meetings'][number]): string {
@@ -159,7 +158,7 @@ export function renderThemeMeetingAgendaEmail(
       ...(confirmed ? [] : [`${missingLabel}: ${meeting.missing_members.join(', ') || 'None'}`]),
       'Discussion agenda',
       discussion.map((item) => `${confirmed ? `${start.get(item)} | ` : ''}${item.member} | ${slotLabels[item.update_type]} | ${item.duration_minutes} min`).join('\n') || emptyDiscussion,
-      ...(discussion.length ? [] : [noSlotsNotice(meeting)]),
+      ...(discussion.some((item) => !isAgendaPlaceholder(item)) ? [] : [noSlotsNotice(meeting)]),
       ...[...discussion, ...written].map((item, index) => [
         ...(index === 0 ? [discussion.length ? 'Discussion details' : 'Updates'] : index === discussion.length ? ['Updates'] : []),
         `${item.member} — ${slotLabels[item.update_type]} (${item.duration_minutes} min)`,
@@ -167,7 +166,7 @@ export function renderThemeMeetingAgendaEmail(
         ...(item.project_context ? [formatMeetingProject(item.project_context)] : []),
         ...(item.questions ? [`Questions: ${updateText(item.questions)}`] : []),
       ].join('\n')),
-      ...(meeting.agenda_items.length ? [] : ['No planned updates yet.']),
+      ...(meeting.agenda_items.some((item) => !isAgendaPlaceholder(item)) ? [] : ['No planned updates yet.']),
       ...skippedText(confirmed),
     ].join('\n\n');
     }),
@@ -215,9 +214,10 @@ export function renderThemeMeetingAgendaEmail(
           <td align="right" style="padding:12px 8px;border-bottom:1px solid #dce3e9;">${item.duration_minutes}</td>
         </tr>`).join('')}</tbody></table>` : `<p style="margin:0 0 12px;color:#52616b;">${emptyDiscussion}</p><p style="margin:0;padding:12px;background-color:#edf3f6;">${escapeHtml(noSlotsNotice(meeting))}</p>`}
     </td></tr>
+    ${discussion.length && !discussion.some((item) => !isAgendaPlaceholder(item)) ? `<tr><td style="padding:12px 24px;">${escapeHtml(noSlotsNotice(meeting))}</td></tr>` : ''}
     ${details(discussion, 'Discussion details')}
     ${details(written, 'Updates')}
-    ${meeting.agenda_items.length ? '' : '<tr><td style="padding:16px 24px;">No planned updates yet.</td></tr>'}
+    ${meeting.agenda_items.some((item) => !isAgendaPlaceholder(item)) ? '' : '<tr><td style="padding:16px 24px;">No planned updates yet.</td></tr>'}
     ${skippedHtml(confirmed)}
   `;
   }).join('');

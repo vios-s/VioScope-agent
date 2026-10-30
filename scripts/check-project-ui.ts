@@ -42,6 +42,7 @@ async function seedProject(owner: AuthUser) {
   return createProject(
     {
       project: slug,
+      piUsername: users.pi, pdraUsername: users.admin,
       title,
       ownerUsername: owner.username,
       collaborators: ['External Education Partner'],
@@ -87,8 +88,10 @@ async function checkEmptyMemberCreateProject(browser: any) {
     const modal = page.locator('.project-modal');
     await modal.waitFor({ state: 'visible' });
     await modal.getByLabel('Full project name').fill(createdTitle);
-    // Slug and watch path are administrator-only (Advanced); members get the generated slug.
-    assert.equal(await modal.getByLabel('Slug').count(), 0);
+    await modal.getByRole('textbox', { name: 'Project PIs', exact: true }).fill(users.pi);
+    await modal.getByRole('textbox', { name: 'Project PDRAs', exact: true }).fill(users.admin);
+    // Slug is generated visibly for every creator; watch path stays administrator-only.
+    assert.equal(await modal.getByLabel('Slug', { exact: true }).inputValue(), autoCreatedSlug);
     await modal.getByLabel('Collaborators').fill(`${users.member}, External Education Partner`);
     await modal.getByLabel('Venue').fill('ICLR');
     await modal.getByLabel('Submission deadline').fill('2026-10-15');

@@ -13,6 +13,7 @@ import { renderSkeletonDraft, skeletonDraftSchema } from '../../../src/mastra/su
 import { extractPptxBuffer } from '../../../src/mastra/submission/pptx';
 import { reviewSubmission } from '../../../src/mastra/submission/review';
 import { extractDocumentText } from '../../../src/mastra/projects/idea-import';
+import { readSkeletonFigures, readSkeletonForm } from '../../../src/mastra/submission/skeleton-figure-upload';
 export const runtime = 'nodejs';
 export const maxDuration = 180;
 export async function GET(request: Request) {
@@ -22,15 +23,19 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const user = await requireSessionUser(request);
-    const form = await request.formData();
+    const form = await readSkeletonForm(request);
     const projectId = z.string().uuid('Choose an active project.').parse(form.get('projectId'));
     const project = await getProjectForUser(projectId, user);
     if (!project.access.canEdit) throw new AuthError('Only the project owner, PI or administrator can request a check.', 403, 'forbidden');
     if (project.lifecycle !== 'active') throw new Error('Choose an active project.');
     assertSkeletonStage(project);
     const mode = z.enum(['blocks','paste','upload']).parse(form.get('mode'));
+    const figures = await readSkeletonFigures(form, mode);
     let text = '';
-    if (mode === 'blocks') text = renderSkeletonDraft(skeletonDraftSchema.parse(JSON.parse(String(form.get('blocks')))));
+    if (mode === 'blocks') {
+      const blocks = skeletonDraftSchema.parse(JSON.parse(String(form.get('blocks'))));
+      text = renderSkeletonDraft(blocks, figures);
+    }
     if (mode === 'paste') text = z.string().trim().min(1, 'Paste the outline or draft before checking.').max(55000, 'The pasted text exceeds 55,000 characters. Shorten it or upload the document instead; content is never silently truncated.').parse(form.get('text'));
     if (mode === 'upload') {
       const file = form.get('file');
@@ -50,7 +55,7 @@ export async function POST(request: Request) {
     // The 18-item Paper Skeleton checklist applies to full drafts only; the sections form is not judged on missing paper text.
     const fullDraft = mode !== 'blocks';
     const result = await reviewSubmission({ draftText, draftName: `${project.title} — Skeleton Lock`, skills: ['vios-skeleton-lock'], reportTitle: 'VIOS Skeleton Lock review', targetVenue: project.venue || undefined, deadline: project.submissionDeadline || undefined, maxDraftChars: 60000,
-      paperSkeleton: fullDraft, paperSkeletonSource: text.trim(),
+      paperSkeleton: fullDraft, paperSkeletonSource: text.trim(), figures,
       extraInstructions: fullDraft ? undefined : 'The input is the Skeleton Lock sections form, not a full paper draft. Judge the stated evidence in each section. Do not treat the absence of full paper text (abstract, figures, notation, related work or a bibliography) as a gap or a reason for the verdict.' });
     const review = await withDatabaseTransaction(async () => {
       const saved = await saveSkeletonReview(projectId, snapshot, draftText, result, user);

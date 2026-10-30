@@ -102,7 +102,7 @@ try {
     assert.equal(response.status, 400);
     assert.equal((await response.json()).error, message);
   }
-  let project = await projects.createProject({ project: 'synthetic-issue-project', title: 'Synthetic issue project', ownerUsername: 'alice', collaborators: ['bob', 'Synthetic charlie'], track: 'A', stage: 1 }, alice);
+  let project = await projects.createProject({ project: 'synthetic-issue-project', piUsername: 'admin', pdraUsername: 'bob', title: 'Synthetic issue project', ownerUsername: 'alice', collaborators: ['bob', 'Synthetic charlie'], track: 'A', stage: 1 }, alice);
   project = await projects.addProjectUpdate(project.id, { type: 'progress', text: 'Synthetic update to delete.', artifact: { title: 'Synthetic attachment', kind: 'other', path: 'synthetic.txt' } }, alice);
   const collaborative = await projects.getProjectForUser(project.id, bob);
   assert.equal(collaborative.access.reason, 'collaborator');

@@ -1,14 +1,16 @@
 import { AuthError, canSeeAll } from '../auth/session';
 import type { AuthUser } from './users';
-import { getUserByUsername } from './users';
+import { getUserByUsername, listActiveAccountDirectory } from './users';
+import { checklistCheckpoints } from './checklist-checkpoints';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { ensureProjectTables, getProjectForUser } from './projects';
 import { getSkeletonReview, projectSkeletonReviewChoices } from './skeleton-reviews';
-import { latestSkeletonDecisions, skeletonProjectSnapshot } from '../submission/skeleton-record';
+import { skeletonProjectSnapshot } from '../submission/skeleton-record';
 import { isDeepStrictEqual } from 'node:util';
 import { researchSchema, workflowCommandSchema, submissionTimeline, type ResearchProfile, type ProjectTask, type WorkflowCommand } from '../projects/workflow';
 import { listProjectTasks, taskColumns } from './project-tasks';
 import { readMeetingWorkflow } from '../theme-meetings/workflow';
+import { reviewRounds, reviewFingerprint, revisionBlockers, reviewEvidenceBlockers } from './internal-reviews';
 import { recordAuditLog } from './audit-log';
 
 export async function seedProjectResearch(projectId:string, profile:Partial<ResearchProfile>, by:string) {
@@ -26,7 +28,18 @@ export async function getProjectWorkflow(projectId:string,user:AuthUser) {
  const submissions=(await db.pool.query(`SELECT id::text,revision,is_current AS "isCurrent",plan,result,history,created_at AS "createdAt" FROM project_submissions WHERE project_id=$1 ORDER BY created_at DESC,id DESC`,[project.id])).rows;
  const evidence=(await db.pool.query(`SELECT id::text,data,created_by AS "createdBy",created_at AS "createdAt" FROM project_evidence WHERE project_id=$1 ORDER BY created_at DESC`,[project.id])).rows;
  const decisions=(await db.pool.query(`SELECT id::text,submission_id::text AS "submissionId",data,decided_by AS "decidedBy",created_at AS "createdAt" FROM project_decisions WHERE project_id=$1 ORDER BY created_at DESC`,[project.id])).rows;
- return {project,skeletonReviews:await projectSkeletonReviewChoices(project.id,user),research:{...research,profile:researchSchema.parse(research.profile)},submissions:submissions.map(item=>({...item,timeline:submissionTimeline(item.plan)})),evidence,decisions:decisions.map(item=>({...item,contextChanged:!isDeepStrictEqual(item.data.projectSnapshot,skeletonProjectSnapshot(project))})),tasks:await listProjectTasks(project.id),viewer:{username:user.username,manager:canSeeAll(user),reviewer:user.username===project.pdraUsername||canSeeAll(user)}};
+ const tasks=await listProjectTasks(project.id), rounds=await reviewRounds(project.id);
+ const latestRound=rounds[0], currentSubmission=submissions.find(item=>item.isCurrent);
+ const reviewDecisionStale=async(item:any)=>{
+  if(!item.data.internalReviewRoundId)return false;
+  if(!latestRound||latestRound.id!==item.data.internalReviewRoundId||latestRound.submissionId!==currentSubmission?.id)return true;
+  const fingerprint=reviewFingerprint(latestRound,tasks);
+  return revisionBlockers(latestRound,tasks).length>0 || (await reviewEvidenceBlockers(project.id,latestRound,tasks)).length>0 || latestRound.data.lock?.fingerprint!==fingerprint || (item.data.checkpoint==='submission_clearance' && latestRound.data.clearance?.fingerprint!==fingerprint);
+ };
+ const sources=await checklistCheckpoints(project);
+ const names=new Set([project.ownerUsername,...project.collaborators,...(project.pdraUsernames||[]),project.pdraUsername].filter(Boolean).map(name=>name!.trim().toLowerCase()));
+ const assignees=(await listActiveAccountDirectory()).filter(account=>account.role==='pi'||account.role==='administrator'||names.has(account.username)).map(({username,displayName})=>({username,displayName}));
+ return {project,checklistCheckpoints:sources,assignees,skeletonReviews:await projectSkeletonReviewChoices(project.id,user),research:{...research,profile:researchSchema.parse(research.profile)},submissions:submissions.map(item=>({...item,timeline:submissionTimeline(item.plan)})),evidence,decisions:await Promise.all(decisions.map(async item=>({...item,contextChanged:!isDeepStrictEqual(item.data.projectSnapshot,skeletonProjectSnapshot(project))||await reviewDecisionStale(item)}))),tasks,viewer:{username:user.username,manager:canSeeAll(user),reviewer:user.username===project.pdraUsername||canSeeAll(user)}};
 }
 function conflict() { return new AuthError('This record changed. Reload before saving.',409,'conflict'); }
 async function checkEvidence(projectId:string,ids:string[],completed=false) {
@@ -91,10 +104,14 @@ export async function changeProjectWorkflow(projectId:string,input:unknown,user:
    if(row.sourceKind==='meeting'&&!['open','done'].includes(command.status))throw new Error('Meeting tasks use Open or Done.');
    const metadata={task:command.task??row.data.task,owner:command.owner??row.data.owner,dueDate:command.dueDate===undefined?row.data.dueDate:command.dueDate,priority:command.priority??row.data.priority};
    const metadataChanged=Object.entries(metadata).some(([key,value])=>value!==row.data[key as keyof typeof row.data]);
+   if(row.sourceKind==='internal_review'){
+    if(metadataChanged||command.status==='cancelled'||row.data.status==='cancelled')throw new Error('The assigned PDRA manages review requirements in the Revision Tracker.');
+    if(command.status==='done')await checkEvidence(projectId,command.evidenceIds,true);
+   }
    if(metadataChanged&&(!edit||row.sourceKind==='meeting'))throw new Error('Only project managers can edit project task details; meeting assignments are managed in the meeting.');
    if(metadata.owner!==row.data.owner)await checkAssignee(projectId,metadata.owner);
    await checkEvidence(projectId,command.evidenceIds);
-   await db.pool.query('UPDATE project_tasks SET data=$2::jsonb,revision=revision+1 WHERE id=$1',[row.id,JSON.stringify({...row.data,...metadata,status:command.status,note:command.note,evidenceIds:command.evidenceIds,history:[...row.data.history,{by:user.username,at,status:command.status,note:command.note,evidenceIds:command.evidenceIds,metadata}]})]);
+   await db.pool.query('UPDATE project_tasks SET data=$2::jsonb,revision=revision+1 WHERE id=$1',[row.id,JSON.stringify({...row.data,...metadata,verification:undefined,status:command.status,note:command.note,evidenceIds:command.evidenceIds,history:[...row.data.history,{by:user.username,at,status:command.status,note:command.note,evidenceIds:command.evidenceIds,metadata}]})]);
   }else if(command.operation==='decision'){
    await recordDecision(projectId,command,user,project,at);
   }
@@ -104,6 +121,13 @@ export async function changeProjectWorkflow(projectId:string,input:unknown,user:
 }
 async function recordDecision(projectId:string,command:Extract<WorkflowCommand,{operation:'decision'}>,user:AuthUser,project:Awaited<ReturnType<typeof getProjectForUser>>,at:string){
  const db=createPostgresClient();
+ if(['internal_review','revision_lock','submission_clearance'].includes(command.checkpoint)){
+  if(user.username===project.ownerUsername)throw new AuthError('Owners cannot approve their own project reviews.',403,'forbidden');
+  throw new Error('Use Internal Review and its Revision Tracker for this submission attempt.');
+ }
+ if(command.skeletonReviewId)throw new Error('Skeleton review references are managed in Checklists.');
+ if(command.checkpoint==='skeleton_lock')throw new Error('Record Skeleton Lock judgments in Checklists; the confirmed result is shown here automatically.');
+ if(command.checkpoint==='idea_lock'&&(await checklistCheckpoints(project)).some(item=>item.checkpoint==='idea_lock'&&item.current))throw new Error('This project already retains its confirmed Idea Pitch decision.');
  const profile=(await db.pool.query('SELECT revision,profile FROM project_research WHERE project_id=$1',[projectId])).rows[0]||{revision:0,profile:researchSchema.parse({})};
  if(command.profileRevision!==profile.revision)throw conflict();
  if(command.outcome==='conditional'&&(!command.conditions||!command.reviewDue))throw new Error('Conditional decisions need required actions and a review date.');
@@ -113,25 +137,6 @@ async function recordDecision(projectId:string,command:Extract<WorkflowCommand,{
   const row=(await db.pool.query('SELECT is_current FROM project_submissions WHERE id=$1 AND project_id=$2',[command.submissionId,projectId])).rows[0];
   if(!row||!row.is_current)throw new Error('Choose the current submission attempt.');
  }
- let skeleton=null;
- if(command.skeletonReviewId){
-  skeleton=await getSkeletonReview(command.skeletonReviewId,user);
-  if(skeleton.projectId!==projectId)throw new Error('Choose a review from this project.');
- }
- if(command.checkpoint==='skeleton_lock'&&approval){
-  if(!skeleton)throw new Error('Link the human-reviewed Skeleton check.');
-  const latest=(await db.pool.query('SELECT id::text FROM skeleton_reviews WHERE project_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[projectId])).rows[0];
-  if(latest.id!==skeleton.id||!isDeepStrictEqual(skeletonProjectSnapshot(project),skeleton.projectSnapshot)||latestSkeletonDecisions(skeleton.decisions).pi?.outcome!=='approved')throw new Error('The latest unchanged Skeleton check needs separate PDRA and PI checkpoint confirmation.');
- }
- if(command.checkpoint==='submission_clearance'){
-  if(!canSeeAll(user))throw new AuthError('Only PI/admin can grant final submission clearance.',403,'forbidden');
-  if(approval){
-   const review=(await db.pool.query(`SELECT data FROM project_decisions WHERE project_id=$1 AND submission_id=$2 AND data->>'checkpoint'='internal_review' ORDER BY created_at DESC,id DESC LIMIT 1`,[projectId,command.submissionId])).rows[0];
-   if(!review||review.data.outcome!=='proceed'||review.data.profileRevision!==profile.revision||!isDeepStrictEqual(review.data.projectSnapshot,skeletonProjectSnapshot(project)))throw new Error('Internal review must be cleared for this submission attempt.');
-   const tasks=await listProjectTasks(projectId);
-   if(tasks.some(task=>task.data.priority==='high'&&!['done','cancelled'].includes(task.data.status)))throw new Error('Complete high-priority tasks before final submission clearance.');
-  }
- }
  const {operation:_,confirmed:__,...data}=command;
- await db.pool.query('INSERT INTO project_decisions(project_id,submission_id,data,decided_by) VALUES($1,$2,$3::jsonb,$4)',[projectId,command.submissionId,JSON.stringify({...data,profileSnapshot:profile.profile,projectSnapshot:skeletonProjectSnapshot(project),skeletonRevision:skeleton?.revision||null,at}),user.username]);
+ await db.pool.query('INSERT INTO project_decisions(project_id,submission_id,data,decided_by) VALUES($1,$2,$3::jsonb,$4)',[projectId,command.submissionId,JSON.stringify({...data,rulesVersion:"project-checkpoints-v1",profileSnapshot:profile.profile,projectSnapshot:skeletonProjectSnapshot(project),skeletonRevision:null,at}),user.username]);
 }

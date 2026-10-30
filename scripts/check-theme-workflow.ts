@@ -72,20 +72,21 @@ try {
   assert.equal((await route.GET(new Request(`http://localhost/api/theme-meetings/workflow?meetingDate=${date}&themeId=A`))).status, 401);
   assert.equal((await get('outsider')).status, 403, 'Other-theme coordinator cannot read A.');
   let draft = await ok(await get('chair'));
-  const entries = draft.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: 30, deferred: false }));
+  const entries = draft.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: item.member_username.startsWith(':') ? 5 : 30, deferred: false }));
   assert.equal((await post('alice', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries })).status, 403);
   assert.equal((await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries })).status, 400, 'Reject overbooking.');
   // Legacy data: per-item deferral is no longer offered in the UI, but the server still reads and stores it.
-  entries[2].deferred = true;
+  entries.find((item: { username: string }) => item.username === 'carol')!.deferred = true;
+  entries.filter((item: { username: string }) => !item.username.startsWith(':')).forEach((item: { minutes: number }) => { item.minutes = 25; });
   entries.reverse();
   await ok(await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries }));
   assert.equal((await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries })).status, 409, 'Reject stale confirmation.');
   let saved = await ok(await get('chair'));
   assert.equal(saved.confirmation.version, 1);
   assert.equal(saved.confirmation.confirmedBy, 'chair');
-  assert.deepEqual(saved.confirmation.entries.map((item: { member_username: string }) => item.member_username), ['carol', 'bob', 'alice']);
+  assert.deepEqual(saved.confirmation.entries.map((item: { member_username: string }) => item.member_username), [':assignments', 'carol', 'bob', 'alice', ':triage_admin']);
   const confirmed = (await planner.buildThemeMeetingPlan({ meetingDate: date })).plan;
-  assert.deepEqual(confirmed.meetings[0].agenda_items.map((item) => item.member_username), ['bob', 'alice']);
+  assert.deepEqual(confirmed.meetings[0].agenda_items.map((item) => item.member_username), [':assignments', 'bob', 'alice', ':triage_admin']);
   const { notificationStateForUser } = await import('../src/mastra/theme-meetings/notification-state');
   const reminder = schema.themeMeetingNotificationSchema.parse({ id: 'deferred-reminder', action: 'first_reminder', meeting_date: date,
     cycle_group: 'AB', theme_id: 'A', member: 'carol', member_username: 'carol', title: 'Update', body: 'Update', created_at: new Date().toISOString() });
@@ -93,12 +94,12 @@ try {
     'Deferring a submitted slot must not reopen its progress reminder.');
   await assert.rejects(planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'New late evidence.', now: at(0, '09:00:00') }), /locked after/, 'Preserve the existing cutoff enforcement.');
   await planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'Updated evidence before cutoff.', now: at(0, '06:00:00') });
-  assert.equal((await planner.buildThemeMeetingPlan({ meetingDate: date })).plan.meetings[0].agenda_items.at(-1)!.progress_text, 'alice original evidence.', 'Later updates cannot mutate a confirmed snapshot.');
+  assert.equal((await planner.buildThemeMeetingPlan({ meetingDate: date })).plan.meetings[0].agenda_items.find((item) => item.member_username === 'alice')!.progress_text, 'alice original evidence.', 'Later updates cannot mutate a confirmed snapshot.');
   draft = await ok(await get('chair'));
   assert.equal(draft.candidates.find((item: { member_username: string }) => item.member_username === 'alice').progress_text, 'Updated evidence before cutoff.');
   // Without per-item skipping, managers fit the hour by shortening Deep Dive minutes.
   const next = draft.candidates.map((item: { member_username: string; duration_minutes: number; update_type: string }) => ({ username: item.member_username,
-    minutes: item.update_type === 'deep_dive' ? 25 : item.duration_minutes, deferred: false }));
+    minutes: item.update_type === 'deep_dive' ? 20 : item.duration_minutes, deferred: false }));
   const concurrent = await Promise.all([post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next }), post('principal', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: next })]);
   assert.deepEqual(concurrent.map((response) => response.status).sort(), [200, 409]);
   assert.equal((await workflow.readMeetingWorkflow()).confirmations.length, 2, 'Preserve previous versions.');
@@ -135,8 +136,8 @@ try {
   assert.ok(sent[0].text.indexOf(v2Order[0]) < sent[0].text.indexOf(v2Order[1]), 'Confirmed order is preserved.');
   assert.doesNotMatch(sent[0].text, /Deferred/, 'New versions schedule every submission, so the email lists no deferred items.');
   // The confirmed email header describes the confirmed snapshot, not the live submission state.
-  assert.match(sent[0].text, /Scheduled: 3 items \| Planned: 55\/60 min/);
-  assert.match(sent[0].html, /Scheduled: <strong>3 items<\/strong>/);
+  assert.match(sent[0].text, /Scheduled: 5 items \| Planned: 55\/60 min/);
+  assert.match(sent[0].html, /Scheduled: <strong>5 items<\/strong>/);
   assert.doesNotMatch(sent[0].text + sent[0].html, /Missing updates|Submitted:/, 'Confirmed emails omit live submission counts.');
   const { renderThemeMeetingAgendaEmail } = await import('../src/mastra/theme-meetings/agenda-email');
   const legacyDeferred = (await workflow.readMeetingWorkflow()).confirmations[0].entries.find((entry) => entry.deferred)!;
@@ -226,7 +227,7 @@ try {
   async function readOnly(response: Response) { assert.equal(response.status, 403); assert.equal((await response.json()).error, 'Coordinators can change a meeting until 16:00 on the Friday after it.'); }
   const chairPast = await ok(await get('chair', pastDate));
   assert.equal(chairPast.manager, true); assert.equal(chairPast.readOnly, true);
-  assert.equal(chairPast.candidates.length, 2, 'Coordinators still read every past submission.');
+  assert.equal(chairPast.candidates.length, 4, 'Coordinators still read every past submission.');
   assert.equal(chairPast.emailAudience, null);
   assert.equal((await ok(await get('chair'))).readOnly, false, 'The current meeting stays editable.');
   assert.equal((await ok(await get('principal', pastDate))).readOnly, false, 'PIs are never read-only.');
@@ -241,25 +242,25 @@ try {
   await ok(await pastPost('alice', { operation: 'update_action', id: pastAction.id, version: pastAction.version, status: 'done', note: 'Done by the assignee.' }));
   // Theme B: its coordinator is also a member and the assignee of a past action.
   const bPast = await ok(await get('principal', pastDate, 'B'));
-  await ok(await pastPost('principal', { themeId: 'B', operation: 'confirm', sourceVersion: bPast.sourceVersion, entries: [{ username: 'outsider', minutes: 5, deferred: false }] }));
+  await ok(await pastPost('principal', { themeId: 'B', operation: 'confirm', sourceVersion: bPast.sourceVersion, entries: bPast.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: 5, deferred: false })) }));
   await ok(await pastPost('principal', { themeId: 'B', operation: 'add_action', action: { ...action, owner: 'outsider', task: 'B follow-up.' } }));
   const bAction = (await ok(await get('outsider', pastDate, 'B'))).actions.find((entry: { task: string }) => entry.task === 'B follow-up.');
   await readOnly(await pastPost('outsider', { themeId: 'B', operation: 'add_action', action: { ...action, owner: 'outsider' } }));
   await ok(await pastPost('outsider', { themeId: 'B', operation: 'update_action', id: bAction.id, version: bAction.version, status: 'done', note: 'Coordinator as assignee.' }));
   const pastView = await ok(await get('alice', pastDate));
-  assert.ok(pastView.confirmation.entries.length === 1 && pastView.confirmation.entries[0].member_username === 'alice', 'Earlier confirmed agendas stay private.');
-  assert.ok(pastView.candidates.every((item: { member_username: string }) => item.member_username === 'alice'), 'Unconfirmed submissions stay private to their author.');
+  assert.ok(pastView.confirmation.entries.length === 3 && pastView.confirmation.entries.every((item: { member_username: string }) => item.member_username === 'alice' || item.member_username.startsWith(':')), 'Earlier confirmed agendas stay private.');
+  assert.ok(pastView.candidates.every((item: { member_username: string }) => item.member_username === 'alice' || item.member_username.startsWith(':')), 'Unconfirmed submissions stay private to their author.');
   // Current meeting: scheduled entries in full; legacy deferred entries reduced to name and update type.
   const nextDate = date;
   const beforeCutoff = at(-2, '00:00:00');
   for (const name of ['alice', 'bob', 'carol']) await planner.submitThemeMeetingUpdate({ meetingDate: nextDate, themeId: 'A', member: name, updateType: 'deep_dive', progressText: `${name} next evidence.`, questions: `${name} question?`, now: beforeCutoff });
   const nextDraft = await ok(await get('chair', nextDate));
-  assert.ok(nextDraft.candidates.length === 3);
-  const nextEntries = nextDraft.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: 20, deferred: item.member_username === 'carol' }));
+  assert.ok(nextDraft.candidates.length === 5);
+  const nextEntries = nextDraft.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: item.member_username.startsWith(':') ? 5 : 20, deferred: item.member_username === 'carol' }));
   await ok(await post('chair', { operation: 'confirm', meetingDate: nextDate, sourceVersion: nextDraft.sourceVersion, entries: nextEntries }));
   const memberNext: Entry[] = (await ok(await get('alice', nextDate))).confirmation.entries;
   const managerNext: Entry[] = (await ok(await get('chair', nextDate))).confirmation.entries;
-  assert.equal(memberNext.length, 3, 'Members see the whole current confirmed agenda.');
+  assert.equal(memberNext.length, 5, 'Members see the whole current confirmed agenda.');
   assert.deepEqual(memberNext.find((entry) => entry.member_username === 'bob'), managerNext.find((entry) => entry.member_username === 'bob'), 'Scheduled entries are shown in full.');
   const reduced = memberNext.find((entry) => entry.member_username === 'carol')!;
   assert.deepEqual([reduced.member, reduced.update_type, reduced.deferred], ['carol', 'deep_dive', true]);
@@ -269,12 +270,12 @@ try {
   // Optional project links share only the selected action with authorized project viewers.
   const projects = await import('../src/mastra/db/projects');
   const projectRoute = await import('../app/api/projects/[projectId]/meeting-actions/route');
-  const project = await projects.createProject({ title: 'Linked synthetic project', ownerUsername: 'principal', collaborators: ['alice', 'chair', 'outsider'], stage: 2 }, accounts.get('principal')!);
+  const project = await projects.createProject({ title: 'Linked synthetic project', piUsername: 'principal', pdraUsername: 'carol', ownerUsername: 'principal', collaborators: ['alice', 'chair', 'outsider'], stage: 2 }, accounts.get('principal')!);
   const projectGet = (name: string) => projectRoute.GET(new Request('http://localhost/api/projects/actions', { headers: headers(name) }), { params: Promise.resolve({ projectId: project.id }) });
   assert.equal((await projectRoute.GET(new Request('http://localhost/api/projects/actions'), { params: Promise.resolve({ projectId: project.id }) })).status, 401);
   assert.equal((await ok(await projectGet('outsider'))).actions.length, 0, 'Unlinked group actions stay out of projects.');
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, owner: 'bob', projectId: project.id } })).status, 400, 'Assignment does not grant project access.');
-  const privateProject = await projects.createProject({ title: 'Private synthetic project', ownerUsername: 'outsider' }, accounts.get('principal')!);
+  const privateProject = await projects.createProject({ title: 'Private synthetic project', piUsername: 'principal', pdraUsername: 'bob', ownerUsername: 'outsider' }, accounts.get('principal')!);
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, projectId: privateProject.id } })).status, 404, 'Theme management does not grant project access.');
   await ok(await post('chair', { operation: 'add_action', action: { ...action, projectId: project.id } }));
   const linked = (await ok(await projectGet('outsider'))).actions[0];

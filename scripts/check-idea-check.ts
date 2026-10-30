@@ -260,11 +260,14 @@ try {
   await db.pool.query("UPDATE users SET provisioning_status='active' WHERE username='carol'");
   // WEB_TEST_INSERT
   assert.equal((await post('alice', { operation: 'create_project', version: 6, confirmed: true, initialAction: { text: 'Run pilot', dueDate: '2026-02-30' } })).status, 400);
-  const conversions = await Promise.all(['alice', 'admincheck'].map(async name => ok(await post(name, { operation: 'create_project', version: 6, confirmed: true, initialAction: { text: 'Run a synthetic pilot', dueDate: '2026-11-06' } }))));
+  const conversions = await Promise.all(['alice', 'admincheck'].map(async name => ok(await post(name, { operation: 'create_project', version: 6, confirmed: true, setup: { track: 'A', piUsername: 'admincheck', pdraUsername: 'bob', collaborators: [] }, initialAction: { text: 'Run a synthetic pilot', dueDate: '2026-11-06' } }))));
   assert.equal(conversions[0].projectId, conversions[1].projectId, 'Concurrent conversion creates one project.');
   assert.deepEqual(conversions.map(item => item.created).sort(), [false, true]);
   const records = await projects.listProjectsForUser(accounts.get('principal')!);
   const projectWorkflow = await import('../src/mastra/db/project-workflow');
+  const inheritedCheckpoint=(await projectWorkflow.getProjectWorkflow(conversions[0].projectId, accounts.get('alice')!)).checklistCheckpoints.find(item=>item.checkpoint==='idea_lock');
+  assert.equal(inheritedCheckpoint?.outcome,'proceed');assert.equal(inheritedCheckpoint?.current,true);
+  assert.ok(inheritedCheckpoint?.version.startsWith('Idea Pitch v'),'Only the final approved source is projected.');
   const inheritedProfile = (await projectWorkflow.getProjectWorkflow(conversions[0].projectId, accounts.get('alice')!)).research.profile;
   assert.equal(inheritedProfile.question, currentDraft.why);
   assert.equal(inheritedProfile.claim, currentDraft.strategy);
@@ -292,7 +295,7 @@ try {
   assert.equal(snapshot.actions[0].dueDate, '2026-11-06');
   assert.equal(JSON.stringify(snapshot).includes('PRIVATE_SOURCE'), false);
   const agenda = linked.plan.meetings.find((meeting: { theme_id: string }) => meeting.theme_id === 'A');
-  assert.deepEqual(agenda.agenda_items[0].project_context, snapshot);
+  assert.deepEqual(agenda.agenda_items.find((item: { project_context?: { projectId: string } }) => item.project_context?.projectId === snapshot.projectId)?.project_context, snapshot);
   const { renderThemeMeetingAgendaEmail } = await import('../src/mastra/theme-meetings/agenda-email');
   const email = renderThemeMeetingAgendaEmail(linked.plan);
   assert.match(email.text, /Run a synthetic pilot/);
@@ -301,17 +304,17 @@ try {
   assert.match(email.html, /2026-11-06|6 Nov 2026/);
   const workflow = await import('../src/mastra/theme-meetings/workflow');
   const state = { confirmations: [], actions: [] };
-  const confirmation = workflow.confirmAgenda(state, agenda, '2099-11-04', [{ username: 'alice', deferred: false, minutes: 10 }], 'chair');
-  assert.deepEqual(confirmation.entries[0].project_context, snapshot, 'Confirmed agendas retain the shared project snapshot.');
+  const confirmation = workflow.confirmAgenda(state, agenda, '2099-11-04', agenda.agenda_items.map((item: { member_username: string; duration_minutes: number }) => ({ username: item.member_username, deferred: false, minutes: item.duration_minutes })), 'chair');
+  assert.deepEqual(confirmation.entries.find(item => item.member_username === 'alice')!.project_context, snapshot, 'Confirmed agendas retain the shared project snapshot.');
   const {changeProjectWorkflow}=await import('../src/mastra/db/project-workflow');
   await changeProjectWorkflow(records[0].id,{operation:'task_update',confirmed:true,id:records[0].todos[0].id,revision:0,status:'done',note:'Completed the synthetic pilot.',evidenceIds:[]},accounts.get('alice')!);
   const { buildThemeMeetingPlan } = await import('../src/mastra/theme-meetings/planner');
   await projects.updateProject(records[0].id, { stage: 2 }, accounts.get('alice')!);
   const historical = await buildThemeMeetingPlan({ meetingDate: '2099-11-04' });
-  assert.deepEqual(historical.plan.meetings[0].agenda_items[0].project_context, snapshot, 'Editing live tasks does not rewrite a submitted snapshot.');
+  assert.deepEqual(historical.plan.meetings[0].agenda_items.find(item => item.member_username === 'alice')!.project_context, snapshot, 'Editing live tasks does not rewrite a submitted snapshot.');
   const refreshed = await ok(await meetingPost('alice'));
   assert.equal(refreshed.update.project_context.stage, 2, 'An explicit resubmission captures the new project stage.');
-  assert.equal(confirmation.entries[0].project_context!.stage, 1, 'Confirmed stages remain immutable.');
+  assert.equal(confirmation.entries.find(item => item.member_username === 'alice')!.project_context!.stage, 1, 'Confirmed stages remain immutable.');
   assert.deepEqual(refreshed.update.project_context.actions, [], 'Completed tasks leave the next submission.');
   const { submitThemeMeetingUpdateTool } = await import('../src/mastra/tools/theme-meetings');
   const chatResult = await submitThemeMeetingUpdateTool.execute!({ meetingDate: '2099-11-04', themeId: 'A', member: 'alice',

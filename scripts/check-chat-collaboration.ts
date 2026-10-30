@@ -18,6 +18,8 @@ const stamp = Date.now();
 const ownerName = `chat.owner.${stamp}`;
 const receiverName = `chat.receiver.${stamp}`;
 const inactiveName = `chat.inactive.${stamp}`;
+const reviewPiName = `chat.review.pi.${stamp}`;
+const reviewPdraName = `chat.review.pdra.${stamp}`;
 const outsiderName = `chat.outsider.${stamp}`;
 const sessionId = `chat-collab-${stamp}`;
 const mutedSessionId = `chat-muted-${stamp}`;
@@ -34,7 +36,7 @@ async function seedUser(username: string): Promise<AuthUser> {
     username,
     email: email(username),
     password: 'ChatCollab1!',
-    role: 'member',
+    role: username === reviewPiName ? 'pi' : 'member',
     displayName: username,
     source: 'chat_collaboration_check',
     metadata: username === ownerName ? { avatar_url: ownerAvatarUrl } : undefined,
@@ -50,10 +52,10 @@ async function cleanup() {
     await postgres.pool.query('DELETE FROM chat_sessions WHERE id = ANY($1::text[]) OR id LIKE $2', [[sessionId, mutedSessionId], `%${legacyThreadId}`]).catch(() => undefined);
     await postgres.pool.query('DELETE FROM project_records WHERE slug = $1', [projectSlug]).catch(() => undefined);
     await postgres.pool
-      .query('DELETE FROM audit_log WHERE actor_username = ANY($1::text[])', [[ownerName, receiverName, inactiveName, outsiderName]])
+      .query('DELETE FROM audit_log WHERE actor_username = ANY($1::text[])', [[ownerName, receiverName, inactiveName, outsiderName, reviewPiName, reviewPdraName]])
       .catch(() => undefined);
     await postgres.pool
-      .query('DELETE FROM users WHERE username = ANY($1::text[])', [[ownerName, receiverName, inactiveName, outsiderName]])
+      .query('DELETE FROM users WHERE username = ANY($1::text[])', [[ownerName, receiverName, inactiveName, outsiderName, reviewPiName, reviewPdraName]])
       .catch(() => undefined);
   } finally {
     await postgres.disconnect();
@@ -79,6 +81,8 @@ async function main() {
   const receiver = await seedUser(receiverName);
   const inactive = await seedUser(inactiveName);
   const outsider = await seedUser(outsiderName);
+  await seedUser(reviewPiName);
+  await seedUser(reviewPdraName);
   await disableUser(inactive.username);
 
   try {
@@ -160,6 +164,7 @@ async function main() {
 
     const project = await createProject({
       project: projectSlug,
+      piUsername: reviewPiName, pdraUsername: reviewPdraName,
       title: `Chat Private Project ${stamp}`,
       ownerUsername: owner.username,
       track: 'A',
@@ -208,7 +213,8 @@ async function main() {
     }));
     const memberReply = await postChat(receiver, 'Please summarise the VioScope thread so far.');
     assert.equal(memberReply.status, 200, await memberReply.clone().text());
-    assert.deepEqual(generateCalls.at(-1)?.memory, { thread: sessionId, resource: owner.id }, 'Shared members continue the owner thread.');
+    assert.equal(generateCalls.at(-1)?.memory, undefined, 'Never reopen private augmented model history.');
+    assert.ok(Array.isArray(generateCalls.at(-1)?.context), 'Shared replies receive member-visible history.');
     assert.ok(
       (await listChatSessionsForUser(owner.id)).find((session) => session.threadId === sessionId)?.messages
         .some((message) => message.actorUsername === receiver.username),

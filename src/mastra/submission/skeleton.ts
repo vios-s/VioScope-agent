@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { SkeletonFigure } from './skeleton-figures';
 
 export const skeletonFields = [
   // Order follows the VIOS OS Skeleton Lock checklist: 1 technical foundation, 2 narrative, 3 stress test, 4 leadership and ethics.
@@ -13,10 +14,13 @@ export const skeletonFields = [
 ] as const;
 export const skeletonDraftSchema = z.object(Object.fromEntries(skeletonFields.map(field => [field.key, z.string().max(6000).default('')])) as Record<(typeof skeletonFields)[number]['key'], z.ZodDefault<z.ZodString>>).strict();
 export type SkeletonDraft = z.infer<typeof skeletonDraftSchema>;
-export function renderSkeletonDraft(input: SkeletonDraft): string {
+export function renderSkeletonDraft(input: SkeletonDraft, figures: SkeletonFigure[] = []): string {
   const draft = skeletonDraftSchema.parse(input);
-  if (!skeletonFields.some(field => draft[field.key].trim())) throw new Error('Add evidence to at least one skeleton section before checking.');
-  return skeletonFields.map(field => `## ${field.label}\n${draft[field.key].trim() || '[Not provided]'}`).join('\n\n');
+  if (!figures.length && !skeletonFields.some(field => draft[field.key].trim())) throw new Error('Add evidence to at least one skeleton section before checking.');
+  return skeletonFields.map(field => {
+    const images = field.key === 'figures' ? figures.map(figure => `${figure.id} — ${JSON.stringify(figure.name)}\nCaption: ${JSON.stringify(figure.caption)}`).join('\n\n') : '';
+    return `## ${field.label}\n${[draft[field.key].trim(), images].filter(Boolean).join('\n\n') || '[Not provided]'}`;
+  }).join('\n\n');
 }
 
 /** VIOS OS “Paper Skeleton” minimum content at T-minus six weeks, worded after the template. Advisory checklist for the AI check. */

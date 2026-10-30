@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -310,7 +311,7 @@ async function summarizeArtifact(fileName: string, kind: string, text: string, f
   }
 }
 
-export async function saveProjectArtifactUpload(project: ProjectRecord, file: File): Promise<ProjectArtifactUploadDigest> {
+export async function saveProjectArtifactUpload(project: ProjectRecord, file: File, supplied?: {text:string;summary:string}): Promise<ProjectArtifactUploadDigest> {
   if (file.size <= 0) throw new Error('Artifact file is empty.');
   if (file.size > maxProjectArtifactUploadBytes) throw new Error('Artifact file is too large. Limit is 20 MB.');
   const ext = extname(file.name).toLowerCase();
@@ -319,7 +320,7 @@ export async function saveProjectArtifactUpload(project: ProjectRecord, file: Fi
   }
 
   const projectDir = await projectStorageRoot(project);
-  const uploadDir = resolve(projectDir, dateTimeFolder());
+  const uploadDir = resolve(projectDir, `${dateTimeFolder()}-${randomUUID()}`);
   await mkdir(/* turbopackIgnore: true */ uploadDir, { recursive: true });
 
   const storedName = `${Date.now()}-${sanitizeFileName(file.name)}`;
@@ -328,9 +329,9 @@ export async function saveProjectArtifactUpload(project: ProjectRecord, file: Fi
   const buffer = Buffer.from(await file.arrayBuffer());
   await writeFile(/* turbopackIgnore: true */ targetPath, buffer);
 
-  const extracted = await extractText(buffer, file.name, targetPath);
+  const extracted = supplied ? {text:supplied.text,files:[sanitizeFileName(file.name)]} : await extractText(buffer, file.name, targetPath);
   const kind = projectArtifactKind(file.name);
-  const digest = await summarizeArtifact(file.name, kind, extracted.text, extracted.files);
+  const digest = supplied ? {summary:supplied.summary,source:'fallback' as const} : await summarizeArtifact(file.name, kind, extracted.text, extracted.files);
 
   return {
     artifact: {
