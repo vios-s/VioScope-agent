@@ -6,14 +6,16 @@ import { dirname, join } from 'node:path';
 import { createSessionToken, sessionCookieName } from '../src/mastra/auth/session';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { getUserByUsername, upsertLocalUser, type AuthUser, type UserRole } from '../src/mastra/db/users';
-import { buildThemeMeetingPlan, submitThemeMeetingUpdate } from '../src/mastra/theme-meetings/planner';
+import { buildThemeMeetingPlan, submitThemeMeetingUpdate, upcomingWednesday } from '../src/mastra/theme-meetings/planner';
 
 const stamp = Date.now().toString(36);
 const runDir = join(tmpdir(), 'vioscope-agent-smoke', `release-hardening-${stamp}`);
 const configPath = join(runDir, 'theme-meeting-config.yaml');
 const updatesPath = join(runDir, 'theme-meeting-updates.yaml');
 const notificationsPath = join(runDir, 'theme-meeting-notifications.yaml');
-const meetingDate = '2026-07-01';
+// The weekly theme's current meeting: coordinators may act on it, while earlier meetings are read-only for them.
+const meetingDate = upcomingWednesday();
+const pastMeetingDate = new Date(Date.parse(`${meetingDate}T12:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
 const password = 'ReleaseHardening1!';
 const users = {
   coordinator: `release.hardening.coord.${stamp}`,
@@ -146,10 +148,10 @@ async function cleanup() {
 
 async function main() {
   await cleanup();
-  const coordinator = await seedUser(users.coordinator, 'organizer');
+  const coordinator = await seedUser(users.coordinator, 'member');
   await seedUser(users.submitted, 'member');
   await seedUser(users.missing, 'member');
-  await seedUser(users.pi, 'pi');
+  const pi = await seedUser(users.pi, 'pi');
   await seedUser(users.admin, 'administrator');
   applyThemeEnv();
 
@@ -181,7 +183,7 @@ async function main() {
       progressText: 'Completed the release hardening pass and ready to discuss remaining risks.',
       submittedVia: 'api',
       validateUsers: true,
-      now: new Date('2026-06-30T09:00:00.000Z'),
+      now: new Date(Date.parse(`${meetingDate}T09:00:00.000Z`) - 86_400_000),
     });
 
     const remindersRoute = await import('../app/api/theme-meetings/reminders/route');
@@ -196,6 +198,14 @@ async function main() {
     assert.equal(reminderResponse.status, 200, 'Coordinator should send manual missing-update reminder.');
     assert.equal(reminderBody.notificationCount, 1, 'Manual reminder should target exactly one missing member.');
     assert.equal(reminderBody.recipients?.[0]?.username, users.missing);
+
+    const pastReminder = (actor: AuthUser) => remindersRoute.POST(request('/api/theme-meetings/reminders', actor, {
+      action: 'manual_missing_update_reminder', themeId: 'A', meetingDate: pastMeetingDate,
+    }));
+    const pastResponse = await pastReminder(coordinator);
+    assert.equal(pastResponse.status, 403, 'Coordinators cannot send reminders for a past meeting.');
+    assert.equal((await pastResponse.json()).error, 'Past meetings are read-only for coordinators.');
+    assert.equal((await pastReminder(pi)).status, 200, 'PIs keep full rights on past meetings.');
 
     console.log('Release hardening check passed.');
     console.log(JSON.stringify({ missingUserRejected: true, inactiveUserRejected: true, manualReminderCount: 1 }, null, 2));

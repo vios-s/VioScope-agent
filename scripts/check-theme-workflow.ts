@@ -40,10 +40,12 @@ try {
   const planner = await import('../src/mastra/theme-meetings/planner');
   const workflow = await import('../src/mastra/theme-meetings/workflow');
   const route = await import('../app/api/theme-meetings/workflow/route');
+  const subscriptions = await import('../src/mastra/db/theme-agenda-subscriptions');
+  const { formatDay, formatLongDay } = await import('../app/format');
   const { createSessionToken, sessionCookieName } = await import('../src/mastra/auth/session');
   await users.ensureUsersTable();
   const db = createPostgresClient();
-  for (const [username, role] of [['alice', 'member'], ['bob', 'member'], ['carol', 'member'], ['chair', 'organizer'], ['outsider', 'member'], ['principal', 'pi']]) {
+  for (const [username, role] of [['alice', 'member'], ['bob', 'member'], ['carol', 'member'], ['chair', 'member'], ['outsider', 'member'], ['principal', 'pi']]) {
     await db.pool.query(`INSERT INTO users(id,username,display_name,email,role,provisioning_status,source,password_reset_required)
       VALUES($1,$2,$2,$3,$4,'active','synthetic_workflow_check',false)`, [randomUUID(), username, `${username}@example.test`, role]);
   }
@@ -56,8 +58,11 @@ try {
     ],
   });
   await writeFile(process.env.THEME_MEETING_CONFIG_PATH!, stringify(config));
-  const date = '2026-10-28';
-  for (const name of ['alice', 'bob', 'carol']) await planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'A', member: name, updateType: 'deep_dive', progressText: `${name} original evidence.`, now: new Date('2026-10-27T12:00:00Z') });
+  // The theme's current meeting (weekly rotation): coordinators may change it; earlier meetings are read-only for them.
+  const date = planner.nextThemeMeetingDate(config, 'A')!;
+  const day = (offset: number) => new Date(Date.parse(`${date}T12:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
+  const at = (offset: number, time: string) => new Date(`${day(offset)}T${time}Z`);
+  for (const name of ['alice', 'bob', 'carol']) await planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'A', member: name, updateType: 'deep_dive', progressText: `${name} original evidence.`, now: at(-1, '12:00:00') });
   const headers = (name: string) => ({ 'content-type': 'application/json', cookie: `${sessionCookieName}=${createSessionToken(accounts.get(name)!)}` });
   const get = (name: string, meetingDate = date, themeId = 'A') => route.GET(new Request(`http://localhost/api/theme-meetings/workflow?${new URLSearchParams({ meetingDate, themeId })}`, { headers: headers(name) }));
   const post = (name: string, body: Record<string, unknown>) => route.POST(new Request('http://localhost/api/theme-meetings/workflow', {
@@ -86,8 +91,8 @@ try {
     cycle_group: 'AB', theme_id: 'A', member: 'carol', member_username: 'carol', title: 'Update', body: 'Update', created_at: new Date().toISOString() });
   assert.equal(notificationStateForUser([reminder], confirmed, accounts.get('carol')!, new Set())[0].completed, true,
     'Deferring a submitted slot must not reopen its progress reminder.');
-  await assert.rejects(planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'New late evidence.', now: new Date('2026-10-28T09:00:00Z') }), /locked after/, 'Preserve the existing cutoff enforcement.');
-  await planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'Updated evidence before cutoff.', now: new Date('2026-10-28T07:00:00Z') });
+  await assert.rejects(planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'New late evidence.', now: at(0, '09:00:00') }), /locked after/, 'Preserve the existing cutoff enforcement.');
+  await planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'Updated evidence before cutoff.', now: at(0, '06:00:00') });
   assert.equal((await planner.buildThemeMeetingPlan({ meetingDate: date })).plan.meetings[0].agenda_items.at(-1)!.progress_text, 'alice original evidence.', 'Later updates cannot mutate a confirmed snapshot.');
   draft = await ok(await get('chair'));
   assert.equal(draft.candidates.find((item: { member_username: string }) => item.member_username === 'alice').progress_text, 'Updated evidence before cutoff.');
@@ -108,6 +113,9 @@ try {
   // The Email dialog audience uses the send's own rules: counts and names only, managers only.
   type Audience = { version: number; emailEnabled: boolean; skipped: number; recipients: { username: string; displayName: string; alreadySent: boolean }[] };
   let audience: Audience = (await ok(await get('chair'))).emailAudience;
+  assert.deepEqual(audience.recipients.map((recipient) => recipient.username).sort(), ['alice', 'carol', 'chair'], 'PIs receive agendas only by subscription.');
+  await subscriptions.setThemeAgendaSubscription(accounts.get('principal')!.id, 'A', true);
+  audience = (await ok(await get('chair'))).emailAudience;
   assert.equal(audience.version, 2); assert.equal(audience.emailEnabled, true);
   assert.deepEqual(audience.recipients.map((recipient) => recipient.username).sort(), ['alice', 'carol', 'chair', 'principal']);
   assert.equal(audience.skipped, 1, 'The muted account is counted as skipped, not listed.');
@@ -115,14 +123,14 @@ try {
   assert.doesNotMatch(JSON.stringify(audience), /@example\.test/, 'The audience never exposes email addresses.');
   assert.equal((await ok(await get('alice'))).emailAudience, null, 'Members do not receive the email audience.');
   let delivery = await ok(await email('chair', 2));
-  assert.deepEqual(delivery.emails, { sent: 4, skipped: 1, failed: 0 }, 'PI, coordinator and members except the muted account.');
+  assert.deepEqual(delivery.emails, { sent: 4, skipped: 1, failed: 0 }, 'Subscribed PI, coordinator and members except the muted account.');
   assert.deepEqual(delivery.emails, { sent: audience.recipients.length, skipped: audience.skipped, failed: 0 }, 'The dialog preview matches the send.');
   audience = (await ok(await get('principal'))).emailAudience;
   assert.ok(audience.recipients.length === 4 && audience.recipients.every((recipient) => recipient.alreadySent), 'Delivered recipients are marked already sent.');
   assert.deepEqual(sent.map((mail) => mail.to).sort(), ['alice', 'carol', 'chair', 'principal'].map((name) => `${name}@example.test`));
   const v2 = (await workflow.readMeetingWorkflow()).confirmations.at(-1)!;
   const v2Order = v2.entries.filter((entry) => !entry.deferred).map((entry) => entry.member);
-  assert.match(sent[0].subject, /confirmed theme meeting agenda 28 Oct 2026 Theme A \(version 2\)/);
+  assert.ok(sent[0].subject.endsWith(`confirmed theme meeting agenda ${formatDay(date)} Theme A (version 2)`), sent[0].subject);
   assert.match(sent[0].html, /CONFIRMED AGENDA &middot; VERSION 2/);
   assert.ok(sent[0].text.indexOf(v2Order[0]) < sent[0].text.indexOf(v2Order[1]), 'Confirmed order is preserved.');
   assert.doesNotMatch(sent[0].text, /Deferred/, 'New versions schedule every submission, so the email lists no deferred items.');
@@ -160,11 +168,11 @@ try {
   assert.equal((await planner.sendThemeMeetingAgendaEmails((await planner.buildThemeMeetingPlan({ meetingDate: date })).plan, config, { themeId: 'A' })).sent, 4);
   const cutoffMail = sent.at(-1)!;
   assert.equal(sent.length, sentBeforeCutoff + 4);
-  assert.match(cutoffMail.subject, /^VioScope confirmed theme meeting agenda 28 Oct 2026 Theme A$/);
+  assert.equal(cutoffMail.subject, `VioScope confirmed theme meeting agenda ${formatDay(date)} Theme A`);
   assert.match(cutoffMail.text, /Confirmed version 3, by @chair/);
   assert.match(cutoffMail.text, /10:00 \| /, 'The cutoff email uses the confirmed order with start times.');
   assert.doesNotMatch(cutoffMail.text + cutoffMail.html, /advisory until confirmed|Missing updates/);
-  assert.match(cutoffMail.text, /Date: Wednesday 28 October 2026/);
+  assert.ok(cutoffMail.text.includes(`Date: ${formatLongDay(date)}`) && formatLongDay(date).startsWith('Wednesday '));
   assert.doesNotMatch(cutoffMail.text + cutoffMail.html, /\d{4}-\d{2}-\d{2}T\d{2}:/, 'No raw timestamps in emails.');
   // Cutoff notices address the missing member directly; managers read them in the third person.
   const cutoffRun = await planner.buildThemeMeetingReminderRun('agenda_cutoff', { meetingDate: date, previewOnly: true });
@@ -174,7 +182,7 @@ try {
   assert.match(visibleNotificationsForUser([missingNotice], config, accounts.get('principal')!)[0].body, /^outsider has no project progress update for Theme B/);
   assert.equal(visibleNotificationsForUser([missingNotice], config, accounts.get('outsider')!)[0].body, missingNotice.body);
   // Updates target a scheduled meeting of that theme; invalid dates get a formal message, not "Invalid time value".
-  await assert.rejects(planner.submitThemeMeetingUpdate({ meetingDate: '2026-10-29', themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'Wrong day.', now: new Date('2026-10-27T12:00:00Z') }), /Example A does not meet on 29 Oct 2026/);
+  await assert.rejects(planner.submitThemeMeetingUpdate({ meetingDate: day(1), themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'Wrong day.', now: at(-1, '12:00:00') }), new RegExp(`Example A does not meet on ${formatDay(day(1))}`));
   const updatesRoute = await import('../app/api/theme-meetings/updates/route');
   const badDate = await updatesRoute.POST(new Request('http://localhost/api/theme-meetings/updates', { method: 'POST', headers: headers('alice'),
     body: JSON.stringify({ meetingDate: 'tomorrow', themeId: 'A', member: 'alice', updateType: 'short_update', progressText: 'Bad date.' }) }));
@@ -191,7 +199,7 @@ try {
   const { removeThemeMeetingCancellation } = await import('../src/mastra/theme-meetings/store');
   await removeThemeMeetingCancellation(date, 'A');
   assert.equal(sent.length, 11);
-  const action = { decision: 'Proceed with the baseline check.', task: 'Run the baseline and attach results.', owner: 'alice', dueDate: '2026-10-30' };
+  const action = { decision: 'Proceed with the baseline check.', task: 'Run the baseline and attach results.', owner: 'alice', dueDate: day(2) };
   assert.equal((await post('alice', { operation: 'add_action', action })).status, 403);
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, owner: 'outsider' } })).status, 400);
   await ok(await post('chair', { operation: 'add_action', action }));
@@ -207,16 +215,43 @@ try {
   assert.equal(completed.status, 'done'); assert.equal(completed.history.length, 2);
   assert.equal(completed.history[1].by, 'alice');
   await ok(await post('chair', { ...update, version: completed.version, status: 'open', note: 'Repeat with another seed.' }));
-  assert.equal((await ok(await get('chair', '2026-11-04'))).actions[0].status, 'open', 'Carry unfinished work to the next meeting.');
+  assert.equal((await ok(await get('chair', day(7)))).actions[0].status, 'open', 'Carry unfinished work to the next meeting.');
   type Entry = { member_username: string; member: string; update_type: string; deferred: boolean; progress_text?: string; questions?: string; project_context?: unknown };
-  // Earlier meetings: members see only their own confirmed entries.
-  const pastView = await ok(await get('alice'));
+  // Earlier meetings: coordinators read them in full but cannot change them; PI and administrator keep full rights;
+  // assignees (a coordinator included) still update their own actions; members see only their own confirmed entries.
+  const pastDate = day(-7);
+  for (const name of ['alice', 'bob']) await planner.submitThemeMeetingUpdate({ meetingDate: pastDate, themeId: 'A', member: name, updateType: 'short_update', progressText: `${name} earlier evidence.`, now: at(-8, '12:00:00') });
+  await planner.submitThemeMeetingUpdate({ meetingDate: pastDate, themeId: 'B', member: 'outsider', updateType: 'short_update', progressText: 'Earlier B evidence.', now: at(-8, '12:00:00') });
+  const pastPost = (name: string, body: Record<string, unknown>) => post(name, { meetingDate: pastDate, ...body });
+  async function readOnly(response: Response) { assert.equal(response.status, 403); assert.equal((await response.json()).error, 'Past meetings are read-only for coordinators.'); }
+  const chairPast = await ok(await get('chair', pastDate));
+  assert.equal(chairPast.manager, true); assert.equal(chairPast.readOnly, true);
+  assert.equal(chairPast.candidates.length, 2, 'Coordinators still read every past submission.');
+  assert.equal(chairPast.emailAudience, null);
+  assert.equal((await ok(await get('chair'))).readOnly, false, 'The current meeting stays editable.');
+  assert.equal((await ok(await get('principal', pastDate))).readOnly, false, 'PIs are never read-only.');
+  const pastEntries = chairPast.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: 5, deferred: false }));
+  await readOnly(await pastPost('chair', { operation: 'confirm', sourceVersion: chairPast.sourceVersion, entries: pastEntries }));
+  await ok(await pastPost('principal', { operation: 'confirm', sourceVersion: chairPast.sourceVersion, entries: pastEntries }));
+  await readOnly(await pastPost('chair', { operation: 'email_confirmed', version: 1 }));
+  await readOnly(await pastPost('chair', { operation: 'add_action', action }));
+  await ok(await pastPost('principal', { operation: 'add_action', action: { ...action, task: 'Earlier follow-up.' } }));
+  const pastAction = (await ok(await get('alice', pastDate))).actions.find((entry: { task: string }) => entry.task === 'Earlier follow-up.');
+  await readOnly(await pastPost('chair', { operation: 'update_action', id: pastAction.id, version: pastAction.version, status: 'done', note: 'Coordinator edit.' }));
+  await ok(await pastPost('alice', { operation: 'update_action', id: pastAction.id, version: pastAction.version, status: 'done', note: 'Done by the assignee.' }));
+  // Theme B: its coordinator is also a member and the assignee of a past action.
+  const bPast = await ok(await get('principal', pastDate, 'B'));
+  await ok(await pastPost('principal', { themeId: 'B', operation: 'confirm', sourceVersion: bPast.sourceVersion, entries: [{ username: 'outsider', minutes: 5, deferred: false }] }));
+  await ok(await pastPost('principal', { themeId: 'B', operation: 'add_action', action: { ...action, owner: 'outsider', task: 'B follow-up.' } }));
+  const bAction = (await ok(await get('outsider', pastDate, 'B'))).actions.find((entry: { task: string }) => entry.task === 'B follow-up.');
+  await readOnly(await pastPost('outsider', { themeId: 'B', operation: 'add_action', action: { ...action, owner: 'outsider' } }));
+  await ok(await pastPost('outsider', { themeId: 'B', operation: 'update_action', id: bAction.id, version: bAction.version, status: 'done', note: 'Coordinator as assignee.' }));
+  const pastView = await ok(await get('alice', pastDate));
   assert.ok(pastView.confirmation.entries.length === 1 && pastView.confirmation.entries[0].member_username === 'alice', 'Earlier confirmed agendas stay private.');
   assert.ok(pastView.candidates.every((item: { member_username: string }) => item.member_username === 'alice'), 'Unconfirmed submissions stay private to their author.');
-  // Current/next meeting: scheduled entries in full; legacy deferred entries reduced to name and update type.
-  const nextDate = planner.nextThemeMeetingDate(config, 'A')!;
-  assert.ok(nextDate > date);
-  const beforeCutoff = new Date(Date.parse(`${nextDate}T00:00:00Z`) - 2 * 86_400_000);
+  // Current meeting: scheduled entries in full; legacy deferred entries reduced to name and update type.
+  const nextDate = date;
+  const beforeCutoff = at(-2, '00:00:00');
   for (const name of ['alice', 'bob', 'carol']) await planner.submitThemeMeetingUpdate({ meetingDate: nextDate, themeId: 'A', member: name, updateType: 'deep_dive', progressText: `${name} next evidence.`, questions: `${name} question?`, now: beforeCutoff });
   const nextDraft = await ok(await get('chair', nextDate));
   assert.ok(nextDraft.candidates.length === 3);
@@ -261,7 +296,7 @@ try {
   assert.equal((await get('alice')).status, 401);
   assert.equal((await post('chair', { operation: 'add_action', action })).status, 400);
   assert.equal(await readFile(workflow.workflowPath(), 'utf8'), before, 'Rejected writes leave the file unchanged.');
-  console.log('Theme workflow passed: saved versions, order/defer/budget, late edits, concurrent confirmation, confirmed-agenda email permission/dedupe/versioning/skip, exact account access, assigned actions, evidence, stale-write rejection and next-meeting follow-up. Synthetic data only.');
+  console.log('Theme workflow passed: saved versions, order/defer/budget, late edits, concurrent confirmation, confirmed-agenda email permission/dedupe/versioning/skip, exact account access, assigned actions, evidence, stale-write rejection, coordinator read-only past meetings (PI full rights, assignee updates) and next-meeting follow-up. Synthetic data only.');
 } finally {
   nodemailer.createTransport = originalTransport;
   await closePostgresPools(process.env.DATABASE_URL);

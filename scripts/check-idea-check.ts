@@ -31,7 +31,7 @@ try {
   const { createSessionToken, sessionCookieName } = await import('../src/mastra/auth/session');
   await users.ensureUsersTable();
   const db = createPostgresClient();
-  for (const [username, role] of [['alice', 'member'], ['bob', 'member'], ['carol', 'member'], ['chair', 'organizer'], ['outsider', 'member'], ['principal', 'pi'], ['admincheck', 'administrator']]) {
+  for (const [username, role] of [['alice', 'member'], ['bob', 'member'], ['carol', 'member'], ['chair', 'member'], ['outsider', 'member'], ['principal', 'pi'], ['admincheck', 'administrator']]) {
     await db.pool.query(`INSERT INTO users(id,username,display_name,email,role,provisioning_status,source,password_reset_required)
       VALUES($1,$2,$2,$3,$4,'active','synthetic_workflow_check',false)`, [randomUUID(), username, `${username}@example.test`, role]);
   }

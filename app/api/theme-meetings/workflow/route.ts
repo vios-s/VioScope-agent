@@ -6,7 +6,7 @@ import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { getProjectForUser, listProjectsForUser } from '../../../../src/mastra/db/projects';
 import { getUserByUsername } from '../../../../src/mastra/db/users';
-import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
+import { canManageTheme, isPastMeetingReadOnly } from '../../../../src/mastra/theme-meetings/access';
 import { buildThemeMeetingPlan, confirmedAgendaDeliveryPrefix, nextThemeMeetingDate, confirmedAgendaEmailAudience, sendThemeMeetingAgendaEmails } from '../../../../src/mastra/theme-meetings/planner';
 import { readThemeMeetingEmailDeliveries, resolveThemeMeetingUpdatesPath } from '../../../../src/mastra/theme-meetings/store';
 import { contentHash, withFileLock } from '../../../../src/mastra/atomic-file';
@@ -34,12 +34,16 @@ async function context(request: Request, key: z.infer<typeof keySchema>) {
   if (!manager && !meeting.member_usernames.includes(user.username)) {
     throw new AuthError('Only theme members and managers can access meeting records.', 403, 'forbidden');
   }
-  return { user, meeting, manager, payload };
+  // Coordinators only read meetings before the theme's current one; PI/admin keep full rights.
+  const readOnly = isPastMeetingReadOnly(payload.config, key.themeId, key.meetingDate, user);
+  return { user, meeting, manager, readOnly, payload };
 }
+const readOnlyError = () => new AuthError('Past meetings are read-only for coordinators.', 403, 'forbidden');
 // Sends the latest confirmed version to the cutoff-agenda audience; deliveries dedupe per version and recipient.
 async function emailConfirmedAgenda(request: Request, command: z.infer<typeof keySchema> & { version: number }) {
-  const { user, meeting, manager, payload } = await context(request, command);
+  const { user, meeting, manager, readOnly, payload } = await context(request, command);
   if (!manager) throw new AuthError('Only the theme coordinator, PI or administrator can do this.', 403, 'forbidden');
+  if (readOnly) throw readOnlyError();
   if (meeting.cancelled) throw new Error('This meeting is skipped. Restore it before emailing the agenda.');
   const confirmation = latestConfirmation(await readMeetingWorkflow(), command.meetingDate, command.themeId);
   if (!confirmation) throw new Error('Confirm the final agenda before emailing it.');
@@ -57,7 +61,7 @@ export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
     const key = keySchema.parse({ meetingDate: params.get('meetingDate'), themeId: params.get('themeId') });
-    const { user, meeting, manager, payload } = await context(request, key);
+    const { user, meeting, manager, readOnly, payload } = await context(request, key);
     const state = await readMeetingWorkflow();
     const confirmation = latestConfirmation(state, key.meetingDate, key.themeId);
     const projects = await listProjectsForUser(user, { includeArchived: true });
@@ -67,10 +71,10 @@ export async function GET(request: Request) {
     const emailedAt = manager && prefix ? (await readThemeMeetingEmailDeliveries()).deliveries
       .filter((delivery) => delivery.id.startsWith(prefix)).map((delivery) => delivery.sent_at).sort().at(-1) || null : null;
     return NextResponse.json({
-      manager, cancelled: meeting.cancelled, duration: meeting.duration_minutes,
+      manager, readOnly, viewerUsername: user.username, cancelled: meeting.cancelled, duration: meeting.duration_minutes,
       sourceVersion: agendaSourceVersion(meeting, confirmation), emailedAt,
       // Managers only: counts and names (never addresses) for the Email dialog, from the same rules the send uses.
-      emailAudience: manager && confirmation && !meeting.cancelled
+      emailAudience: manager && !readOnly && confirmation && !meeting.cancelled
         ? await confirmedAgendaEmailAudience({ ...payload.plan, meetings: [meeting] }, payload.config, key.themeId, confirmation.version) : null,
       viewerId: user.id,
       candidates: meeting.agenda_items.filter((item) => visible(item.member_username)),
@@ -98,8 +102,9 @@ export async function POST(request: Request) {
     if (command.operation === 'email_confirmed') return await emailConfirmedAgenda(request, command);
     // Match the submission writer's lock, then serialize agenda/action revisions.
     const result = await withFileLock(resolveThemeMeetingUpdatesPath(), async () => changeMeetingWorkflow({}, async (state) => {
-      const { user, meeting, manager } = await context(request, command);
+      const { user, meeting, manager, readOnly } = await context(request, command);
       if (command.operation !== 'update_action' && !manager) throw new AuthError('Only the theme coordinator, PI or administrator can do this.', 403, 'forbidden');
+      if (command.operation !== 'update_action' && readOnly) throw readOnlyError();
       if (meeting.cancelled && command.operation !== 'update_action') throw new Error('This meeting is skipped. Restore it first.');
       if (command.operation === 'confirm') {
         if (agendaSourceVersion(meeting, latestConfirmation(state, command.meetingDate, command.themeId)) !== command.sourceVersion) {
@@ -119,9 +124,11 @@ export async function POST(request: Request) {
       } else {
         const action = state.actions.find((item) => item.id === command.id && item.themeId === command.themeId && item.meetingDate <= command.meetingDate);
         if (!action || (!manager && action.owner !== user.username)) throw new AuthError('Action is unavailable.', 403, 'forbidden');
+        // On a past meeting a coordinator may still update their own assigned action, as its assignee.
+        if (readOnly && action.owner !== user.username) throw readOnlyError();
         if (action.projectId) await getProjectForUser(action.projectId, user);
         if (contentHash(action) !== command.version) throw new AuthError('This action changed. Reload before saving.', 409, 'conflict');
-        updateMeetingAction(action, command.status, command.note, user.username, manager);
+        updateMeetingAction(action, command.status, command.note, user.username, manager && !readOnly);
       }
       return { user };
     }));

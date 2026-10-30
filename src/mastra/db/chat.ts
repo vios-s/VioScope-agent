@@ -42,12 +42,14 @@ export type ChatMentionResult = {
   unknown: string[];
 };
 
+// Bell "Messages": chat mentions (open the shared session) and feedback replies (open Feedback).
 export type ChatNotificationRecord = {
   id: string;
-  type: 'chat_mention';
+  type: 'chat_mention' | 'feedback_reply';
   title: string;
   body: string;
-  sessionId: string;
+  sessionId: string | null;
+  feedbackId: string | null;
   actorUserId: string;
   actorUsername: string;
   actorDisplayName: string;
@@ -109,10 +111,11 @@ type MentionRecipient = MentionableUser & {
 
 type NotificationRow = {
   id: string;
-  type: 'chat_mention';
+  type: 'chat_mention' | 'feedback_reply';
   title: string;
   body: string;
-  session_id: string;
+  session_id: string | null;
+  feedback_id: string | null;
   actor_user_id: string;
   actor_username: string;
   actor_display_name: string;
@@ -169,6 +172,7 @@ function toNotification(row: NotificationRow): ChatNotificationRecord {
     title: row.title,
     body: row.body,
     sessionId: row.session_id,
+    feedbackId: row.feedback_id,
     actorUserId: row.actor_user_id,
     actorUsername: row.actor_username,
     actorDisplayName: row.actor_display_name,
@@ -238,6 +242,19 @@ async function ensureChatTablesOnce(): Promise<void> {
         read_at TIMESTAMPTZ,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
+    `);
+    await postgres.pool.query('ALTER TABLE chat_notifications ADD COLUMN IF NOT EXISTS feedback_id UUID');
+    await postgres.pool.query('ALTER TABLE chat_notifications ALTER COLUMN session_id DROP NOT NULL');
+    await postgres.pool.query('ALTER TABLE chat_notifications DROP CONSTRAINT IF EXISTS chat_notifications_type_check');
+    await postgres.pool.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE chat_notifications ADD CONSTRAINT chat_notifications_type_check CHECK (
+          (type = 'chat_mention' AND session_id IS NOT NULL) OR (type = 'feedback_reply' AND feedback_id IS NOT NULL)
+        );
+      EXCEPTION WHEN duplicate_object THEN
+        NULL;
+      END $$;
     `);
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS chat_sessions_updated_at_idx ON chat_sessions (updated_at DESC)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS chat_session_members_user_idx ON chat_session_members (user_id)');
@@ -657,6 +674,7 @@ export async function listChatNotificationsForUser(userId: string): Promise<Chat
           n.title,
           n.body,
           n.session_id,
+          n.feedback_id::text,
           n.actor_user_id::text,
           actor.username AS actor_username,
           actor.display_name AS actor_display_name,
@@ -671,6 +689,28 @@ export async function listChatNotificationsForUser(userId: string): Promise<Chat
       [userId],
     );
     return result.rows.map(toNotification);
+  } finally {
+    await postgres.disconnect();
+  }
+}
+
+export async function createFeedbackReplyNotification(input: {
+  recipientUserId: string;
+  actorUserId: string;
+  feedbackId: string;
+  title: string;
+  body: string;
+}): Promise<void> {
+  await ensureChatTables();
+  const postgres = createPostgresClient('vioscope-chat');
+  try {
+    await postgres.pool.query(
+      `
+        INSERT INTO chat_notifications (recipient_user_id, actor_user_id, type, title, body, feedback_id)
+        VALUES ($1, $2, 'feedback_reply', $3, $4, $5::uuid)
+      `,
+      [input.recipientUserId, input.actorUserId, input.title, input.body, input.feedbackId],
+    );
   } finally {
     await postgres.disconnect();
   }

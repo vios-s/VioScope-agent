@@ -81,6 +81,24 @@ try {
   const migrated=(await getProjectWorkflow(legacy.id,owner)).tasks;assert.equal(migrated.length,1);
   assert.equal((await getProjectWorkflow(legacy.id,owner)).tasks[0].id,migrated[0].id,'Migration is idempotent.');
   await assert.rejects(change({operation:'task_update',confirmed:true,id:task.id,revision:1,status:'done',note:'Wrong project evidence.',evidenceIds:[randomUUID()]}),/evidence/);
+  // Research conflict merge: defaults keep each side's sole changes; fields both changed need a choice.
+  const {researchMergeFields,mergeResearchProfiles}=await import('../src/mastra/projects/workflow');
+  const before=(await getProjectWorkflow(project.id,owner)).research;
+  const mergeBase=before.profile;
+  await change({operation:'research',revision:before.revision,confirmed:true,profile:{...mergeBase,question:'Latest question.',risks:'Latest risks.'},reason:'Concurrent edit.'});
+  const latest=(await getProjectWorkflow(project.id,owner)).research;
+  const myDraft={...mergeBase,claim:'My claim.',risks:'My risks.'};
+  await assert.rejects(change({operation:'research',revision:before.revision,confirmed:true,profile:myDraft,reason:'Stale draft.'}),/changed/);
+  const fields=researchMergeFields(mergeBase,latest.profile,myDraft);
+  assert.deepEqual(fields.map(field=>[field.key,field.conflict,field.choice]),[['question',false,'latest'],['claim',false,'mine'],['risks',true,null]]);
+  const defaults=Object.fromEntries(fields.map(field=>[field.key,field.choice]));
+  assert.throws(()=>mergeResearchProfiles(latest.profile,myDraft,defaults),/Choose Latest or My draft/);
+  const merged=mergeResearchProfiles(latest.profile,myDraft,{...defaults,risks:'mine'});
+  assert.deepEqual([merged.question,merged.claim,merged.risks,merged.validation],['Latest question.','My claim.','My risks.',mergeBase.validation]);
+  await assert.rejects(change({operation:'research',revision:before.revision,confirmed:true,profile:merged,reason:'Merged against the old version.'}),/changed/);
+  await change({operation:'research',revision:latest.revision,confirmed:true,profile:merged,reason:'Merged concurrent edits.'});
+  const saved=(await getProjectWorkflow(project.id,owner)).research;
+  assert.equal(saved.revision,latest.revision+1);assert.equal(saved.profile.claim,'My claim.');assert.equal(saved.profile.question,'Latest question.');
   // Approved pitch inheritance is checked separately by check:idea-check.
   if(process.env.CHECK_PROJECT_WORKFLOW_UI==='true'){
    const {createSessionToken,sessionCookieName}=await import('../src/mastra/auth/session');

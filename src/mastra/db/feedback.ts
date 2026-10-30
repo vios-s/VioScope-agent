@@ -214,32 +214,41 @@ export async function getFeedbackAttachmentForUser(
   }
 }
 
+// `changed` compares with the stored row (locked for the update), so saving the same reply and status
+// twice reports no change and the requester is not notified twice.
 export async function updateFeedbackQuery(
   id: string,
   input: { status: FeedbackStatus; adminNote: string; actor: AuthUser },
-): Promise<FeedbackQuery> {
+): Promise<{ query: FeedbackQuery; changed: { status: boolean; reply: boolean } }> {
   await ensureFeedbackTable();
   const postgres = createPostgresClient('vioscope-feedback-update');
 
   try {
-    const changed = await postgres.pool.query(
+    const changed = await postgres.pool.query<{ previous_status: FeedbackStatus; previous_note: string }>(
       `
-        UPDATE feedback_queries
+        WITH previous AS (
+          SELECT id, status, admin_note FROM feedback_queries WHERE id = $1::uuid FOR UPDATE
+        )
+        UPDATE feedback_queries feedback
         SET
           status = $2,
           admin_note = $3,
           resolved_at = CASE WHEN $2 IN ('solved', 'closed') THEN now() ELSE NULL END,
           resolved_by_user_id = CASE WHEN $2 IN ('solved', 'closed') THEN $4::uuid ELSE NULL END,
           updated_at = now()
-        WHERE id = $1::uuid
+        FROM previous
+        WHERE feedback.id = previous.id
+        RETURNING previous.status AS previous_status, previous.admin_note AS previous_note
       `,
       [id, input.status, input.adminNote.trim(), input.actor.id],
     );
-    if (!changed.rowCount) throw new Error('Feedback request was not found.');
+    const previous = changed.rows[0];
+    if (!previous) throw new Error('Feedback request was not found.');
     const result = await postgres.pool.query<FeedbackRow>(`${feedbackSelect} WHERE feedback.id = $1::uuid`, [id]);
     const row = result.rows[0];
     if (!row) throw new Error('Feedback request was not found.');
-    return toFeedbackQuery(row);
+    const query = toFeedbackQuery(row);
+    return { query, changed: { status: previous.previous_status !== query.status, reply: previous.previous_note !== query.adminNote } };
   } finally {
     await postgres.disconnect();
   }

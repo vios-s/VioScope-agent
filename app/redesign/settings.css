@@ -342,6 +342,15 @@
   white-space: nowrap;
 }
 
+/* Theme coordinator label under the role chip (from theme configuration, not a role). */
+.role-coordinator {
+  display: block;
+  margin-top: 4px;
+  color: var(--vs-ink-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* Account status: dot + word */
 .account-status {
   display: inline-flex;

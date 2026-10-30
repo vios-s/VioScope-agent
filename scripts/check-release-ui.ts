@@ -182,7 +182,7 @@ async function seedData() {
   await writeThemeConfig();
   const owner = await seedUser(users.owner, 'member');
   const receiver = await seedUser(users.receiver, 'member');
-  await seedUser(users.coordinator, 'organizer');
+  await seedUser(users.coordinator, 'member');
   await seedUser(users.pi, 'pi');
   await seedUser(users.admin, 'administrator');
   await createProject({

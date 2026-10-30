@@ -23,7 +23,7 @@ export async function PATCH(request: Request) {
     }
     if (isThemeAgendaSubscriptionRequired(config, themeId, user.username)) {
       if (!subscribed) {
-        throw new AuthError('Members, coordinators and PIs are automatically subscribed to their theme agendas and cannot unsubscribe individually.', 403, 'subscription_required');
+        throw new AuthError("Theme members and the theme's coordinator receive its agenda automatically and cannot unsubscribe.", 403, 'subscription_required');
       }
       return NextResponse.json({ themeId, subscribed: true, required: true });
     }

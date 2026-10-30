@@ -7,13 +7,14 @@ import {
   assertMediumPassword,
   isUserProvisioningStatus,
   isUserPosition,
-  isUserRole,
+  parseAssignableUserRole,
   updateUserByAdmin,
   type AuthUser,
   type UserPosition,
   type UserProvisioningStatus,
   type UserRole,
 } from '../../../../src/mastra/db/users';
+import { withCoordinatorThemes } from '../../../../src/mastra/theme-meetings/coordinators';
 
 export const runtime = 'nodejs';
 
@@ -35,11 +36,7 @@ function textArray(value: unknown): string[] | undefined {
 
 function role(value: unknown): UserRole | undefined {
   const nextRole = text(value);
-  if (!nextRole) return undefined;
-  if (!isUserRole(nextRole)) {
-    throw new Error('Invalid role.');
-  }
-  return nextRole;
+  return nextRole ? parseAssignableUserRole(nextRole) : undefined;
 }
 
 function provisioningStatus(value: unknown): UserProvisioningStatus | undefined {
@@ -155,7 +152,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ userI
         provisioningStatus: user.provisioningStatus,
       },
     });
-    return NextResponse.json({ user });
+    return NextResponse.json({ user: (await withCoordinatorThemes([user]))[0] });
   } catch (error) {
     return errorResponse(error, 400);
   }

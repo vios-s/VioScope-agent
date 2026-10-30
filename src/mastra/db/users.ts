@@ -18,6 +18,7 @@ export const notificationPreferenceTopics = [
   'theme_meeting_reminders',
   'project_planning_brief',
   'checklist_results',
+  'feedback_replies',
 ] as const;
 
 export type NotificationPreferenceTopic = (typeof notificationPreferenceTopics)[number];
@@ -163,6 +164,18 @@ export function isUserRole(role: string): role is UserRole {
   return userRoles.includes(role as UserRole);
 }
 
+// Coordinator is derived from theme configuration (coordinator_user), never assigned as an account role.
+// Stored legacy `organizer` accounts keep working with exactly the permissions of `member`.
+export function parseAssignableUserRole(role: string): UserRole {
+  if (role === 'organizer') {
+    throw new Error('Coordinator is no longer an account role. Assign Member, then choose the coordinator in Settings → Theme meeting.');
+  }
+  if (!isUserRole(role)) {
+    throw new Error('Invalid role.');
+  }
+  return role;
+}
+
 export function isUserProvisioningStatus(status: string): status is UserProvisioningStatus {
   return userProvisioningStatuses.includes(status as UserProvisioningStatus);
 }
@@ -194,6 +207,7 @@ export function defaultNotificationPreferences(): NotificationPreferences {
     theme_meeting_reminders: { web: true, email: true },
     project_planning_brief: { web: true, email: true },
     checklist_results: { web: true, email: true },
+    feedback_replies: { web: true, email: true },
   };
 }
 
@@ -971,7 +985,7 @@ export async function updateUserByAdmin(input: {
       (['administrator', 'pi', 'service'].includes(current.role) ||
         (input.role && ['administrator', 'pi', 'service'].includes(input.role)))
     ) {
-      throw new Error('PI users can only manage member, organizer, and viewer permissions.');
+      throw new Error('PI users can only manage member and viewer permissions.');
     }
 
     const nextRole = input.role || current.role;

@@ -246,8 +246,8 @@ async function main() {
   await installThemeConfigOverride();
   const owner = await seedUser(usernames.owner);
   const collaborator = await seedUser(usernames.collaborator);
-  const ownerThemeCoordinator = await seedUser(usernames.ownerThemeCoordinator, 'organizer');
-  const trackNameCoordinator = await seedUser(usernames.trackNameCoordinator, 'organizer');
+  const ownerThemeCoordinator = await seedUser(usernames.ownerThemeCoordinator, 'member');
+  const trackNameCoordinator = await seedUser(usernames.trackNameCoordinator, 'member');
   const outsider = await seedUser(usernames.outsider);
   const pi = await seedUser(usernames.pi, 'pi');
 

@@ -37,3 +37,27 @@ export function submissionTimeline(plan: SubmissionPlan) {
  return [ ['skeleton_lock',42],['code_lock',35],['internal_review',28],['revision_lock',14],['submission_clearance',2],['submission_target',1] ]
   .map(([checkpoint,days])=>({checkpoint:String(checkpoint),at:new Date(deadline-Number(days)*86400000).toISOString(),timezone:plan.timezone}));
 }
+
+// Three-way field merge after a research-profile version conflict. `base` is the version the draft
+// started from. Defaults: a field only the other editor changed keeps Latest, a field only I changed
+// keeps My draft, and a field both changed differently has no default (an explicit choice is required).
+export type ResearchMergeChoice = 'latest' | 'mine';
+export type ResearchMergeField = { key: keyof ResearchProfile; conflict: boolean; choice: ResearchMergeChoice | null };
+const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+export function researchMergeFields(base: ResearchProfile, latest: ResearchProfile, draft: ResearchProfile): ResearchMergeField[] {
+ return (Object.keys(researchSchema.shape) as (keyof ResearchProfile)[]).flatMap(key => {
+  if (same(latest[key], draft[key])) return [];
+  const theirs = !same(base[key], latest[key]), mine = !same(base[key], draft[key]);
+  return [{ key, conflict: theirs && mine, choice: theirs && mine ? null : mine ? 'mine' : 'latest' }];
+ });
+}
+export function mergeResearchProfiles(latest: ResearchProfile, draft: ResearchProfile, choices: Partial<Record<keyof ResearchProfile, ResearchMergeChoice | null>>): ResearchProfile {
+ const merged = { ...latest } as Record<keyof ResearchProfile, unknown>;
+ for (const key of Object.keys(researchSchema.shape) as (keyof ResearchProfile)[]) {
+  if (same(latest[key], draft[key])) continue;
+  const choice = choices[key];
+  if (!choice) throw new Error('Choose Latest or My draft for every field changed in both versions.');
+  if (choice === 'mine') merged[key] = draft[key];
+ }
+ return researchSchema.parse(merged);
+}

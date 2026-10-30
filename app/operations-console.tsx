@@ -120,10 +120,12 @@ type ChatMentionResult = {
 
 type ChatNotification = {
   id: string;
-  type: 'chat_mention';
+  type: 'chat_mention' | 'feedback_reply';
   title: string;
   body: string;
-  sessionId: string;
+  // Chat mentions open the shared session; feedback replies open Feedback at that request.
+  sessionId: string | null;
+  feedbackId?: string | null;
   actorUserId: string;
   actorUsername: string;
   actorDisplayName: string;
@@ -331,10 +333,12 @@ type ThemeMeetingPayload = {
   submissionDeadline?: string | null;
   pastPlans?: ThemeMeetingOverviewPlan[];
   agendaPreview?: { weekday: string; time: string };
-  agendaSubscriptions?: { theme_id: string; title: string; subscribed: boolean; required: boolean }[];
+  agendaSubscriptions?: { theme_id: string; title: string; subscribed: boolean; required: boolean; reason?: 'member' | 'coordinator' | null }[];
   notifications: ThemeMeetingNotification[];
   access?: {
     canManageThemeIds: string[];
+    /** Managed themes a coordinator may only read on this date (before the theme's current meeting). */
+    readOnlyThemeIds?: string[];
     managesAnyTheme?: boolean;
   };
   // Manager-only: latest reminder per member of a managed theme (no notification bodies).
@@ -350,11 +354,14 @@ type CurrentUser = {
   username: string;
   displayName: string;
   email: string | null;
+  // `organizer` is a legacy stored value with Member permissions; it is never assigned.
   role: 'administrator' | 'pi' | 'organizer' | 'member' | 'viewer' | 'service';
   position: UserPosition | null;
   provisioningStatus: string;
   sourceProfileId: string | null;
   aliases: string[];
+  // Theme ids this account coordinates (from theme configuration); sent by the users API.
+  coordinatorThemes?: string[];
   notificationPreferences: NotificationPreferences;
   profile?: {
     email?: string;
@@ -374,7 +381,8 @@ type NotificationPreferenceTopic =
   | 'project_progress_reminders'
   | 'theme_meeting_reminders'
   | 'project_planning_brief'
-  | 'checklist_results';
+  | 'checklist_results'
+  | 'feedback_replies';
 
 type NotificationPreferenceChannels = {
   web: boolean;
@@ -401,6 +409,7 @@ type UserDraft = {
 
 type AuthPayload = {
   user?: CurrentUser;
+  coordinatorThemes?: string[];
   error?: string;
 };
 
@@ -569,6 +578,11 @@ const notificationPreferenceRows: Array<{
     // No sender reads this preference yet; keep the stored value but do not offer a toggle that does nothing.
     hidden: true,
   },
+  {
+    key: 'feedback_replies',
+    title: 'Feedback replies',
+    desc: 'When an administrator replies to your feedback or changes its status.',
+  },
 ];
 
 function defaultNotificationPreferences(): NotificationPreferences {
@@ -578,6 +592,7 @@ function defaultNotificationPreferences(): NotificationPreferences {
     theme_meeting_reminders: { web: true, email: true },
     project_planning_brief: { web: true, email: true },
     checklist_results: { web: true, email: true },
+    feedback_replies: { web: true, email: true },
   };
 }
 
@@ -659,13 +674,15 @@ const checklistTemplates: Array<{ id: ChecklistTemplateId; label: string }> = [
   { id: 'skeleton', label: 'Skeleton Lock' },
 ];
 
-const userPermissionOptions: CurrentUser['role'][] = ['administrator', 'pi', 'organizer', 'member', 'viewer'];
-const roleDescriptions: Array<[CurrentUser['role'], string]> = [
-  ['member', 'Updates own projects, submits theme meeting updates and writes Idea Pitches.'],
-  ['organizer', 'Manages themes assigned in Settings → Theme meeting: members, reminders and agenda confirmation.'],
-  ['pi', 'Reviews every theme and project, changes coordinators, manages members and confirms checkpoints.'],
-  ['administrator', 'Has every permission, including configuration, service restart and the audit log.'],
-  ['viewer', 'Public team profile. Once activated, signs in with the same personal access as a member.'],
+// Assignable roles. Coordinator is not a role: it comes from Settings → Theme meeting (coordinator_user).
+// Legacy `organizer` accounts are shown and treated as Member.
+const userPermissionOptions: CurrentUser['role'][] = ['administrator', 'pi', 'member', 'viewer'];
+const roleDescriptions: Array<[string, string]> = [
+  ['Member', 'Updates own projects, submits theme meeting updates and writes Idea Pitches.'],
+  ['PI', 'Reviews every theme and project, changes coordinators, manages members and confirms checkpoints.'],
+  ['Administrator', 'Has every permission, including configuration, service restart and the audit log.'],
+  ['Viewer', 'Public team profile. Once activated, signs in with the same personal access as a member.'],
+  ['Coordinator', 'Not a role: the account chosen as a theme’s coordinator in Settings → Theme meeting. Manages that theme’s members, reminders and agenda confirmation.'],
 ];
 const userPositionOptions: UserPosition[] = ['pi', 'student', 'postdoc', 'software_engineer', 'visitor'];
 const provisioningStatusOptions = ['profile_only', 'active', 'disabled'];
@@ -1582,7 +1599,7 @@ function WelcomeDialog({
               <p>Choose Update, Deep Dive or Nothing to Report before the cutoff.</p>
             </div>
           </li>
-          {(manager || user.role === 'organizer') && (
+          {(manager || Boolean(user.coordinatorThemes?.length)) && (
             <li>
               <ClipboardList aria-hidden="true" />
               <div>
@@ -3581,12 +3598,8 @@ function ThemeMeetingPanel({
     const subscription = payload?.agendaSubscriptions?.find((candidate) => candidate.theme_id === themeId);
     if (!subscription || viewer.role === 'service') return null;
     const helpId = `theme-${themeId}-subscription-help`;
-    const meeting = plan?.meetings.find((candidate) => candidate.theme_id === themeId);
-    const isViewer = (username?: string) => Boolean(username) && normalizedName(username || '') === normalizedName(viewer.username);
-    // Members, coordinators, PIs and the administrator always receive agenda emails; say why the box is locked.
-    const reason = !subscription.required ? ''
-      : personalUpdateMeetings.some((candidate) => candidate.theme_id === themeId) || meeting?.member_usernames.some(isViewer) ? 'Included as a member'
-        : isViewer(meeting?.coordinator_username) ? 'Included as coordinator' : 'Included for your role';
+    // Members and the coordinator always receive their theme's agenda; everyone else, PIs and administrators too, may opt in.
+    const reason = !subscription.required ? '' : subscription.reason === 'coordinator' ? 'Included as coordinator' : 'Included as a member';
     return (
       <label className="theme-agenda-subscription">
         <input
@@ -3608,6 +3621,9 @@ function ThemeMeetingPanel({
     || weekMeetings[0];
   const activeMeeting = activeCard ? plan?.meetings.find((candidate) => candidate.theme_id === activeCard.theme_id) : undefined;
   const canManageActive = Boolean(activeMeeting && managedThemeIds.has(activeMeeting.theme_id));
+  // Coordinators read past meetings in full but cannot change them; PI and administrator are never read-only.
+  const readOnlyActive = Boolean(canManageActive && activeMeeting && payload?.access?.readOnlyThemeIds?.includes(activeMeeting.theme_id));
+  const canEditActive = canManageActive && !readOnlyActive;
   const canAccessActive = canManageActive || Boolean(activeMeeting?.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username)));
   // Members see only their own draft row, so tell them how many updates are planned and when the draft is circulated.
   const preview = payload?.agendaPreview;
@@ -3724,7 +3740,8 @@ function ThemeMeetingPanel({
                       )}
                     </p>
                   </div>
-                  {canManageActive && activeMeeting && (
+                  {readOnlyActive && <p className="mt-board-note is-subtle" role="note">Past meetings are read-only.</p>}
+                  {canEditActive && activeMeeting && (
                     <div className="mt-agenda-actions">
                       {activeMeeting.cancelled ? (
                         <button className="ops-secondary" type="button" disabled={cancellationBusy} aria-label="Restore meeting" title="Restore this meeting" onClick={() => void changeMeetingCancellation(activeMeeting, true)}>
@@ -3819,19 +3836,19 @@ function ThemeMeetingPanel({
                         return (
                           <li key={`${activeMeeting.theme_id}-${username}`}>
                             {nextMember}
-                            <button
+                            {canEditActive && <button
                               aria-label={`Remove ${nextMember}`}
                               type="button"
                               title={`Remove ${nextMember}`}
                               onClick={() => setMemberToRemove({ themeId: activeMeeting.theme_id, title: activeMeeting.title, username, name: nextMember })}
                             >
                               <X aria-hidden="true" />
-                            </button>
+                            </button>}
                           </li>
                         );
                       })}
                     </ul>
-                    <div className="mt-member-add">
+                    {canEditActive && <div className="mt-member-add">
                       <select
                         aria-label={`Person to add to ${activeMeeting.title}`}
                         value={memberCandidateByTheme[activeMeeting.theme_id] || ''}
@@ -3857,7 +3874,7 @@ function ThemeMeetingPanel({
                         <Plus aria-hidden="true" />
                         Add member
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 )}
               </section>
@@ -4103,7 +4120,7 @@ function BriefingView({
   onOpenProject: (projectId: string) => void;
   onOpenMeeting: () => void;
   onOpenNotifications: () => void;
-  onOpenChatSession: (sessionId: string, notificationId?: string) => void;
+  onOpenChatSession: (sessionId: string | null, notificationId?: string, feedbackId?: string | null) => void;
   onOpenMeetingNotification: (notification: ThemeMeetingNotification) => void;
 }) {
   const projects = projectsPayload?.projects || [];
@@ -4145,7 +4162,7 @@ function BriefingView({
     ? `${themeNotifications.length === 1 ? 'One meeting alert is' : `${themeNotifications.length} meeting alerts are`} active.`
     : 'Meeting alerts are quiet.';
   const recentNotifications = [
-    ...chatNotifications.map((notification) => ({ id: notification.id, title: notification.title, source: 'Chat', at: notification.createdAt, unread: !notification.readAt, open: () => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id) })),
+    ...chatNotifications.map((notification) => ({ id: notification.id, title: notification.title, source: notification.feedbackId ? 'Feedback' : 'Chat', at: notification.createdAt, unread: !notification.readAt, open: () => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id, notification.feedbackId) })),
     ...(themePayload?.notifications || []).map((notification) => ({ id: notification.id, title: notification.title, source: 'Meetings', at: notification.created_at, unread: !notification.read, open: () => onOpenMeetingNotification(notification) })),
   ]
     .sort((left, right) => right.at.localeCompare(left.at))
@@ -5556,7 +5573,7 @@ function TopbarNotificationCenter({
   themeNotifications: ThemeMeetingNotification[];
   attentionProjects: ManagedProject[];
   onToggle: () => void;
-  onOpenChatSession: (sessionId: string, notificationId?: string) => void;
+  onOpenChatSession: (sessionId: string | null, notificationId?: string, feedbackId?: string | null) => void;
   onOpenProject: (projectId: string) => void;
   onMarkAllMessagesRead: () => void;
   onOpenMeetingNotification: (notification: ThemeMeetingNotification) => void;
@@ -5652,7 +5669,7 @@ function TopbarNotificationCenter({
                     className={`notification-row${notification.readAt ? '' : ' unread'}`}
                     key={notification.id}
                     type="button"
-                    onClick={() => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id)}
+                    onClick={() => onOpenChatSession(notification.sessionId, notification.readAt ? undefined : notification.id, notification.feedbackId)}
                   >
                     <AvatarCircle
                       user={{
@@ -5679,7 +5696,7 @@ function TopbarNotificationCenter({
                   </button>
                 ))
               ) : (
-                <p className="notification-empty">No chat messages right now.</p>
+                <p className="notification-empty">No messages right now.</p>
               ))}
             {tab === 'events' &&
               (visibleEvents.length ? (
@@ -5728,7 +5745,7 @@ function draftFromUser(user: ManagedUser): UserDraft {
     displayName: user.displayName,
     email: email === '-' ? '' : email,
     avatarUrl: profileAvatarUrl(user),
-    role: user.role,
+    role: user.role === 'organizer' ? 'member' : user.role,
     position: user.position || '',
     provisioningStatus: user.provisioningStatus,
     aliasesText: user.aliases.filter((alias) => alias !== email).join(', '),
@@ -5747,8 +5764,18 @@ function profileEmail(user: CurrentUser): string {
 function roleLabel(role: CurrentUser['role']) {
   if (role === 'pi') return 'PI';
   if (role === 'administrator') return 'Administrator';
-  if (role === 'organizer') return 'Coordinator';
+  if (role === 'organizer') return 'Member';
   return titleCase(role);
+}
+
+// "Coordinator · Theme B" — a label from theme configuration shown beside the role, never a role.
+function coordinatorLabel(themes: string[] | undefined) {
+  if (!themes?.length) return '';
+  return `Coordinator · ${themes.length === 1 ? 'Theme' : 'Themes'} ${themes.join(', ')}`;
+}
+
+function accountRoleLabel(role: CurrentUser['role'], themes?: string[]) {
+  return [roleLabel(role), coordinatorLabel(themes)].filter(Boolean).join(' · ');
 }
 
 function positionLabel(position: UserPosition | null | '') {
@@ -6902,12 +6929,12 @@ function UsersView({
   const [roleFilter, setRoleFilter] = useState<'all' | CurrentUser['role']>('all');
   const filteredUsers = useMemo(() => {
     const query = userQuery.trim().toLowerCase();
-    const roleUsers = roleFilter === 'all' ? users : users.filter((user) => user.role === roleFilter);
+    const roleUsers = roleFilter === 'all' ? users : users.filter((user) => (user.role === 'organizer' ? 'member' : user.role) === roleFilter);
     if (!query) return roleUsers;
     return roleUsers.filter((user) => (
       user.displayName.toLowerCase().includes(query) ||
       user.username.toLowerCase().includes(query) ||
-      roleLabel(user.role).toLowerCase().includes(query) ||
+      accountRoleLabel(user.role, user.coordinatorThemes).toLowerCase().includes(query) ||
       positionLabel(user.position).toLowerCase().includes(query) ||
       user.aliases.some((alias) => alias.toLowerCase().includes(query))
     ));
@@ -7207,7 +7234,7 @@ function UsersView({
         <dl className="role-help-popover">
           {roleDescriptions.map(([role, description]) => (
             <div key={role}>
-              <dt>{roleLabel(role)}</dt>
+              <dt>{role}</dt>
               <dd>{description}</dd>
             </div>
           ))}
@@ -7240,8 +7267,8 @@ function UsersView({
         : 'Your profile, notes for VioScope and notifications.';
   const viewerRole = user.role;
   // PIs may only assign member-level roles; the API enforces the same rule.
-  const assignableRoles = user.role === 'administrator' ? userPermissionOptions : userPermissionOptions.filter((role) => role === 'organizer' || role === 'member' || role === 'viewer');
-  const creatableRoles = user.role === 'administrator' ? userPermissionOptions : ['organizer', 'member'] as CurrentUser['role'][];
+  const assignableRoles = user.role === 'administrator' ? userPermissionOptions : userPermissionOptions.filter((role) => role === 'member' || role === 'viewer');
+  const creatableRoles = user.role === 'administrator' ? userPermissionOptions : ['member'] as CurrentUser['role'][];
   return (
     <ConsolePageFrame
       title="Settings"
@@ -7466,7 +7493,8 @@ function UsersView({
                         </div>
                       </td>
                       <td>
-                        <span className={`role-badge role-${user.role}`}>{roleLabel(user.role)}</span>
+                        <span className={`role-badge role-${user.role === 'organizer' ? 'member' : user.role}`}>{roleLabel(user.role)}</span>
+                        {user.coordinatorThemes?.length ? <small className="role-coordinator">{coordinatorLabel(user.coordinatorThemes)}</small> : null}
                       </td>
                       <td className="member-secondary">{positionLabel(user.position)}</td>
                       <td>
@@ -7832,7 +7860,7 @@ function feedbackDate(value: string) {
   return fmt.formatDayTime(value);
 }
 
-function FeedbackView() {
+function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocused?: () => void }) {
   const [queries, setQueries] = useState<FeedbackQuery[]>([]);
   const [canManage, setCanManage] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -7882,6 +7910,17 @@ function FeedbackView() {
 
   const [loadFailed, setLoadFailed] = useState(false);
   const [statusFilter, setStatusFilter] = useState<FeedbackFilter>('all');
+  // Opened from a feedback-reply notification: show every request and move focus to that one.
+  useEffect(() => {
+    if (!focusId || !loaded || loading) return;
+    setStatusFilter('all');
+    window.requestAnimationFrame(() => {
+      const card = document.getElementById(`feedback-${focusId}`);
+      card?.scrollIntoView({ block: 'center' });
+      card?.focus({ preventScroll: true });
+      onFocused?.();
+    });
+  }, [focusId, loaded, loading, onFocused]);
   const reload = useCallback((quiet = false) => loadQueries(quiet).then(() => setLoadFailed(false), (caught) => {
     setLoadFailed(true);
     setError(caught instanceof Error ? caught.message : 'Could not load feedback requests.');
@@ -8057,7 +8096,7 @@ function FeedbackView() {
               {visibleQueries.map((query) => {
                 const draft = managerDrafts[query.id] || { status: query.status, adminNote: query.adminNote };
                 return (
-                  <article className="feedback-card" key={query.id}>
+                  <article className="feedback-card" key={query.id} id={`feedback-${query.id}`} tabIndex={-1}>
                     <header>
                       <FeedbackStatusChip status={query.status} />
                       <h3>{query.title}</h3>
@@ -8164,6 +8203,7 @@ export function OperationsConsole() {
   const [uiCopyPrompts, setUiCopyPrompts] = useState<UiCopyPrompts | null>(null);
   const [chatNotifications, setChatNotifications] = useState<ChatNotification[]>([]);
   const [openChatThreadId, setOpenChatThreadId] = useState<string | null>(null);
+  const [feedbackFocusId, setFeedbackFocusId] = useState<string | null>(null);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [welcomeDontShowAgain, setWelcomeDontShowAgain] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -8230,6 +8270,7 @@ export function OperationsConsole() {
         const body = await requestJson<AuthPayload>('/api/auth/me?optional=1', 'Could not read session.');
         if (!cancelled) {
           setUser(body.user || null);
+          if (body.user) setCoordinatorThemes({ userId: body.user.id, themes: body.coordinatorThemes || [] });
         }
       } catch (caught) {
         if (!cancelled && (!(caught instanceof ApiRequestError) || caught.status !== 401)) {
@@ -8247,6 +8288,23 @@ export function OperationsConsole() {
       cancelled = true;
     };
   }, []);
+
+  // Theme coordinator label for the signed-in account (theme configuration, not a role). The session
+  // probe supplies it; after a sign-in in this tab it is fetched once for the new account.
+  const [coordinatorThemes, setCoordinatorThemes] = useState<{ userId: string; themes: string[] } | null>(null);
+  useEffect(() => {
+    if (!user || coordinatorThemes?.userId === user.id) return undefined;
+    let cancelled = false;
+    void requestJson<AuthPayload>('/api/auth/me', 'Could not read session.')
+      .then((body) => {
+        if (!cancelled && body.user) setCoordinatorThemes({ userId: body.user.id, themes: body.coordinatorThemes || [] });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, coordinatorThemes?.userId]);
+  const myCoordinatorThemes = user && coordinatorThemes?.userId === user.id ? coordinatorThemes.themes : [];
 
   useEffect(() => {
     if (!user || user.passwordResetRequired) {
@@ -8386,10 +8444,15 @@ export function OperationsConsole() {
   }, [activeView]);
   const handleProjectOpenRequestHandled = useCallback(() => setProjectOpenRequest(null), []);
 
-  function openChatSessionFromNotification(sessionId: string, notificationId?: string) {
+  function openChatSessionFromNotification(sessionId: string | null, notificationId?: string, feedbackId?: string | null) {
     setNotificationsOpen(false);
-    setOpenChatThreadId(sessionId);
-    selectView('chat');
+    if (feedbackId) {
+      setFeedbackFocusId(feedbackId);
+      selectView('feedback');
+    } else if (sessionId) {
+      setOpenChatThreadId(sessionId);
+      selectView('chat');
+    }
     if (notificationId) {
       void markChatNotificationRead(notificationId).catch((caught) => {
         setError(caught instanceof Error ? caught.message : 'Could not mark notification as read.');
@@ -8409,6 +8472,8 @@ export function OperationsConsole() {
   );
 
   const unreadChatNotificationCount = chatNotifications.filter((notification) => !notification.readAt).length;
+  // The Chat nav dot counts chat mentions only; feedback replies live in the bell's Messages.
+  const unreadChatMentionCount = chatNotifications.filter((notification) => !notification.readAt && !notification.feedbackId).length;
   const unreadMeetingNotificationCount = (themePayload?.notifications || []).filter((notification) => !notification.read).length;
   const attentionProjectNotifications =
     projectsPayload?.projects?.filter((project) => projectInProgress(project) && projectNeedsAttention(project)) || [];
@@ -8498,8 +8563,8 @@ export function OperationsConsole() {
                   {item.id === 'projects' && activeProjectCount !== undefined && (
                     <span className="vs-nav-count" aria-hidden="true">{activeProjectCount}</span>
                   )}
-                  {item.id === 'chat' && unreadChatNotificationCount > 0 && (
-                    <span className="vs-nav-dot" role="img" aria-label={`${unreadChatNotificationCount} unread`} />
+                  {item.id === 'chat' && unreadChatMentionCount > 0 && (
+                    <span className="vs-nav-dot" role="img" aria-label={`${unreadChatMentionCount} unread`} />
                   )}
                 </button>
             );
@@ -8571,7 +8636,7 @@ export function OperationsConsole() {
               ref={accountTriggerRef}
               className="account-summary"
               type="button"
-              aria-label={`Account menu, ${user.displayName}, ${roleLabel(user.role)}`}
+              aria-label={`Account menu, ${user.displayName}, ${accountRoleLabel(user.role, myCoordinatorThemes)}`}
               onClick={() => {
                 setNotificationsOpen(false);
                 setAccountMenuOpen((current) => !current);
@@ -8582,7 +8647,7 @@ export function OperationsConsole() {
               <AvatarCircle user={user} />
               <span className="account-summary-text">
                 <strong>{user.displayName}</strong>
-                <small>{roleLabel(user.role)}</small>
+                <small>{accountRoleLabel(user.role, myCoordinatorThemes)}</small>
               </span>
               <ChevronDown className="account-menu-chevron" aria-hidden="true" />
             </button>
@@ -8619,7 +8684,7 @@ export function OperationsConsole() {
 
         <WelcomeDialog
           open={welcomeOpen}
-          user={user}
+          user={{ ...user, coordinatorThemes: myCoordinatorThemes }}
           dontShowAgain={welcomeDontShowAgain}
           onDontShowAgainChange={setWelcomeDontShowAgain}
           onClose={closeWelcome}
@@ -8702,7 +8767,7 @@ export function OperationsConsole() {
             </>
           )}
           {activeView === 'checklists' && <ChecklistsView key={user.id} userId={user.id} onProjectCreated={loadProjects} />}
-          {activeView === 'feedback' && <FeedbackView />}
+          {activeView === 'feedback' && <FeedbackView focusId={feedbackFocusId} onFocused={() => setFeedbackFocusId(null)} />}
           {activeView === 'users' && (
             <UsersView
               user={user}

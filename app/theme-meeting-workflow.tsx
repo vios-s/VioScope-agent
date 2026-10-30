@@ -13,7 +13,9 @@ import type { ConfirmedAgendaEmailAudience } from '../src/mastra/theme-meetings/
 import type { ThemeMeetingAgendaItem } from '../src/mastra/theme-meetings/schema';
 
 type Payload = {
-  viewerId: string; manager: boolean; cancelled: boolean; duration: number; sourceVersion: string; members: string[];
+  viewerId: string; viewerUsername?: string; manager: boolean;
+  /** A coordinator viewing a meeting before the theme's current one: everything is shown, nothing can be changed. */
+  readOnly?: boolean; cancelled: boolean; duration: number; sourceVersion: string; members: string[];
   candidates: ThemeMeetingAgendaItem[]; confirmation: AgendaConfirmation | null; emailedAt?: string | null;
   emailAudience?: ConfirmedAgendaEmailAudience | null;
   projects: Array<{ id: string; title: string }>;
@@ -31,14 +33,14 @@ const people = (count: number) => `${count} ${count === 1 ? 'person' : 'people'}
 
 function emailDialogMessage(version: number, audience: ConfirmedAgendaEmailAudience | null | undefined, emailedAt?: string | null) {
   if (!audience || audience.version !== version) {
-    return `Send confirmed version ${version} to theme members, PIs and the administrator, and agenda subscribers.${emailedAt ? ' This version was already emailed; people who received it will not get a duplicate.' : ''}`;
+    return `Send confirmed version ${version} to theme members, the coordinator and agenda subscribers.${emailedAt ? ' This version was already emailed; people who received it will not get a duplicate.' : ''}`;
   }
   const total = audience.recipients.length;
   const already = audience.recipients.filter((recipient) => recipient.alreadySent).length;
   const fresh = total - already;
   return [
     audience.emailEnabled ? '' : 'Email delivery is switched off on this server, so nothing will be sent.',
-    `Send version ${version} to ${people(total)} (theme members, PIs and the administrator, and agenda subscribers).`,
+    `Send version ${version} to ${people(total)} (theme members, the coordinator and agenda subscribers).`,
     audience.skipped ? `${people(audience.skipped)} will be skipped (no email address, inactive account or email notifications turned off).` : '',
     already ? (fresh ? `Already sent to ${already}; resending sends only to the ${people(fresh)} who have not received it.` : `Everyone has already received version ${version}; nothing new will be sent.`) : '',
   ].filter(Boolean).join(' ');
@@ -206,7 +208,9 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
   if (cancelled) return null;
 
   const manager = Boolean(data?.manager);
-  const editable = Boolean(manager && data && data.candidates.length);
+  const readOnly = Boolean(data?.readOnly);
+  const canEdit = manager && !readOnly;
+  const editable = Boolean(canEdit && data && data.candidates.length);
   const entries = edited ?? baseline;
   const dirty = Boolean(edited && !sameSelections(edited, baseline));
   const confirmation = data?.confirmation || null;
@@ -225,7 +229,7 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
   const total = scheduled.reduce((sum, row) => sum + countable(row.minutes), 0);
   const over = total > duration;
   const minutesInvalid = editable && scheduled.some((row) => row.item.update_type !== 'nothing_to_report' && !validMinutes(row.minutes));
-  const changedSinceConfirmation = Boolean(manager && confirmation && (confirmation.entries.length !== data!.candidates.length ||
+  const changedSinceConfirmation = Boolean(canEdit && confirmation && (confirmation.entries.length !== data!.candidates.length ||
     data!.candidates.some((item) => !confirmation.entries.some((entry) => entry.member_username === item.member_username && entry.submitted_at === item.submitted_at))));
   const confirmedSelections = (confirmation?.entries || []).map((entry) => ({ username: entry.member_username || '', minutes: entry.duration_minutes, deferred: entry.deferred }));
   const upToDate = Boolean(confirmation && !changedSinceConfirmation && sameSelections(entries, confirmedSelections));
@@ -410,7 +414,7 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
       <h3>Deferred in an earlier version · not scheduled</h3>
       <ul className="mt-agenda-list">{skipped.map((item, index) => row(item, '', index))}</ul>
     </section>}
-    {manager && <div className="mt-arrange-footer">
+    {canEdit && <div className="mt-arrange-footer">
       <div className={`mt-arrange-total${over ? ' is-over' : ''}`} role="status">
         <span className={`mt-meter${over ? ' is-over' : ''}`} aria-hidden="true"><span style={{ width: `${Math.min(100, Math.round((total / duration) * 100))}%` }} /></span>
         <span className="mt-num">{total} of {duration} min{over ? ` · ${total - duration} min over. Shorten Deep Dive minutes.` : ` · ${duration - total} min free`}</span>
@@ -503,8 +507,9 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
             <MeetingProjectSummary context={entry.project_context} />
           </li>)}</ol>}
         </>}
-        {data.manager && !data.confirmation && !data.cancelled && <p className="ops-muted-line">Confirm the agenda before recording decisions and actions.</p>}
-        {data.manager && data.confirmation && !data.cancelled && <form className="theme-workflow-panel" onSubmit={(event) => { event.preventDefault(); void save({ operation: 'add_action', action: { ...action, projectId: action.projectId || null } }); }}>
+        {data.manager && data.readOnly && <p className="ops-muted-line" role="note">Past meetings are read-only.</p>}
+        {data.manager && !data.readOnly && !data.confirmation && !data.cancelled && <p className="ops-muted-line">Confirm the agenda before recording decisions and actions.</p>}
+        {data.manager && !data.readOnly && data.confirmation && !data.cancelled && <form className="theme-workflow-panel" onSubmit={(event) => { event.preventDefault(); void save({ operation: 'add_action', action: { ...action, projectId: action.projectId || null } }); }}>
           <fieldset disabled={busy}><legend>Record a decision and action</legend>
             <label>Decision <textarea required maxLength={2000} value={action.decision} onChange={(event) => setAction({ ...action, decision: event.target.value })} /></label>
             <label>Next action <textarea required maxLength={2000} value={action.task} onChange={(event) => setAction({ ...action, task: event.target.value })} /></label>
@@ -522,6 +527,8 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
         {!data.actions.length && <p className="ops-muted-line">No recorded actions.</p>}
         {data.actions.slice().sort((a, b) => a.status.localeCompare(b.status) * -1 || a.dueDate.localeCompare(b.dueDate)).map((item) => {
           const overdue = item.status === 'open' && item.dueDate < today;
+          // On a past meeting a coordinator may update only actions assigned to them.
+          const updatable = (data.manager && !data.readOnly) || item.owner === data.viewerUsername;
           return <form key={item.id} className="theme-workflow-action"
             onSubmit={(event) => { event.preventDefault(); void save({ operation: 'update_action', id: item.id, version: item.version, status: item.status, note: notes[item.id] || '' }); }}>
             <fieldset disabled={busy}><legend>{item.task}</legend>
@@ -534,10 +541,12 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
               <p>Decision: {item.decision}</p>
               <p className="theme-workflow-meta">Recorded at the {formatDay(item.meetingDate)} meeting.</p>
               <details><summary>History</summary><ul>{item.history.map((change, index) => <li key={index}>@{change.by} · {formatDayTime(change.at)} · {change.status === 'done' ? 'Done' : 'Open'}: {change.note}</li>)}</ul></details>
+              {updatable && <>
               <label>Progress note <textarea required maxLength={2000} value={notes[item.id] || ''} onChange={(event) => setNotes({ ...notes, [item.id]: event.target.value })} /></label>
               <button className="ops-secondary" type="submit" aria-label={`Save note for ${item.task}`}>Save note</button>
               <button className="ops-secondary" type="button" disabled={!notes[item.id]?.trim()} onClick={() => void save({ operation: 'update_action', id: item.id, version: item.version, status: item.status === 'done' ? 'open' : 'done', note: notes[item.id] })}>{item.status === 'done' ? 'Reopen' : 'Mark done'}</button>
               {!notes[item.id]?.trim() && <p className="ops-muted-line">Add a note to mark it {item.status === 'done' ? 'open' : 'done'}.</p>}
+              </>}
             </fieldset>
           </form>;
         })}

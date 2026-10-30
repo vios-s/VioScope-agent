@@ -105,10 +105,10 @@ async function seedSmokeUser(username: string, displayName: string, role: AuthUs
 
 async function seedSmokeUsers() {
   await Promise.all([
-    seedSmokeUser(themeUsers.coordA, 'Coordinator A', 'organizer'),
-    seedSmokeUser(themeUsers.coordB, 'Coordinator B', 'organizer'),
-    seedSmokeUser(themeUsers.coordC, 'Coordinator C', 'organizer'),
-    seedSmokeUser(themeUsers.coordD, 'Coordinator D', 'organizer'),
+    seedSmokeUser(themeUsers.coordA, 'Coordinator A', 'member'),
+    seedSmokeUser(themeUsers.coordB, 'Coordinator B', 'member'),
+    seedSmokeUser(themeUsers.coordC, 'Coordinator C', 'member'),
+    seedSmokeUser(themeUsers.coordD, 'Coordinator D', 'member'),
     seedSmokeUser(themeUsers.alice, 'Alice', 'member'),
     seedSmokeUser(themeUsers.bob, 'Bob', 'member'),
     seedSmokeUser(themeUsers.carla, 'Carla', 'member'),

@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
-import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
+import { assertMeetingWritable, canManageTheme } from '../../../../src/mastra/theme-meetings/access';
 import { buildThemeMeetingPlan, updateThemeMeetingMember } from '../../../../src/mastra/theme-meetings/planner';
 
 export const runtime = 'nodejs';
@@ -30,6 +30,9 @@ export async function POST(request: Request) {
     if (!canManageTheme(payload.config, themeId, user)) {
       throw new AuthError('Only administrators, PIs, and the theme coordinator can manage theme members.', 403, 'forbidden');
     }
+
+    // Membership edits made from a past meeting's view are refused for coordinators.
+    if (meetingDate) assertMeetingWritable(payload.config, themeId, payload.plan.meeting_date, user);
 
     const result = await updateThemeMeetingMember({
       themeId,

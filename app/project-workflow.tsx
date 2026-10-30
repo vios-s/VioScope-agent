@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode, type FormEvent } from 'react';
 import { Check } from 'lucide-react';
 import { ApiRequestError, requestJson } from './client-request';
 import { formatDay, formatDayTime } from './format';
-import { researchPhases, checkpointTypes, type ResearchProfile, type WorkflowCommand, type ProjectTask } from '../src/mastra/projects/workflow';
+import { researchPhases, checkpointTypes, mergeResearchProfiles, researchMergeFields, type ResearchMergeChoice, type ResearchProfile, type WorkflowCommand, type ProjectTask } from '../src/mastra/projects/workflow';
 import type { getProjectWorkflow } from '../src/mastra/db/project-workflow';
 type Payload = Awaited<ReturnType<typeof getProjectWorkflow>>;
 const label=(value:string)=>value.replaceAll('_',' ').replace(/^./,letter=>letter.toUpperCase());
@@ -25,11 +25,11 @@ const checkpointStates:Record<string,string>={proceed:'done',conditional:'pendin
 export function ProjectWorkflow({projectId,onChanged,rail,initialTab='research'}:{projectId:string;onChanged?:(project:Payload['project'])=>Promise<void>;rail?:(checkpoints:ReactNode,linked:ReactNode)=>ReactNode;initialTab?:WorkflowTab}){
  const [data,setData]=useState<Payload|null>(null),[tab,setTab]=useState<WorkflowTab>(initialTab),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
  // Version conflict on the research profile: the user's draft is kept until they keep or discard it.
- const [stale,setStale]=useState<{profile:ResearchProfile;reason:string;loaded:boolean;keep:boolean}|null>(null);
+ const [stale,setStale]=useState<{profile:ResearchProfile;base:ResearchProfile;reason:string;loaded:boolean;keep:boolean}|null>(null);
  const url=`/api/projects/${projectId}/workflow`;
  async function load(){const refreshed=await requestJson<Payload>(url,'Could not load project workflow.');setData(refreshed);await onChanged?.(refreshed.project);}
  useEffect(()=>{let active=true;void requestJson<Payload>(url,'Could not load project workflow.').then(value=>{if(active)setData(value);}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[url]);
- async function save(command:WorkflowCommand){setBusy(true);setError('');setMessage('');try{await requestJson(url,'Could not save workflow.',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(command)});await load();setMessage('Saved. The project history has been retained.');return true;}catch(error){if(error instanceof ApiRequestError&&error.status===409&&command.operation==='research'){setStale({profile:command.profile,reason:command.reason,loaded:false,keep:false});return false;}setError(error instanceof Error?error.message:'Could not save.');return false;}finally{setBusy(false);}}
+ async function save(command:WorkflowCommand){setBusy(true);setError('');setMessage('');try{await requestJson(url,'Could not save workflow.',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(command)});await load();setMessage('Saved. The project history has been retained.');return true;}catch(error){if(error instanceof ApiRequestError&&error.status===409&&command.operation==='research'){setStale({profile:command.profile,base:data?.research.profile||command.profile,reason:command.reason,loaded:false,keep:false});return false;}setError(error instanceof Error?error.message:'Could not save.');return false;}finally{setBusy(false);}}
  async function loadLatest(){setBusy(true);setError('');try{await load();setStale(current=>current&&{...current,loaded:true,keep:false});}catch(error){setError(error instanceof Error?error.message:'Could not load the latest version.');}finally{setBusy(false);}}
  if(!data)return <div className="vs-record-body"><section className="project-workflow vs-record-main"><h2>Research workflow</h2>{error?<div className="vs-workflow-error" role="alert"><strong>Could not load the research workflow</strong><span>{error}</span><button className="ops-secondary" type="button" onClick={()=>void load().catch(error=>setError(error.message))}>Retry</button></div>:<p role="status">Loading workflow…</p>}</section>{rail?.(null,null)}</div>;
  const edit=data.project.access.canEdit&&data.project.lifecycle!=='archived';
@@ -54,7 +54,7 @@ export function ProjectWorkflow({projectId,onChanged,rail,initialTab='research'}
    <p className="vs-workflow-meta">Research profile · <strong>version {data.research.revision}</strong>{lastResearch?` · saved by @${lastResearch.by} on ${shortDate(lastResearch.at)}`:''}</p>
    {stale&&<div className="vs-workflow-error vs-workflow-stale" role="alert"><strong>This record changed while you were editing</strong>
     <span>{stale.loaded?`Version ${data.research.revision}${lastResearch?` saved by @${lastResearch.by} on ${shortDate(lastResearch.at)}`:''} is now shown. Your draft is kept${stale.keep?' in the form; saving will replace the latest version':''}.`:'Someone saved a newer version of the research profile. Your draft is kept.'}</span>
-    {stale.loaded&&<details className="vs-stale-compare"><summary>Compare changes</summary><ResearchDiff latest={data.research.profile} draft={stale.profile}/></details>}
+    {stale.loaded&&!stale.keep&&<details className="vs-stale-compare" open><summary>Compare and merge changes</summary><ResearchMerge key={data.research.revision} base={stale.base} latest={data.research.profile} draft={stale.profile} reason={stale.reason} disabled={!edit||busy} save={async(profile,reason)=>{if(await save({operation:'research',confirmed:true,revision:data.research.revision,profile,reason}))setStale(null);}}/></details>}
     <span className="vs-stale-actions">{!stale.loaded&&<button className="ops-primary" type="button" disabled={busy} onClick={()=>void loadLatest()}>Load latest</button>}
      {stale.loaded&&!stale.keep&&<button className="ops-primary" type="button" onClick={()=>setStale({...stale,keep:true})}>Keep my draft</button>}
      {stale.loaded&&<button className="ops-secondary" type="button" onClick={()=>setStale(null)}>{stale.keep?'Use latest version':'Discard my draft'}</button>}</span></div>}
@@ -123,11 +123,24 @@ function TaskRow({task,editable,canManage,evidenceOptions,save}:{task:ProjectTas
  return <article className="workflow-record"><h4>{task.data.task}</h4><p>@{task.data.owner} · {label(task.data.status)} · Due {formatDay(task.data.dueDate,'not set')} · {label(task.data.priority)} priority · From {task.sourceKind}</p>{task.data.decision&&<p>Meeting decision: {task.data.decision}</p>}<p>{task.data.note}</p><details><summary>Update task and completion evidence</summary><WorkflowForm disabled={!editable} submitLabel="Save task progress" onSave={form=>save({operation:'task_update',confirmed:true,id:task.id,revision:task.revision,status:str(form,'status') as any,note:str(form,'note'),evidenceIds:selectedIds(form),...(canManage&&task.sourceKind!=='meeting'?{task:str(form,'task'),owner:str(form,'owner'),dueDate:optional(form,'dueDate'),priority:str(form,'priority') as 'normal'|'high'}:{})})}>{canManage&&task.sourceKind!=='meeting'&&<><label>Task description<textarea name="task" required defaultValue={task.data.task}/></label><label>Assignee username<input name="owner" required defaultValue={task.data.owner}/></label><label>Due date<input type="date" name="dueDate" defaultValue={task.data.dueDate||''}/></label><label>Priority<select name="priority" defaultValue={task.data.priority}><option value="normal">Normal</option><option value="high">High</option></select></label></>}<label>Task status<select name="status" defaultValue={task.data.status}>{(task.sourceKind==='meeting'?['open','done']:['open','in_progress','blocked','done','cancelled']).map(value=><option key={value} value={value}>{label(value)}</option>)}</select></label><label>Progress or completion evidence<textarea name="note" required defaultValue={task.data.note}/></label>{evidenceOptions}</WorkflowForm></details><details><summary>Task history</summary>{task.data.history.map((item,index)=><p key={index}>@{item.by} · {formatDayTime(item.at)} · {label(item.status)}: {item.note}</p>)}</details></article>;
 }
 const researchFields:[keyof ResearchProfile,string][]=[['question','Research question'],['claim','Core claim and contribution'],['validation','Validation plan'],['researchType','Research type'],['phase','Current work phase'],['risks','Main risks'],['fallback','Fallback or alternative plan'],['resourceNotes','Resource overview'],['resources','Resources and approvals']];
-function ResearchDiff({latest,draft}:{latest:ResearchProfile;draft:ResearchProfile}){
+// Per-field merge after a version conflict; nothing is saved until "Save merged version" is pressed.
+function ResearchMerge({base,latest,draft,reason,disabled,save}:{base:ResearchProfile;latest:ResearchProfile;draft:ResearchProfile;reason:string;disabled:boolean;save:(profile:ResearchProfile,reason:string)=>Promise<void>}){
  const text=(value:unknown)=>typeof value==='string'?value||'Empty':(value as unknown[]).length?JSON.stringify(value,null,2):'None';
- const changed=researchFields.filter(([key])=>JSON.stringify(latest[key])!==JSON.stringify(draft[key]));
- if(!changed.length)return <p>Your draft matches the latest version.</p>;
- return <dl className="vs-stale-diff">{changed.map(([key,name])=><div key={key}><dt>{name}</dt><dd><span className="vs-caps">Latest</span><pre>{text(latest[key])}</pre></dd><dd><span className="vs-caps">Your draft</span><pre>{text(draft[key])}</pre></dd></div>)}</dl>;
+ const fields=researchMergeFields(base,latest,draft);
+ const [choices,setChoices]=useState<Partial<Record<keyof ResearchProfile,ResearchMergeChoice|null>>>(()=>Object.fromEntries(fields.map(field=>[field.key,field.choice])));
+ const [note,setNote]=useState(reason);
+ if(!fields.length)return <p>Your draft matches the latest version.</p>;
+ const names=Object.fromEntries(researchFields) as Record<keyof ResearchProfile,string>;
+ const missing=fields.filter(field=>!choices[field.key]).length;
+ const origin=(field:typeof fields[number])=>field.conflict?'Changed in both versions — choose one':field.choice==='mine'?'Changed only in your draft':'Changed only in the latest version';
+ return <form className="vs-stale-merge" onSubmit={event=>{event.preventDefault();void save(mergeResearchProfiles(latest,draft,choices),note.trim());}}>
+  <div className="vs-stale-diff">{fields.map(field=><fieldset key={field.key} className={field.conflict?'conflict':''}><legend>{names[field.key]} <small>{origin(field)}</small></legend>
+   {(['latest','mine'] as const).map(choice=><label key={choice}><input type="radio" name={`merge-${field.key}`} checked={choices[field.key]===choice} disabled={disabled} onChange={()=>setChoices(current=>({...current,[field.key]:choice}))}/><span className="vs-caps">{choice==='latest'?'Latest':'My draft'}</span><pre>{text((choice==='latest'?latest:draft)[field.key])}</pre></label>)}
+  </fieldset>)}</div>
+  <label>Reason for this update<textarea required value={note} disabled={disabled} onChange={event=>setNote(event.target.value)}/></label>
+  {missing>0&&<p role="status">Choose Latest or My draft for {missing===1?'the field':`${missing} fields`} changed in both versions.</p>}
+  <button className="ops-primary" type="submit" disabled={disabled||missing>0||!note.trim()}>Save merged version</button>
+ </form>;
 }
 function ResearchForm({profile,reason,revision,disabled,readOnlyNote,save}:{profile:ResearchProfile;reason:string;revision:number;disabled:boolean;readOnlyNote?:string;save:(command:WorkflowCommand)=>Promise<boolean>}){
  const [resources,setResources]=useState(profile.resources);

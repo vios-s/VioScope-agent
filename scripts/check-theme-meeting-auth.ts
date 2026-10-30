@@ -57,7 +57,7 @@ const coordinators = [
 ] as const;
 
 const temporaryUsers: TestUser[] = [
-  ...coordinators.map((coordinator) => ({ username: coordinator.username, role: 'organizer' as const })),
+  ...coordinators.map((coordinator) => ({ username: coordinator.username, role: 'member' as const })),
   { username: 'alice', role: 'member' },
   { username: 'bob', role: 'member' },
   { username: 'carla', role: 'member' },
@@ -587,8 +587,35 @@ async function main() {
       403,
     );
 
+    // Past meetings (before the theme's current meeting) are read-only for coordinators; PI and administrator keep full rights.
+    const pastDate = '2026-06-24';
+    const coordinatorA = await activeUser('coordinator.a');
+    const pastBody = (extra: Record<string, unknown> = {}) => jsonBody({ themeId: 'A', meetingDate: pastDate, ...extra });
+    const pastDashboard = await expectJson<any>('coordinator past dashboard',
+      await themeMeetingsRoute.GET(requestFor(coordinatorA, `/api/theme-meetings?date=${pastDate}`)));
+    assert.deepEqual(pastDashboard.access.canManageThemeIds, ['A'], 'Coordinators still read past meetings in full.');
+    assert.deepEqual(pastDashboard.access.readOnlyThemeIds, ['A']);
+    assert.deepEqual((await expectJson<any>('coordinator current dashboard',
+      await themeMeetingsRoute.GET(requestFor(coordinatorA, '/api/theme-meetings?date=2027-06-23')))).access.readOnlyThemeIds, []);
+    for (const [label, response] of [
+      ['past reminder', await remindersRoute.POST(requestFor(coordinatorA, '/api/theme-meetings/reminders', { method: 'POST', body: pastBody({ action: 'manual_missing_update_reminder' }) }))],
+      ['past skip', await cancellationsRoute.POST(requestFor(coordinatorA, '/api/theme-meetings/cancellations', { method: 'POST', body: pastBody({ reason: 'Read-only check' }) }))],
+      ['past restore', await cancellationsRoute.DELETE(requestFor(coordinatorA, '/api/theme-meetings/cancellations', { method: 'DELETE', body: pastBody() }))],
+      ['past member change', await membersRoute.POST(requestFor(coordinatorA, '/api/theme-meetings/members', { method: 'POST', body: pastBody({ action: 'add', username: 'carla' }) }))],
+    ] as const) {
+      const body = await expectJson<{ error: string }>(`coordinator ${label}`, response, 403);
+      assert.equal(body.error, 'Past meetings are read-only for coordinators.');
+    }
+    for (const leader of ['theme.pi', 'theme.admin']) {
+      const account = await activeUser(leader);
+      assert.deepEqual((await expectJson<any>(`${leader} past dashboard`,
+        await themeMeetingsRoute.GET(requestFor(account, `/api/theme-meetings?date=${pastDate}`)))).access.readOnlyThemeIds, []);
+      await expectJson(`${leader} past skip`, await cancellationsRoute.POST(requestFor(account, '/api/theme-meetings/cancellations', { method: 'POST', body: pastBody({ reason: 'Leader check' }) })));
+      await expectJson(`${leader} past restore`, await cancellationsRoute.DELETE(requestFor(account, '/api/theme-meetings/cancellations', { method: 'DELETE', body: pastBody() })));
+    }
+
     const pi = await activeUser('theme.pi');
-    const piSettings = await expectJson<any>('pi theme settings', await configRoute.GET(requestFor(pi, '/api/theme-meetings/config')));
+    const piSettings =await expectJson<any>('pi theme settings', await configRoute.GET(requestFor(pi, '/api/theme-meetings/config')));
     assert.equal(piSettings.access.canEditGlobal, true);
     assert.equal(piSettings.config.themes.length, 4);
     piSettings.config.submission.progress_word_target = 45;

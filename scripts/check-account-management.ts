@@ -463,6 +463,22 @@ async function main() {
     assert.equal(memberPositionUpdate.status, 200, 'Admin should update member position.');
     assert.equal((await jsonBody(memberPositionUpdate)).user.position, 'postdoc');
 
+    // Coordinator is derived from theme configuration: the legacy `organizer` role cannot be assigned.
+    const organizerCreate = await usersRoute.POST(jsonRequest('/api/users', {
+      username: 'account.smoke.organizer', role: 'organizer', temporaryPassword: 'Strong-Temp1!',
+    }, cookieFor(admin)));
+    assert.equal(organizerCreate.status, 400, 'The organizer role must not be assignable on create.');
+    assert.match((await jsonBody(organizerCreate)).error, /Coordinator is no longer an account role/);
+    assert.equal(await getUserByUsername('account.smoke.organizer'), null);
+    const organizerPatch = await userRoute.PATCH(
+      jsonRequest(`/api/users/${member.id}`, { role: 'organizer' }, cookieFor(pi)),
+      { params: Promise.resolve({ userId: member.id }) },
+    );
+    assert.equal(organizerPatch.status, 400, 'The organizer role must not be assignable on edit.');
+    assert.equal((await getUserByUsername(users.member.username))?.role, 'member');
+    const listed = (await jsonBody(await usersRoute.GET(getRequest('/api/users', cookieFor(admin))))).users as Array<{ username: string; coordinatorThemes?: unknown }>;
+    assert.ok(listed.every((user) => Array.isArray(user.coordinatorThemes)), 'Users carry derived coordinator themes.');
+
     const weakResetPassword = await userRoute.PATCH(
       jsonRequest(`/api/users/${member.id}`, { temporaryPassword: 'a' }, cookieFor(admin)),
       { params: Promise.resolve({ userId: member.id }) },

@@ -1294,10 +1294,17 @@
 .vs-stale-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .vs-stale-compare { width: 100%; }
 .vs-stale-diff { display: grid; gap: 10px; margin: 8px 0 0; }
-.vs-stale-diff > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 4px 12px; }
-.vs-stale-diff dt { grid-column: 1 / -1; color: var(--vs-ink); font-weight: 600; }
-.vs-stale-diff dd { min-width: 0; margin: 0; }
+.vs-stale-diff > fieldset { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 12px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.vs-stale-diff legend { padding: 0 0 4px; color: var(--vs-ink); font-weight: 600; }
+.vs-stale-diff legend small { margin-left: 6px; color: var(--vs-ink-3); font-weight: 400; }
+.vs-stale-diff fieldset.conflict legend small { color: var(--vs-warn-fg); }
+.vs-stale-diff label { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 2px 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--vs-line); border-radius: var(--vs-radius-control); background: var(--vs-surface); cursor: pointer; }
+.vs-stale-diff label:has(input:checked) { border-color: var(--vs-accent); }
+.vs-stale-diff label pre { grid-column: 2; }
 .vs-stale-diff pre { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.vs-stale-merge { display: grid; gap: 10px; }
+.vs-stale-merge > label { display: grid; gap: 4px; }
+.vs-stale-merge > button { justify-self: start; }
 
 /* Workflow forms read like a definition list: label column, then the field. */
 .users-modal.project-detail-modal .project-workflow form > fieldset {

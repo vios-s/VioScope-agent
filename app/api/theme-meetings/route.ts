@@ -5,10 +5,11 @@ import { errorResponse } from '../../../src/mastra/http/error-response';
 import { listUsersForAdmin, type AuthUser } from '../../../src/mastra/db/users';
 import { readThemeNotificationIds } from '../../../src/mastra/db/theme-notifications';
 import { listThemeAgendaSubscriptions } from '../../../src/mastra/db/theme-agenda-subscriptions';
-import { isThemeAgendaSubscriptionRequired } from '../../../src/mastra/theme-meetings/agenda-recipients';
+import { themeAgendaRequiredReason } from '../../../src/mastra/theme-meetings/agenda-recipients';
 import { notificationStateForUser } from '../../../src/mastra/theme-meetings/notification-state';
 import {
   canManageTheme,
+  isPastMeetingReadOnly,
   managedThemeIdsForUser,
   reminderStatusForManager,
   visibleNotificationsForUser,
@@ -169,11 +170,14 @@ export async function GET(request: Request) {
       // Europe/London weekday and time when the draft agenda preview is sent to theme members.
       agendaPreview: configuredReminderSchedule(payload.config).agendaPreview,
       agendaSubscriptions: payload.config.themes.map((theme) => {
-        const required = isThemeAgendaSubscriptionRequired(payload.config, theme.theme_id, user.username);
+        // Members and the coordinator are included automatically; everyone else, PIs and administrators too, opts in.
+        const reason = themeAgendaRequiredReason(payload.config, theme.theme_id, user.username);
+        const required = reason !== null;
         return {
           theme_id: theme.theme_id,
           title: theme.title,
           required,
+          reason,
           subscribed: required || subscriptions.some((subscription) => subscription.themeId === theme.theme_id),
         };
       }),
@@ -183,6 +187,8 @@ export async function GET(request: Request) {
       ),
       access: {
         canManageThemeIds: managedThemeIds,
+        // Managed themes that are read-only on this date: coordinators cannot change meetings before the theme's current one.
+        readOnlyThemeIds: managedThemeIds.filter((themeId) => isPastMeetingReadOnly(payload.config, themeId, payload.plan.meeting_date, user)),
         // Any theme in the configuration, not only this week's pair: drives the Settings → Theme meeting tab.
         managesAnyTheme: payload.config.themes.some((theme) => canManageTheme(payload.config, theme.theme_id, user)),
       },

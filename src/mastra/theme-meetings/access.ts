@@ -1,5 +1,6 @@
-import { canSeeAll } from '../auth/session';
+import { AuthError, canSeeAll } from '../auth/session';
 import type { AuthUser } from '../db/users';
+import { nextThemeMeetingDate } from './planner';
 import type { ThemeMeetingConfig, ThemeMeetingNotification, ThemeMeetingPlan } from './schema';
 
 function themeById(config: ThemeMeetingConfig, themeId: string) {
@@ -17,6 +18,19 @@ export function canManageTheme(config: ThemeMeetingConfig, themeId: string, user
 
   const theme = themeById(config, themeId);
   return Boolean(theme && normalizeUsername(theme.coordinator_user) === normalizeUsername(user.username));
+}
+
+/** True when a coordinator (theme manager without PI/admin rights) views a meeting before the theme's current/next meeting. */
+export function isPastMeetingReadOnly(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser, now = new Date()): boolean {
+  if (canSeeAll(user) || !canManageTheme(config, themeId, user)) return false;
+  const current = nextThemeMeetingDate(config, themeId, now);
+  return Boolean(current && meetingDate < current);
+}
+
+export function assertMeetingWritable(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser): void {
+  if (isPastMeetingReadOnly(config, themeId, meetingDate, user)) {
+    throw new AuthError('Past meetings are read-only for coordinators.', 403, 'forbidden');
+  }
 }
 
 export function managedThemeIdsForUser(plan: ThemeMeetingPlan, config: ThemeMeetingConfig, user: AuthUser): string[] {

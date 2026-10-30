@@ -48,7 +48,7 @@ try {
   db = createPostgresClient('agenda-preview-check');
   for (const [username, role] of [
     ['member.c', 'member'], ['member.d', 'member'], ['muted.c', 'member'],
-    ['pi.only', 'pi'], ['admin.member.d', 'administrator'], ['coordinator.only', 'organizer'], ['observer', 'member'],
+    ['pi.only', 'pi'], ['admin.member.d', 'administrator'], ['coordinator.only', 'member'], ['observer', 'member'],
   ]) await db.pool.query(`INSERT INTO users(id,username,display_name,email,role,provisioning_status,source,password_reset_required)
     VALUES($1,$2,$2,$3,$4,'active','synthetic_preview_check',false)`, [randomUUID(), username, `${username}@example.test`, role]);
   const observer = (await users.getUserByUsername('observer'))!;
@@ -105,7 +105,7 @@ try {
   await planner.submitThemeMeetingUpdate({ meetingDate: date, themeId: 'C', member: 'member.c', updateType: 'short_update', progressText: 'Adjusted presentation after reviewing the draft agenda.', now: new Date('2026-10-27T15:00:00Z') });
   const finalPlan = (await planner.buildThemeMeetingPlan({ meetingDate: date })).plan;
   const final = await planner.sendThemeMeetingAgendaEmails(finalPlan, config);
-  assert.equal(final.sent, 6, 'The draft receipt must not suppress final circulation.');
+  assert.equal(final.sent, 5, 'The draft receipt must not suppress final circulation.');
   assert.equal(final.failed, 0);
   const memberFinal = sent.filter((mail) => mail.to === 'member.c@example.test').at(-1)!;
   assert.doesNotMatch(memberFinal.subject, /DRAFT/);
@@ -114,16 +114,19 @@ try {
   assert.match(memberPreview.text, /Draft experiment results/);
   assert.match(sent.find((mail) => mail.to === 'observer@example.test')!.text, /Theme C —/);
   assert.doesNotMatch(sent.find((mail) => mail.to === 'observer@example.test')!.text, /Theme D —/);
-  const piFinal = sent.find((mail) => mail.to === 'pi.only@example.test')!;
-  assert.match(piFinal.text, /Theme C —/);
-  assert.match(piFinal.text, /Theme D —/);
+  // PIs and the config administrator receive agendas only as members/coordinators or by subscription.
+  assert.equal(sent.some((mail) => mail.to === 'pi.only@example.test'), false, 'An unsubscribed PI receives no agenda.');
+  const adminFinal = sent.filter((mail) => mail.to === 'admin.member.d@example.test').at(-1)!;
+  assert.match(adminFinal.text, /Theme D —/);
+  assert.doesNotMatch(adminFinal.text, /Theme C —/, 'The config administrator receives only their own theme.');
   assert.equal((await planner.sendThemeMeetingAgendaEmails(finalPlan, config)).sent, 0);
   assert.equal((await planner.sendThemeMeetingAgendaEmails(finalPlan, config, { phase: 'preview' })).sent, 0);
 
   const beforeApi = sent.length;
   const request = (actor: typeof coordinator, action: string) => new Request('http://localhost/api/theme-meetings/reminders', {
     method: 'POST', headers: { 'content-type': 'application/json', cookie: `${sessionCookieName}=${createSessionToken(actor)}` },
-    body: JSON.stringify({ action, themeId: 'C', meetingDate: '2026-11-04' }),
+    // The theme's current meeting: coordinators cannot act on past meetings.
+    body: JSON.stringify({ action, themeId: 'C', meetingDate: planner.nextThemeMeetingDate(config, 'C') }),
   });
   assert.equal((await reminderRoute.POST(request(observer, 'agenda_preview'))).status, 403);
   const api = await reminderRoute.POST(request(coordinator, 'agenda_preview'));
@@ -137,7 +140,7 @@ try {
   await assert.rejects(readFile(process.env.THEME_MEETING_NOTIFICATIONS_PATH!), /ENOENT/);
   const emptyDraft = renderThemeMeetingAgendaEmail(cancelled, { phase: 'preview', cutoff: { weekday: 'Wednesday', time: '08:00' } });
   assert.doesNotMatch(emptyDraft.html, /Theme D &mdash;/);
-  console.log('Agenda preview passed: strict member-only audience, submitted members included, draft labels/deadline, no cutoff side effects, editable updates, independent preview/final deduplication, final subscribers/PI scope, permissions, mute and cancellation. No external mail sent.');
+  console.log('Agenda preview passed: strict member-only audience, submitted members included, draft labels/deadline, no cutoff side effects, editable updates, independent preview/final deduplication, final members/coordinator/subscriber scope without automatic PI/admin delivery, permissions, mute and cancellation. No external mail sent.');
 } finally {
   nodemailer.createTransport = originalTransport;
   await db?.disconnect();

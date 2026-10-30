@@ -32,8 +32,8 @@ function requireValue(args: string[], index: number, flag: string): string {
 }
 
 function parseRole(value: string): UserRole {
-  if (!isUserRole(value)) {
-    throw new Error(`Role must be one of: administrator, pi, organizer, member, viewer, service.`);
+  if (!isUserRole(value) || value === 'organizer') {
+    throw new Error(`Role must be one of: administrator, pi, member, viewer, service. Coordinators are assigned in the theme meeting configuration.`);
   }
 
   return value;

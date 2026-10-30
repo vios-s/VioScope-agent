@@ -278,10 +278,10 @@ async function main() {
   await cleanup();
   await writeMockConfig();
   await seedUser(users.member, 'member', 'UI Member');
-  await seedUser(users.coordinator, 'organizer', 'UI Coordinator');
-  await seedUser(users.coordA, 'organizer', 'UI Coordinator A');
-  await seedUser(users.coordC, 'organizer', 'UI Coordinator C');
-  await seedUser(users.coordD, 'organizer', 'UI Coordinator D');
+  await seedUser(users.coordinator, 'member', 'UI Coordinator');
+  await seedUser(users.coordA, 'member', 'UI Coordinator A');
+  await seedUser(users.coordC, 'member', 'UI Coordinator C');
+  await seedUser(users.coordD, 'member', 'UI Coordinator D');
   await seedUser(users.memberA, 'member', 'UI Member A');
   await seedUser(users.memberB, 'member', 'UI Member B');
   await seedUser(users.memberC, 'member', 'UI Member C');

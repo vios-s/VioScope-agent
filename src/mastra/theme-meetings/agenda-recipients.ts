@@ -13,37 +13,38 @@ export function themeAgendaPreviewRecipients(plan: ThemeMeetingPlan, themeId?: s
   return recipients;
 }
 
-export function isThemeAgendaSubscriptionRequired(config: ThemeMeetingConfig, themeId: string, username: string): boolean {
+/** Why an account receives a theme's agenda without subscribing: its members and coordinator only. PIs and administrators subscribe like anyone else. */
+export function themeAgendaRequiredReason(config: ThemeMeetingConfig, themeId: string, username: string): 'member' | 'coordinator' | null {
   const theme = config.themes.find((candidate) => candidate.theme_id === themeId);
-  if (!theme) return false;
   const normalized = username.trim().toLowerCase();
-  return [...config.pi_users, config.administrator_user || '', theme.coordinator_user || '', ...(theme.member_users || [])]
-    .some((account) => account.trim().toLowerCase() === normalized);
+  if (!theme || !normalized) return null;
+  if ((theme.member_users || []).some((account) => account.trim().toLowerCase() === normalized)) return 'member';
+  return (theme.coordinator_user || '').trim().toLowerCase() === normalized ? 'coordinator' : null;
 }
 
+export function isThemeAgendaSubscriptionRequired(config: ThemeMeetingConfig, themeId: string, username: string): boolean {
+  return themeAgendaRequiredReason(config, themeId, username) !== null;
+}
+
+// Members and the coordinator receive their own theme's agenda; everyone else (PIs and administrators included) only by subscription.
 export function themeAgendaRecipients(
   plan: ThemeMeetingPlan,
-  config: ThemeMeetingConfig,
   subscriptions: ThemeAgendaSubscription[],
   themeId?: string,
 ): Map<string, ThemeMeetingPlan> {
   const meetings = plan.meetings.filter((meeting) => !meeting.cancelled && (!themeId || meeting.theme_id === themeId));
-  const recipients = new Map<string, ThemeMeetingPlan>();
   const normalize = (value: string) => value.trim().toLowerCase();
-  const leaders = new Set([...config.pi_users, config.administrator_user || ''].map(normalize).filter(Boolean));
-  const usernames = new Set([
-    ...leaders,
-    ...meetings.flatMap((meeting) => [meeting.coordinator_username || '', ...meeting.member_usernames]),
-    ...subscriptions.filter((subscription) => meetings.some((meeting) => meeting.theme_id === subscription.themeId)).map((subscription) => subscription.username),
-  ].map(normalize).filter(Boolean));
-
-  for (const username of usernames) {
-    const visibleMeetings = meetings.filter((meeting) =>
-      leaders.has(username) || normalize(meeting.coordinator_username || '') === username ||
-      meeting.member_usernames.some((member) => normalize(member) === username) ||
-      subscriptions.some((subscription) => normalize(subscription.username) === username && subscription.themeId === meeting.theme_id),
-    );
-    if (visibleMeetings.length) recipients.set(username, { ...plan, meetings: visibleMeetings });
+  const recipients = new Map<string, ThemeMeetingPlan>();
+  const add = (username: string, meeting: ThemeMeetingPlan['meetings'][number]) => {
+    const key = normalize(username);
+    if (!key) return;
+    const recipient = recipients.get(key) || { ...plan, meetings: [] };
+    if (!recipient.meetings.includes(meeting)) recipient.meetings.push(meeting);
+    recipients.set(key, recipient);
+  };
+  for (const meeting of meetings) {
+    for (const username of [meeting.coordinator_username || '', ...meeting.member_usernames]) add(username, meeting);
+    for (const subscription of subscriptions) if (subscription.themeId === meeting.theme_id) add(subscription.username, meeting);
   }
   return recipients;
 }

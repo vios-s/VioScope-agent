@@ -708,7 +708,7 @@ async function agendaEmailRecipients(
   const preview = options.phase === 'preview';
   const recipients = preview
     ? themeAgendaPreviewRecipients(plan, options.themeId)
-    : themeAgendaRecipients(plan, config, await listThemeAgendaSubscriptions(), options.themeId);
+    : themeAgendaRecipients(plan, await listThemeAgendaSubscriptions(), options.themeId);
   const audience: AgendaEmailRecipient[] = [];
   for (const [username, recipientPlan] of recipients) {
     const user = await getUserByUsername(username);

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import nodemailer from 'nodemailer';
 import { stringify } from 'yaml';
 import { closePostgresPools, createPostgresClient } from '../src/mastra/db/postgres';
@@ -51,7 +52,7 @@ try {
   await users.ensureUsersTable();
   db = createPostgresClient('agenda-subscription-check');
   for (const [username, role, status] of [
-    ['member.c', 'member', 'active'], ['member.d', 'member', 'active'], ['test.pi', 'pi', 'active'],
+    ['member.c', 'member', 'active'], ['member.d', 'member', 'active'], ['test.pi', 'pi', 'active'], ['test.admin', 'administrator', 'active'],
     ['observer', 'member', 'active'], ['muted', 'member', 'active'],
     ['disabled', 'member', 'disabled'], ['service', 'service', 'active'],
   ]) {
@@ -97,13 +98,16 @@ try {
   assert.equal((await route.PATCH(request(member, { themeId: 'C', subscribed: true }))).status, 200);
   assert.deepEqual(await subscriptions.listThemeAgendaSubscriptions(member.id), [], 'Automatic membership needs no explicit subscription row.');
   const pi = (await users.getUserByUsername('test.pi'))!;
+  // PIs and administrators are no longer included automatically: they opt in per theme like anyone else.
   for (const themeId of ['C', 'D']) {
-    assert.equal((await route.PATCH(request(pi, { themeId, subscribed: false }))).status, 403);
+    const piResponse = await route.PATCH(request(pi, { themeId, subscribed: false }));
+    assert.equal(piResponse.status, 200, await piResponse.text());
   }
   assert.equal(isThemeAgendaSubscriptionRequired(config, 'C', ' MEMBER.C '), true);
   assert.equal(isThemeAgendaSubscriptionRequired(config, 'D', member.username), false);
   assert.equal(isThemeAgendaSubscriptionRequired(config, 'unknown', member.username), false);
-  assert.equal(isThemeAgendaSubscriptionRequired({ ...config, administrator_user: 'test.admin' }, 'C', 'test.admin'), true);
+  assert.equal(isThemeAgendaSubscriptionRequired(config, 'C', 'test.pi'), false, 'Config pi_users are not automatic recipients.');
+  assert.equal(isThemeAgendaSubscriptionRequired({ ...config, administrator_user: 'test.admin' }, 'C', 'test.admin'), false, 'The config administrator is not an automatic recipient.');
   assert.equal(isThemeAgendaSubscriptionRequired({ ...config, themes: config.themes.map((theme) => ({ ...theme, coordinator_user: 'test.coordinator' })) }, 'C', 'test.coordinator'), true);
   await subscribe('C', true);
   await Promise.all([subscribe('C', true), subscribe('D', true)]);
@@ -136,30 +140,38 @@ try {
   }));
   assert.equal(memberResponse.status, 200);
   const memberPayload = await memberResponse.json();
-  assert.deepEqual(memberPayload.agendaSubscriptions.map((row: { theme_id: string; required: boolean; subscribed: boolean }) => [row.theme_id, row.required, row.subscribed]), [['C', true, true], ['D', false, false]]);
+  assert.deepEqual(memberPayload.agendaSubscriptions.map((row: { theme_id: string; required: boolean; subscribed: boolean; reason: string | null }) => [row.theme_id, row.required, row.subscribed, row.reason]), [['C', true, true, 'member'], ['D', false, false, null]]);
+  const piPayload = await (await meetingRoute.GET(new Request('http://localhost/api/theme-meetings?date=2026-10-21', {
+    headers: { cookie: `${sessionCookieName}=${createSessionToken(pi)}` },
+  }))).json();
+  assert.ok(piPayload.agendaSubscriptions.every((row: { required: boolean; subscribed: boolean }) => !row.required && !row.subscribed), 'A PI starts unsubscribed and may opt in.');
+  assert.equal((await route.PATCH(request(pi, { themeId: 'D', subscribed: true }))).status, 200);
 
   const current = await subscriptions.listThemeAgendaSubscriptions();
-  const recipients = themeAgendaRecipients(plan, config, current);
+  const recipients = themeAgendaRecipients(plan, current);
   assert.equal(recipients.get('observer')!.meetings.length, 2);
-  assert.equal(recipients.get('test.pi')!.meetings.length, 2);
+  assert.deepEqual(recipients.get('test.pi')!.meetings.map((meeting) => meeting.theme_id), ['D'], 'A PI receives only subscribed themes.');
+  assert.equal(recipients.has('test.admin'), false, 'An administrator without subscriptions receives no agenda.');
   assert.deepEqual(recipients.get('member.c')!.meetings.map((meeting) => meeting.theme_id), ['C']);
   const cancelledPlan = { ...plan, meetings: plan.meetings.map((meeting) => ({ ...meeting, cancelled: meeting.theme_id === 'D' })) };
-  assert.deepEqual(themeAgendaRecipients(cancelledPlan, config, current).get('observer')!.meetings.map((meeting) => meeting.theme_id), ['C']);
-  assert.equal(themeAgendaRecipients({ ...plan, meetings: [] }, config, current).size, 0);
-  assert.deepEqual(themeAgendaRecipients(plan, config, current, 'D').get('observer')!.meetings.map((meeting) => meeting.theme_id), ['D']);
+  assert.deepEqual(themeAgendaRecipients(cancelledPlan, current).get('observer')!.meetings.map((meeting) => meeting.theme_id), ['C']);
+  assert.equal(themeAgendaRecipients({ ...plan, meetings: [] }, current).size, 0);
+  assert.deepEqual(themeAgendaRecipients(plan, current, 'D').get('observer')!.meetings.map((meeting) => meeting.theme_id), ['D']);
 
   await subscribe('D', false);
   await subscriptions.setThemeAgendaSubscription(muted.id, 'C', true);
   await db.pool.query(`UPDATE users SET metadata = '{"notification_preferences":{"theme_meeting_reminders":{"email":false}}}'::jsonb WHERE id = $1`, [muted.id]);
   const delivery = await planner.sendThemeMeetingAgendaEmails(plan, config);
   assert.equal(delivery.failed, 0);
-  assert.equal(delivery.sent, 4); // Two members, PI, observer. Muted subscriber is skipped.
+  assert.equal(delivery.sent, 4); // Two members, subscribed PI (D) and observer (C). Muted subscriber and unsubscribed admin are skipped.
   const observerMail = sent.filter((mail) => mail.to === 'observer@example.test');
   assert.equal(observerMail.length, 1);
   assert.match(observerMail[0]!.text, /Theme C —/);
   assert.doesNotMatch(observerMail[0]!.text, /Theme D —/);
   assert.equal(sent.some((mail) => mail.to === 'muted@example.test'), false);
   assert.match(sent.find((mail) => mail.to === 'test.pi@example.test')!.text, /Theme D —/);
+  assert.doesNotMatch(sent.find((mail) => mail.to === 'test.pi@example.test')!.text, /Theme C —/);
+  assert.equal(sent.some((mail) => mail.to === 'test.admin@example.test'), false);
   assert.equal((await planner.sendThemeMeetingAgendaEmails(plan, config)).sent, 0, 'Repeated agenda jobs do not duplicate mail.');
   await subscribe('C', false);
   await subscribe('D', true);
@@ -177,14 +189,22 @@ try {
   await subscribe('D', false);
   await subscribe('C', false);
   assert.deepEqual(await subscriptions.listThemeAgendaSubscriptions(observer.id), []);
-  assert.equal(themeAgendaRecipients(plan, config, await subscriptions.listThemeAgendaSubscriptions()).has('observer'), false);
+  assert.equal(themeAgendaRecipients(plan, await subscriptions.listThemeAgendaSubscriptions()).has('observer'), false);
   await subscriptions.setThemeAgendaSubscription(observer.id, 'C', true);
   await db.pool.query("UPDATE users SET provisioning_status = 'disabled' WHERE id = $1", [observer.id]);
   assert.equal((await subscriptions.listThemeAgendaSubscriptions()).some((row) => row.username === observer.username), false);
   await db.pool.query('DELETE FROM users WHERE id = $1', [observer.id]);
   assert.equal((await db.pool.query('SELECT * FROM theme_agenda_subscriptions WHERE user_id = $1', [observer.id])).rows.length, 0);
+  // Migration: accounts previously included as PI/administrator get explicit subscriptions for every theme; dry run writes nothing; idempotent.
+  const migrate = (...args: string[]) => execFileSync(process.execPath, ['--import', 'tsx', 'scripts/migrate-agenda-subscriptions.ts', ...args], { env: process.env, encoding: 'utf8' });
+  const leaderRows = async () => (await subscriptions.listThemeAgendaSubscriptions()).filter((row) => ['test.pi', 'test.admin'].includes(row.username)).map((row) => `${row.username}:${row.themeId}`).sort();
+  assert.match(migrate(), /Would insert 3 subscription/);
+  assert.deepEqual(await leaderRows(), ['test.pi:D']);
+  assert.match(migrate('--apply'), /Inserted 3 subscription/);
+  assert.deepEqual(await leaderRows(), ['test.admin:C', 'test.admin:D', 'test.pi:C', 'test.pi:D']);
+  assert.match(migrate('--apply'), /Inserted 0 subscription/);
   assert.equal(await readFile(process.env.THEME_MEETING_CONFIG_PATH!, 'utf8'), originalConfig, 'Subscriptions never change theme membership/configuration.');
-  console.log('Agenda subscriptions passed: automatic member/PI subscriptions, API unsubscribe protection, self-service opt-in/out, persistence, permissions, reminders, C-only and D-only delivery (HTML and plain text), preferences, cancellation and deduplication. No external mail sent.');
+  console.log('Agenda subscriptions passed: automatic member/coordinator subscriptions, PI/admin opt-in, migration (dry run, apply, idempotent), API unsubscribe protection, self-service opt-in/out, persistence, permissions, reminders, C-only and D-only delivery (HTML and plain text), preferences, cancellation and deduplication. No external mail sent.');
 } finally {
   nodemailer.createTransport = originalTransport;
   await db?.disconnect();

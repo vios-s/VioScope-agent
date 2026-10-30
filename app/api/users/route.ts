@@ -7,13 +7,14 @@ import {
   assertMediumPassword,
   getUserByUsername,
   isUserPosition,
-  isUserRole,
   listUsersForAdmin,
+  parseAssignableUserRole,
   upsertLocalUser,
   type AuthUser,
   type UserPosition,
   type UserRole,
 } from '../../../src/mastra/db/users';
+import { withCoordinatorThemes } from '../../../src/mastra/theme-meetings/coordinators';
 
 export const runtime = 'nodejs';
 
@@ -45,17 +46,12 @@ async function requireUserManager(request: Request): Promise<AuthUser> {
 
 function assertAssignableRole(actor: AuthUser, role: UserRole) {
   if (actor.role === 'pi' && ['administrator', 'pi', 'service', 'viewer'].includes(role)) {
-    throw new Error('PI users can only create member or organizer accounts.');
+    throw new Error('PI users can only create member accounts.');
   }
 }
 
 function parseRole(value: unknown): UserRole {
-  const role = text(value) || 'member';
-  if (!isUserRole(role)) {
-    throw new Error('Invalid role.');
-  }
-
-  return role;
+  return parseAssignableUserRole(text(value) || 'member');
 }
 
 function parsePosition(value: unknown): UserPosition | null {
@@ -70,7 +66,7 @@ function parsePosition(value: unknown): UserPosition | null {
 export async function GET(request: Request) {
   try {
     await requireUserManager(request);
-    return NextResponse.json({ users: await listUsersForAdmin() });
+    return NextResponse.json({ users: await withCoordinatorThemes(await listUsersForAdmin()) });
   } catch (error) {
     return errorResponse(error, 500);
   }
@@ -125,7 +121,7 @@ export async function POST(request: Request) {
         passwordResetRequired: createdUser.passwordResetRequired,
       },
     });
-    return NextResponse.json({ users: await listUsersForAdmin() });
+    return NextResponse.json({ users: await withCoordinatorThemes(await listUsersForAdmin()) });
   } catch (error) {
     return errorResponse(error, 400);
   }

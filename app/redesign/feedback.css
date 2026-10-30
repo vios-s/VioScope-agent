@@ -202,6 +202,13 @@
   border-top: 1px solid var(--vs-line);
 }
 
+/* Focus target when opened from a feedback-reply notification. */
+.feedback-card:focus-visible,
+.feedback-card:focus {
+  outline: 2px solid var(--vs-accent);
+  outline-offset: 4px;
+}
+
 .feedback-card {
   display: flex;
   flex-direction: column;

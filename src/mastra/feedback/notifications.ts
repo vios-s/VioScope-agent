@@ -1,6 +1,7 @@
-import { listUsersForAdmin } from '../db/users';
+import { createFeedbackReplyNotification } from '../db/chat';
+import { getUserByUsername, listUsersForAdmin, type AuthUser } from '../db/users';
 import { registeredNotificationEmail, sendNotificationEmail } from '../email';
-import type { FeedbackQuery } from '../db/feedback';
+import type { FeedbackQuery, FeedbackStatus } from '../db/feedback';
 
 function configuredRecipients(): string[] {
   return (process.env.FEEDBACK_ADMIN_EMAILS || '')
@@ -37,4 +38,47 @@ export async function notifyFeedbackAdmins(query: FeedbackQuery): Promise<{ reci
   const delivered = await Promise.allSettled(recipients.map((to) => sendNotificationEmail({ to, subject, text })))
     .then((results) => results.filter((result) => result.status === 'fulfilled' && result.value).length);
   return { recipients: recipients.length, delivered };
+}
+
+const statusLabels: Record<FeedbackStatus, string> = { pending: 'Pending', in_progress: 'In progress', solved: 'Solved', closed: 'Closed' };
+
+// Tells the requester about an administrator's saved reply or status change: a web notification in the
+// bell (Messages) and an email, each per the requester's "Feedback replies" preference. No notification
+// for an unchanged save, a cleared reply alone, the administrator's own request, or an inactive account.
+export async function notifyFeedbackRequester(
+  query: FeedbackQuery,
+  changed: { status: boolean; reply: boolean },
+  actor: AuthUser,
+): Promise<{ web: boolean; email: boolean }> {
+  const result = { web: false, email: false };
+  const replied = changed.reply && Boolean(query.adminNote);
+  if (!changed.status && !replied) return result;
+  const requester = await getUserByUsername(query.submitterUsername);
+  if (!requester || requester.id === actor.id || requester.provisioningStatus !== 'active') return result;
+
+  const preference = requester.notificationPreferences.feedback_replies;
+  const status = statusLabels[query.status];
+  const title = replied ? `Administrator replied to “${query.title}”` : `“${query.title}” is now ${status}`;
+  const body = [`Status: ${status}.`, replied ? query.adminNote.replace(/\s+/g, ' ').slice(0, 240) : ''].filter(Boolean).join(' ');
+  if (preference.web) {
+    await createFeedbackReplyNotification({ recipientUserId: requester.id, actorUserId: actor.id, feedbackId: query.id, title, body });
+    result.web = true;
+  }
+  if (preference.email && registeredNotificationEmail(requester.email)) {
+    result.email = await sendNotificationEmail({
+      to: requester.email,
+      subject: `[VioScope feedback] ${query.title}`,
+      text: [
+        replied ? 'An administrator replied to your VioScope feedback request.' : 'The status of your VioScope feedback request changed.',
+        '',
+        `Title: ${query.title}`,
+        `Status: ${status}`,
+        ...(query.adminNote ? ['', 'Administrator reply:', query.adminNote] : []),
+        '',
+        'Open VioScope → Feedback to read the request.',
+        'You can change these emails in Settings → Notifications → Feedback replies.',
+      ].join('\n'),
+    });
+  }
+  return result;
 }
