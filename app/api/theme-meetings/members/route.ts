@@ -1,10 +1,10 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
+import { requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
-import { canManageTheme } from '../../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan, updateThemeMeetingMember } from '../../../../src/mastra/theme-meetings/planner';
+import { visiblePlanForUser } from '../../../../src/mastra/theme-meetings/access';
+import { updateThemeMeetingMember } from '../../../../src/mastra/theme-meetings/planner';
 
 export const runtime = 'nodejs';
 
@@ -26,12 +26,8 @@ export async function POST(request: Request) {
       throw new Error('themeId, action, and userId or username are required.');
     }
 
-    const payload = await buildThemeMeetingPlan({ meetingDate, validateUsers: true });
-    if (!canManageTheme(payload.config, themeId, user)) {
-      throw new AuthError('Only administrators, PIs, and the theme coordinator can manage theme members.', 403, 'forbidden');
-    }
-
     const result = await updateThemeMeetingMember({
+      actor: user,
       themeId,
       action,
       userId,
@@ -52,8 +48,8 @@ export async function POST(request: Request) {
       },
     });
     return NextResponse.json({
-      user: result.user,
-      plan: result.plan,
+      user: { id: result.user.id, username: result.user.username, displayName: result.user.displayName },
+      plan: visiblePlanForUser(result.plan, result.config, user),
     });
   } catch (error) {
     return errorResponse(error, 400);

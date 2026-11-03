@@ -15,6 +15,6 @@ export function defaultAgenda(items: ThemeMeetingAgendaItem[], meetingDate: stri
   return [
     placeholder('triage_admin', 'Triage & Admin', 'PI reviews the dashboard, confirms the Deep Dive slot and shares brief lab announcements.'),
     ...items.slice().sort(compareAgendaItems),
-    placeholder('assignments', 'Assignments', 'Record the Deep Dive decision (Proceed / Pivot / Kill) and assign the Discussant and Deep Dive slot for the following week.'),
+    placeholder('assignments', 'Assignments', 'Confirm the to-do items for each project before the next theme meeting.'),
   ];
 }

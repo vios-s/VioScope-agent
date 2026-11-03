@@ -816,7 +816,6 @@ async function validateProjectReviewers(input: ProjectCreateInput, owner: string
   for (const username of pdraUsernames) {
     const account = await getUserByUsername(username);
     if (!account || account.provisioningStatus !== 'active') throw new Error('Project PDRA must be an active account.');
-    if (username === owner) throw new Error('The project owner cannot be their own PDRA reviewer.');
   }
   if (!current && !piUsernames.length) throw new Error('Assign at least one project PI to create a project.');
   if (!current && !pdraUsernames.length) throw new Error('Assign at least one project PDRA to create a project.');

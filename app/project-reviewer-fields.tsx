@@ -25,7 +25,7 @@ export function ProjectReviewTeamFields({ team, owner, users, onChange, required
       users={users.filter(user => ['pi', 'administrator'].includes(user.role))} value={team.piUsernames}
       onChange={piUsernames => onChange({ ...team, piUsernames })} />
     <ReviewerInput label="Project PDRAs" required={required} placeholder="Search reviewer accounts"
-      users={users.filter(user => user.username !== owner)} value={team.pdraUsernames}
+      users={users} value={team.pdraUsernames}
       onChange={pdraUsernames => onChange({ ...team, pdraUsernames, pdraUsername: pdraUsernames.includes(team.pdraUsername) ? team.pdraUsername : pdraUsernames[0] || '' })} />
     <div className="project-reviewer-field"><label htmlFor={hint + '-lead'}><span>Lead PDRA reviewer{required && <span className="field-required" aria-hidden="true"> *</span>}</span></label>
       <select id={hint + '-lead'} required={required} value={team.pdraUsername} onChange={event => onChange({ ...team, pdraUsername: event.target.value })}>

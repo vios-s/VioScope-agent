@@ -47,7 +47,7 @@ const plan = themeMeetingPlanSchema.parse({
 });
 const state = { confirmations: [], actions: [] };
 const confirmed = confirmAgenda(state, plan.meetings[0], base.meeting_date, [{ username: 'alice', minutes: 5, deferred: false }], 'chair');
-assert.throws(() => confirmAgenda(state, plan.meetings[0], base.meeting_date, [{ username: 'alice', minutes: 10, deferred: false }], 'chair'), /5–7 minutes/);
+assert.equal(confirmAgenda(state, plan.meetings[0], base.meeting_date, [{ username: 'alice', minutes: 15, deferred: false }], 'chair').entries[0].duration_minutes, 15);
 project.stage = 4;
 assert.equal(snapshot.stage, 3);
 assert.equal(confirmed.entries[0].project_context!.stage, 3);
@@ -55,8 +55,8 @@ assert.equal(meetingProjectContext(project).stage, 4);
 const email = renderThemeMeetingAgendaEmail(plan);
 assert.match(email.html, /Update &middot; 5 min/);
 assert.match(email.text, /Update \(5 min\)/);
-assert.match(email.html, /Project stage: 3/);
-assert.match(email.text, /Project stage: 3/);
+assert.match(email.html, /<strong>Stage:<\/strong> 3/);
+assert.match(email.text, /Stage: 3/);
 // Saving one member's update must not rewrite another member's stored legacy record.
 const storeDir = await mkdtemp(join(tmpdir(), 'theme-legacy-'));
 const updatesPath = join(storeDir, 'updates.yaml');

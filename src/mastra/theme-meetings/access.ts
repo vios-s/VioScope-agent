@@ -18,7 +18,7 @@ export function canManageTheme(config: ThemeMeetingConfig, themeId: string, user
   }
 
   const theme = themeById(config, themeId);
-  return Boolean(theme && normalizeUsername(theme.coordinator_user) === normalizeUsername(user.username));
+  return Boolean(theme && [theme.coordinator_user, ...theme.additional_coordinator_users].some(username => normalizeUsername(username) === normalizeUsername(user.username)));
 }
 
 /** True when a coordinator (theme manager without PI/admin rights) acts on a meeting before the theme's current/next one, i.e. already held. */

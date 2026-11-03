@@ -1,4 +1,5 @@
 import { randomBytes, scrypt, timingSafeEqual, type BinaryLike } from 'node:crypto';
+import { isValidTemporaryPassword, temporaryPasswordHint } from '../auth/temporary-password';
 import { promisify } from 'node:util';
 import { createPostgresClient } from './postgres';
 import type { PublicTeamProfile } from '../team/public-profiles';
@@ -653,6 +654,9 @@ export async function changeLocalUserPassword(
     throw new Error('Current password is incorrect.');
   }
 
+  if (newPassword === currentPassword || (temporaryPasswordMatches && await verifyPassword(newPassword, record.passwordHash))) {
+    throw new Error('Choose a new password different from your current password.');
+  }
   const passwordHash = await hashPassword(newPassword);
   const postgres = createPostgresClient('vioscope-users');
   try {
@@ -711,7 +715,7 @@ export type PasswordResetRequest = {
   expiresAt: string;
 };
 
-function newTemporaryPassword(): string {
+export function newTemporaryPassword(): string {
   return `Vio-${randomBytes(9).toString('base64url')}9!`;
 }
 
@@ -842,7 +846,7 @@ export async function updateOwnUserProfile(input: {
   }
 }
 
-export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRecord> {
+export async function upsertLocalUser(input: LocalUserInput, mode: 'upsert' | 'create-or-activate' = 'upsert'): Promise<UserSeedRecord> {
   const username = normalizeUsername(input.username);
   assertUsername(username);
   const email = normalizeEmail(input.email);
@@ -854,7 +858,9 @@ export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRe
   if (email && !isValidEmail(email)) {
     throw new Error('A valid email address is required.');
   }
-  if (!passwordResetRequired) {
+  if (passwordResetRequired) {
+    if (!isValidTemporaryPassword(input.password)) throw new Error(temporaryPasswordHint);
+  } else {
     assertMediumPassword(input.password);
   }
 
@@ -908,6 +914,7 @@ export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRe
           source = EXCLUDED.source,
           metadata = users.metadata || EXCLUDED.metadata,
           updated_at = now()
+        WHERE $9::boolean OR users.provisioning_status = 'profile_only'
         RETURNING
           id::text,
           username,
@@ -922,11 +929,12 @@ export async function upsertLocalUser(input: LocalUserInput): Promise<UserSeedRe
           session_version,
           last_login_at::text
       `,
-      [username, displayName, email, input.role, passwordHash, passwordResetRequired, input.source || 'manual', JSON.stringify(metadata)],
+      [username, displayName, email, input.role, passwordHash, passwordResetRequired, input.source || 'manual', JSON.stringify(metadata), mode === 'upsert'],
     );
 
     const row = result.rows[0];
     if (!row) {
+      if (mode === 'create-or-activate') throw new Error('A member with this username already exists. Use Edit to change their details.');
       throw new Error(`Failed to upsert local user: ${username}`);
     }
 
@@ -992,6 +1000,10 @@ export async function updateUserByAdmin(input: {
     const nextStatus = input.provisioningStatus || current.provisioning_status;
     const nextDisplayName = input.displayName?.trim() || current.display_name;
     const temporaryPassword = input.temporaryPassword?.trim();
+    if (temporaryPassword && !isValidTemporaryPassword(temporaryPassword)) throw new Error(temporaryPasswordHint);
+    if (!temporaryPassword && current.password_reset_required && input.passwordResetRequired === false) {
+      throw new Error('The member must change their password at sign-in.');
+    }
     const nextPasswordResetRequired = temporaryPassword ? true : input.passwordResetRequired ?? current.password_reset_required;
     const nextEmail = input.email === undefined ? current.email || '' : normalizeEmail(input.email);
     if (nextStatus === 'active' && !nextEmail && !nextPasswordResetRequired) {
@@ -1045,7 +1057,7 @@ export async function updateUserByAdmin(input: {
           password_reset_expires_at = CASE WHEN $9 THEN NULL ELSE password_reset_expires_at END,
           password_reset_used_at = CASE WHEN $9 THEN NULL ELSE password_reset_used_at END,
           password_reset_sent_at = CASE WHEN $9 THEN NULL ELSE password_reset_sent_at END,
-          session_version = session_version + CASE WHEN $9 OR password_reset_required IS DISTINCT FROM $8 OR provisioning_status IS DISTINCT FROM $4 THEN 1 ELSE 0 END,
+          session_version = session_version + CASE WHEN $9 OR password_reset_required IS DISTINCT FROM $8 OR provisioning_status IS DISTINCT FROM $4 OR role IS DISTINCT FROM $3 THEN 1 ELSE 0 END,
           updated_at = now()
         WHERE id = $1 AND session_version = $10
         RETURNING

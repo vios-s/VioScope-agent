@@ -1,5 +1,4 @@
 import { formatDay, formatDayTime, formatLongDay } from '../../../app/format';
-import { formatMeetingProject } from './project-context';
 import { themeAgendaTypeLabels as slotLabels, isAgendaPlaceholder, type ThemeMeetingAgendaItem, type ThemeMeetingPlan } from './schema';
 import { compareAgendaItems } from './agenda-template';
 
@@ -162,9 +161,9 @@ export function renderThemeMeetingAgendaEmail(
       ...[...discussion, ...written].map((item, index) => [
         ...(index === 0 ? [discussion.length ? 'Discussion details' : 'Updates'] : index === discussion.length ? ['Updates'] : []),
         `${item.member} — ${slotLabels[item.update_type]} (${item.duration_minutes} min)`,
-        updateText(item.progress_text),
-        ...(item.project_context ? [formatMeetingProject(item.project_context)] : []),
-        ...(item.questions ? [`Questions: ${updateText(item.questions)}`] : []),
+        ...(isAgendaPlaceholder(item) ? [] : [`Project: ${item.project_context?.title || 'N/A'}`, `Stage: ${item.project_context ? item.project_context.stage ?? 'Not recorded' : 'N/A'}`]),
+        isAgendaPlaceholder(item) ? updateText(item.progress_text) : `Progress:\n${updateText(item.progress_text) || 'N/A'}`,
+        ...(isAgendaPlaceholder(item) ? [] : [`Questions: ${updateText(item.questions) || 'N/A'}`]),
       ].join('\n')),
       ...(meeting.agenda_items.some((item) => !isAgendaPlaceholder(item)) ? [] : ['No planned updates yet.']),
       ...skippedText(confirmed),
@@ -185,9 +184,9 @@ export function renderThemeMeetingAgendaEmail(
     <tr><td style="padding:16px 24px;border-bottom:1px solid #edf0f3;">
       <h4 style="margin:0 0 4px;font-size:16px;line-height:1.5;">${escapeHtml(item.member)}</h4>
       <p style="margin:0 0 10px;font-size:13px;color:#52616b;">${slotLabels[item.update_type]} &middot; ${item.duration_minutes} min</p>
-      <div style="overflow-wrap:anywhere;word-break:break-word;">${updateHtml(item.progress_text)}</div>
-      ${item.project_context ? `<div style="margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere;">${escapeHtml(formatMeetingProject(item.project_context))}</div>` : ''}
-      ${item.questions ? `<div style="margin:12px 0 0;overflow-wrap:anywhere;word-break:break-word;"><strong>Questions</strong>${updateHtml(item.questions)}</div>` : ''}
+      ${isAgendaPlaceholder(item) ? '' : `<div style="margin:0 0 12px;overflow-wrap:anywhere;"><div><strong>Project:</strong> ${escapeHtml(item.project_context?.title || 'N/A')}</div><div><strong>Stage:</strong> ${item.project_context ? item.project_context.stage ?? 'Not recorded' : 'N/A'}</div></div>`}
+      <div style="overflow-wrap:anywhere;word-break:break-word;">${isAgendaPlaceholder(item) ? '' : '<strong>Progress</strong>'}${updateHtml(item.progress_text) || '<p>N/A</p>'}</div>
+      ${isAgendaPlaceholder(item) ? '' : `<div style="margin:12px 0 0;overflow-wrap:anywhere;word-break:break-word;"><strong>Questions</strong>${updateHtml(item.questions) || '<p>N/A</p>'}</div>`}
     </td></tr>`).join('')}` : '';
     return `
     <tr><td style="padding:28px 24px 12px;border-top:1px solid #dce3e9;">

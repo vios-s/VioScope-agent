@@ -184,7 +184,9 @@ try {
   const teamProject=await projects.createProject({title:'Multiple assigned reviewers',pdraUsername:pdra.username,pdraUsernames:[pdra.username,other.username],piUsernames:[pi.username,secondPi.username]},owner);
   assert.deepEqual(teamProject.pdraUsernames,[pdra.username,other.username]);assert.deepEqual(teamProject.piUsernames,[pi.username,secondPi.username]);
   assert.equal((await projects.getProjectForUser(teamProject.id,other)).access.canEdit,false,'Optional PDRA has project read access, not owner edit rights.');
-  await assert.rejects(projects.updateProject(teamProject.id,{pdraUsernames:[pdra.username,owner.username]},owner),/own PDRA/);
+  const selfAssigned=await projects.updateProject(teamProject.id,{pdraUsernames:[pdra.username,owner.username]},owner);
+  assert.ok(selfAssigned.pdraUsernames.includes(owner.username));
+  await projects.updateProject(teamProject.id,{pdraUsernames:[pdra.username,other.username]},owner);
   await assert.rejects(projects.updateProject(teamProject.id,{pdraUsername:outsider.username,pdraUsernames:[pdra.username,other.username]},owner),/lead PDRA/);
   await assert.rejects(projects.updateProject(teamProject.id,{piUsernames:[collab.username]},owner),/active PI/);
   await assert.rejects(projects.updateProject(teamProject.id,{pdraUsernames:[pdra.username,'missing-account']},owner),/active account/);

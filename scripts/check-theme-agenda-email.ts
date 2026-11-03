@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises';
 import nodemailer from 'nodemailer';
 import { renderThemeMeetingAgendaEmail } from '../src/mastra/theme-meetings/agenda-email';
 import { themeMeetingPlanSchema } from '../src/mastra/theme-meetings/schema';
+import { defaultAgenda } from '../src/mastra/theme-meetings/agenda-template';
 
 const meeting = {
   theme_id: 'A', title: 'Example research theme', time: '10:00', duration_minutes: 60,
@@ -101,5 +102,19 @@ assert.match(mime, /Content-Type: text\/plain/);
 assert.match(mime, /Content-Type: text\/html/);
 
 const previewPath = process.argv[2];
-if (previewPath) await writeFile(previewPath, email.html);
+if (previewPath) {
+  const sample = plan.meetings[0]!;
+  const item = { ...sample.agenda_items[0]!, project_context: {
+    projectId: '00000000-0000-4000-8000-000000000001', title: 'Example research project',
+    ownerUsername: 'example.member', stage: 3, actions: [],
+  } };
+  const samplePlan = { ...plan, meetings: [{ ...sample, agenda_items: defaultAgenda([item, { ...item, member: 'Another member', questions: '' }], plan.meeting_date, sample.theme_id, sample.title) }] };
+  const preview = renderThemeMeetingAgendaEmail(samplePlan, { phase: 'preview' });
+  assert.match(preview.html, /<strong>Project:<\/strong>/);
+  assert.doesNotMatch(preview.html, /<strong>Owner:<\/strong>/);
+  assert.match(preview.html, /<strong>Stage:<\/strong>/);
+  assert.match(preview.html, /<strong>Questions<\/strong><p>N\/A<\/p>/);
+  assert.match(preview.text, /Confirm the to-do items for each project before the next theme meeting/);
+  await writeFile(previewPath, preview.html);
+}
 console.log('Theme agenda email checks passed (HTML, plain text, escaping, multiline updates, MIME).');

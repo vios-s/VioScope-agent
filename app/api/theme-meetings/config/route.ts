@@ -58,6 +58,8 @@ function normalizeThemeUsers(
       theme.coordinator_user = coordinatorUsername;
       theme.coordinator = displayNameFor(coordinatorUsername, usersByUsername);
     }
+    theme.additional_coordinator_users = [...new Set(theme.additional_coordinator_users.map(normalizeUsername).filter(Boolean))];
+    theme.additional_coordinator_users.forEach(username => displayNameFor(username, usersByUsername));
 
     const memberUsers = [...new Set((theme.member_users || []).map(normalizeUsername).filter(Boolean))];
     if (!memberUsers.length) {
@@ -72,6 +74,9 @@ function normalizeThemeUsers(
 // A coordinator must stay a member of their theme; a legacy coordinator who was never a member is left as configured.
 function assertCoordinatorsStayMembers(current: ThemeMeetingConfig, next: ThemeMeetingConfig) {
   for (const theme of next.themes) {
+    for (const username of theme.additional_coordinator_users) {
+      if (!(theme.member_users || []).map(normalizeUsername).includes(normalizeUsername(username))) throw new Error(`Each additional coordinator of Theme ${theme.theme_id} must be a member.`);
+    }
     const coordinator = normalizeUsername(theme.coordinator_user);
     if (!coordinator || (theme.member_users || []).includes(coordinator)) continue;
     const before = current.themes.find((candidate) => candidate.theme_id === theme.theme_id);

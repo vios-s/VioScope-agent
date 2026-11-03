@@ -23,7 +23,8 @@ try {
   const accounts = new Map(await Promise.all(['alice','bob','carol','outsider','principal','otherpi','admincheck'].map(async name => [name,(await users.getUserByUsername(name))!] as const)));
   const projectDb = await import('../src/mastra/db/projects');
   await assert.rejects(projectDb.createProject({title:'Invalid PI', piUsername:'bob'},accounts.get('alice')!),/PI must/);
-  await assert.rejects(projectDb.createProject({title:'Self review', pdraUsername:'alice'},accounts.get('alice')!),/own PDRA/);
+  const selfAssigned = await projectDb.createProject({title:'Self assigned PDRA', piUsername:'principal', pdraUsername:'alice'},accounts.get('alice')!);
+  assert.equal(selfAssigned.pdraUsername, 'alice');
   const early = await projectDb.createProject({title:'Synthetic early-stage project', stage:2, piUsername:'principal', pdraUsername:'bob'},accounts.get('alice')!);
   let project = await projectDb.createProject({title:'Synthetic bound skeleton', stage:4, piUsername:'principal', pdraUsername:'bob',collaborators:['carol'],venue:'Fictional venue',submissionDeadline:'2026-12-15'},accounts.get('alice')!);
   assert.equal(project.piUsername,'principal');assert.equal(project.pdraUsername,'bob');

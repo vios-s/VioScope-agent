@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict';
 import { defaultAgenda } from '../src/mastra/theme-meetings/agenda-template';
-import { themeMeetingPlanSchema, themeMeetingUpdateSchema } from '../src/mastra/theme-meetings/schema';
+import { themeMeetingConfigSchema, themeMeetingPlanSchema, themeMeetingUpdateSchema } from '../src/mastra/theme-meetings/schema';
+import { canManageTheme } from '../src/mastra/theme-meetings/access';
+import { isThemeAgendaSubscriptionRequired } from '../src/mastra/theme-meetings/agenda-recipients';
 import { confirmAgenda, applyConfirmedAgendas, agendaSourceVersion, type MeetingWorkflow } from '../src/mastra/theme-meetings/workflow';
 import { renderThemeMeetingAgendaEmail } from '../src/mastra/theme-meetings/agenda-email';
 
 const date = '2026-11-04';
+const coordinatorConfig = themeMeetingConfigSchema.parse({ cycle: { rotation: ['AB'], anchor_date: date }, themes: [
+  { theme_id: 'A', title: 'Theme A', cycle_group: 'AB', time: '10:00', coordinator: 'Chair', coordinator_user: 'chair', additional_coordinator_users: ['cochair'], members: ['Chair', 'Co-chair'], member_users: ['chair', 'cochair'] },
+  { theme_id: 'B', title: 'Theme B', cycle_group: 'AB', time: '11:00', coordinator: 'Other', coordinator_user: 'other', members: ['Other'], member_users: ['other'] },
+] });
+assert.equal(canManageTheme(coordinatorConfig, 'A', { username: 'cochair', role: 'member' } as any), true);
+assert.equal(canManageTheme(coordinatorConfig, 'B', { username: 'cochair', role: 'member' } as any), false);
+assert.equal(isThemeAgendaSubscriptionRequired(coordinatorConfig, 'A', 'cochair'), true);
 const base = { meeting_date: date, theme_id: 'A', theme_title: 'Synthetic theme', progress_text: 'Recorded evidence.', questions: '', submitted_at: '2026-10-30T12:00:00Z' };
 const items = defaultAgenda([
   { ...base, member: 'Alice', member_username: 'alice', update_type: 'short_update', duration_minutes: 5 },
@@ -26,12 +35,18 @@ const selections = items.map((item) => ({ username: item.member_username!, minut
 assert.throws(() => confirmAgenda(state, meeting, date, selections, 'chair'), /exceeds the meeting time/);
 assert.throws(() => confirmAgenda(state, meeting, date, selections.slice(1), 'chair'), /exactly once/);
 const arranged = [...selections].reverse().map((item) => ({ ...item, minutes: item.username === 'alice' ? 7 : ['bob', 'carol'].includes(item.username) ? 20 : 6 }));
+const boundaryState: MeetingWorkflow = { confirmations: [], actions: [] };
+const atLimit = arranged.map(item => item.username === 'alice' ? { ...item, minutes: 8 } : item);
+confirmAgenda(boundaryState, meeting, date, atLimit, 'chair');
+const overLimit = atLimit.map(item => item.username === 'alice' ? { ...item, minutes: 9 } : item);
+assert.throws(() => confirmAgenda(boundaryState, { ...meeting, duration_minutes: 90 }, date, overLimit, 'chair'), /exceeds the meeting time/);
+assert.equal(boundaryState.confirmations.length, 1);
 const before = agendaSourceVersion(meeting, null);
 const confirmation = confirmAgenda(state, meeting, date, arranged, 'chair');
 assert.equal(confirmation.entries.reduce((sum, item) => sum + item.duration_minutes, 0), 59);
 assert.equal(confirmation.entries[0].update_type, 'assignments', 'Coordinator order overrides the default.');
 assert.notEqual(agendaSourceVersion(meeting, confirmation), before);
-assert.throws(() => confirmAgenda(state, meeting, date, arranged.map((item) => item.username === 'alice' ? { ...item, minutes: 8 } : item), 'chair'), /5–7 minutes/);
+assert.throws(() => confirmAgenda(state, meeting, date, arranged.map((item) => item.username === 'alice' ? { ...item, minutes: 0 } : item), 'chair'), /Invalid slot duration/);
 const confirmedPlan = applyConfirmedAgendas(plan, state);
 assert.deepEqual(confirmedPlan.meetings[0].agenda_items.map((item) => item.member_username), arranged.map((item) => item.username));
 const email = renderThemeMeetingAgendaEmail(confirmedPlan, { confirmation: { ...confirmation, skipped: [] } });
@@ -44,4 +59,20 @@ assert.match(renderThemeMeetingAgendaEmail(emptyPlan).html, /consider skipping/)
 const legacy: MeetingWorkflow = { confirmations: [{ ...confirmation, entries: confirmation.entries.filter((item) => !item.member_username?.startsWith(':')) }], actions: [] };
 assert.equal(applyConfirmedAgendas(plan, legacy).meetings[0].agenda_items.length, 3);
 assert.equal(state.confirmations.length, 1, 'Rejected edits add no saved versions.');
+const guest = { username: ':speaker:00000000-0000-4000-8000-000000000001', speakerName: 'Guest speaker', speakerSummary: 'Discuss the new results.', minutes: 5, deferred: false };
+const guestEntries = arranged.map(item => item.username === 'bob' ? { ...item, minutes: 15 } : item);
+const withGuest = confirmAgenda(state, meeting, date, [...guestEntries, guest], 'chair');
+assert.equal(withGuest.entries.at(-1)?.member, 'Guest speaker');
+assert.equal(withGuest.entries.at(-1)?.duration_minutes, 5);
+assert.equal(withGuest.entries.at(-1)?.progress_text, 'Discuss the new results.');
+const guestEmail = renderThemeMeetingAgendaEmail(applyConfirmedAgendas(plan, state), { confirmation: { ...withGuest, skipped: [] } });
+assert.match(guestEmail.text, /Discuss the new results\./);
+assert.match(guestEmail.html, /Discuss the new results\./);
+const revisedGuest = confirmAgenda(state, meeting, date, [...guestEntries, { ...guest, speakerSummary: 'Discuss the revised results.' }], 'chair');
+assert.equal(revisedGuest.entries.at(-1)?.progress_text, 'Discuss the revised results.');
+assert.equal(withGuest.entries.at(-1)?.progress_text, 'Discuss the new results.', 'Earlier confirmed summaries stay unchanged.');
+assert.throws(() => confirmAgenda(state, meeting, date, guestEntries.map((item, index) => index ? item : { ...item, speakerSummary: 'Impersonated update' }), 'chair'), /Only temporary speakers/);
+assert.throws(() => confirmAgenda(state, meeting, date, [...guestEntries, { ...guest, speakerSummary: Array(51).fill('word').join(' ') }], 'chair'), /50 words/);
+assert.throws(() => confirmAgenda(state, meeting, date, [...guestEntries, { username: 'unrecognised', minutes: 5, deferred: false }], 'chair'), /agenda changed/);
+assert.equal(confirmAgenda(state, meeting, date, guestEntries, 'chair').entries.some(item => item.member_username === guest.username), false);
 console.log('Agenda template passed: placeholders, ordering, budget, coordinator edits, invalid inputs, email and historical snapshots.');

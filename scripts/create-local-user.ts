@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { ensureUsersTable, isUserRole, type UserRole, upsertLocalUser } from '../src/mastra/db/users';
+import { ensureUsersTable, isUserRole, newTemporaryPassword, type UserRole, upsertLocalUser } from '../src/mastra/db/users';
 
 type CliOptions = {
   username?: string;
@@ -80,7 +80,6 @@ function parseArgs(args: string[]): CliOptions {
   if (positional.length === 2) {
     const [username, role] = positional;
     options.username = username;
-    options.password = username;
     options.role = parseRole(role);
     options.forcePasswordChange = true;
   } else {
@@ -97,28 +96,30 @@ function parseArgs(args: string[]): CliOptions {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (!options.username || !options.password || !options.role) {
+  if (!options.username || !options.role) {
     printUsage();
     throw new Error('username and role are required.');
   }
   const passwordResetRequired = options.forcePasswordChange || !options.email;
 
+  const password = options.password ?? newTemporaryPassword();
   await ensureUsersTable();
   const user = await upsertLocalUser({
     username: options.username,
-    password: options.password,
+    password,
     email: options.email,
     role: options.role,
     displayName: options.displayName,
     passwordResetRequired,
     source: 'manual',
     metadata: { created_by: 'scripts/create-local-user.ts' },
-  });
+  }, 'create-or-activate');
 
   console.log(
     JSON.stringify(
       {
-        mode: 'upserted',
+        mode: 'created-or-activated',
+        temporaryPassword: options.password ? undefined : password,
         username: user.username,
         displayName: user.displayName,
         email: user.email,

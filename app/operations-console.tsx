@@ -1,4 +1,5 @@
 'use client';
+import { isValidTemporaryPassword, temporaryPasswordHint, temporaryPasswordMinLength } from '../src/mastra/auth/temporary-password';
 import { isAgendaPlaceholder } from '../src/mastra/theme-meetings/schema';
 
 import { checklistDraftKey, clearChecklistDrafts, useChecklistDraft } from './checklist-drafts';
@@ -51,12 +52,12 @@ import { ArrowUp as ChatSendIcon, Compass as ChatAdvisorIcon } from 'lucide-reac
 import { SkeletonLock } from './skeleton-lock';
 import { CollaboratorInput, collaboratorTokens } from './collaborator-input';
 import { ProjectReviewTeamFields } from './project-reviewer-fields';
+import { UkDateInput } from './uk-date-input';
 import {projectPIs,projectPDRAs} from '../src/mastra/projects/review-team';
 import { InternalReview } from './internal-review';
 import { IdeaPitches } from './idea-pitches';
 import { ProjectIdeaOrigin } from './project-idea-origin';
 import { ProjectWorkflow, type WorkflowTab } from './project-workflow';
-import { ProjectRecordMenu } from './project-record-menu';
 import { ProjectDetailsList } from './project-details-list';
 import { MeetingProjectSummary } from './meeting-project-summary';
 import { meetingProjectContext } from '../src/mastra/theme-meetings/project-context';
@@ -2423,7 +2424,7 @@ function ProjectEditorModal({
                 />
               </label>
           )}
-          <ProjectReviewerFields required={isNew} draft={draft} users={collaboratorUsers} onChange={patch => setDraft(current => ({ ...current, ...patch }))} />
+          <ProjectReviewerFields required={isNew} draft={draft} users={[viewer, ...collaboratorUsers.filter(user => user.username !== viewer.username)]} onChange={patch => setDraft(current => ({ ...current, ...patch }))} />
           <CollaboratorInput
             value={draft.collaboratorsText}
             users={collaboratorUsers}
@@ -2473,10 +2474,9 @@ function ProjectEditorModal({
           </label>
           <label>
             <span>Submission deadline</span>
-            <input
-              type="date"
+            <UkDateInput
               value={draft.submissionDeadline}
-              onChange={(event) => setDraft((current) => ({ ...current, submissionDeadline: event.target.value }))}
+              onChange={(value) => setDraft((current) => ({ ...current, submissionDeadline: value }))}
             />
           </label>
         </div>
@@ -2545,10 +2545,6 @@ function ProjectDetailModal({
   const [mode, setMode] = useState<ProjectDetailMode>(initialMode);
   const [draft, setDraft] = useState(() => defaultTimelineDraft(project));
   const [editorOpen, setEditorOpen] = useState(false);
-  const [recordMenuOpen, setRecordMenuOpen] = useState(false);
-  const recordMenuRef = useRef<HTMLDivElement | null>(null);
-  const recordMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
-  useMenuFocus(recordMenuOpen, recordMenuRef);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
   const [updateToDelete, setUpdateToDelete] = useState<ManagedProjectUpdate | null>(null);
@@ -2796,14 +2792,6 @@ function ProjectDetailModal({
             </div>
           </div>
           <div className="vs-record-header-actions">
-            {project.access.canArchive && (
-              <div className="vs-record-menu-wrap">
-                <button ref={recordMenuTriggerRef} className="vs-record-close" type="button" aria-label={`More actions for ${project.title}`} aria-haspopup="menu" aria-expanded={recordMenuOpen} onClick={() => setRecordMenuOpen((current) => !current)}>
-                  <Ellipsis aria-hidden="true" />
-                </button>
-                {recordMenuOpen && <ProjectRecordMenu menuRef={recordMenuRef} trigger={recordMenuTriggerRef.current} title={project.title} archived={project.lifecycle === 'archived'} onClose={() => setRecordMenuOpen(false)} onSelect={() => void (project.lifecycle === 'archived' ? onUnarchive : onArchive)(project)} />}
-              </div>
-            )}
             <button ref={closeButtonRef} className="vs-record-close" type="button" onClick={onClose} aria-label="Close project details">
               <X aria-hidden="true" />
             </button>
@@ -2912,6 +2900,13 @@ function ProjectDetailModal({
             {oldArtifacts.length > 0 && <div className="ops-muted-line">{oldArtifacts.length} previous versions retained</div>}
           </div>
         </section>
+        {project.access.canArchive && (
+          <div className="vs-form-footer">
+            <button className="ops-secondary danger-action" type="button" onClick={() => void (project.lifecycle === 'archived' ? onUnarchive : onArchive)(project)}>
+              {project.lifecycle === 'archived' ? 'Unarchive project' : 'Archive project'}
+            </button>
+          </div>
+        )}
           </div>
         )}
 
@@ -3296,6 +3291,8 @@ function ThemeMeetingPanel({
   const meetingMenuTriggerRef = useRef<HTMLButtonElement | null>(null);
   useMenuFocus(meetingMenuOpen, meetingMenuRef);
   const [recordsRequest, setRecordsRequest] = useState<RecordsRequest | undefined>(undefined);
+  const [speakerEditorTarget, setSpeakerEditorTarget] = useState<HTMLDivElement | null>(null);
+  const [speakerFormActive, setSpeakerFormActive] = useState(false);
 
   const plan = payload?.plan;
   const overviewPlan = payload?.overviewPlan;
@@ -3576,6 +3573,7 @@ function ThemeMeetingPanel({
   const canManageActive = Boolean(activeMeeting && managedThemeIds.has(activeMeeting.theme_id));
   // Coordinators read past meetings in full but cannot change them; PI and administrator are never read-only.
   const readOnlyActive = Boolean(canManageActive && activeMeeting && payload?.access?.readOnlyThemeIds?.includes(activeMeeting.theme_id));
+  const canEditSpeaker = canManageActive && !readOnlyActive && !activeMeeting?.cancelled;
   const heldActive = Boolean(canManageActive && activeMeeting && payload?.access?.heldThemeIds?.includes(activeMeeting.theme_id));
   const canAccessActive = canManageActive || Boolean(activeMeeting?.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username)));
   // Members see only their own draft row, so tell them how many updates are planned and when the draft is circulated.
@@ -3677,7 +3675,7 @@ function ThemeMeetingPanel({
             </div>
           </div>
 
-          <div className={`mt-layout${showPersonalUpdateForm ? '' : ' planning-only'}${canManageActive ? '' : ' is-member-first'}`}>
+          <div className={`mt-layout${showPersonalUpdateForm || canEditSpeaker ? '' : ' planning-only'}${canManageActive ? '' : ' is-member-first'}`}>
             {activeCard && (
               <section className="mt-agenda" id="mt-agenda-panel" role="tabpanel" aria-labelledby={`mt-tab-${activeCard.theme_id}`}>
                 <div className="mt-agenda-head">
@@ -3750,6 +3748,8 @@ function ThemeMeetingPanel({
                       || meeting.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username))).map((meeting) => meeting.theme_id)}
                     draftNote={draftNote}
                     recordsRequest={recordsRequest}
+                    speakerEditorTarget={speakerEditorTarget}
+                    onEditSpeaker={() => setSpeakerFormActive(true)}
                   >
                     {!activeMeeting.cancelled && canManageActive && (
                       <div className={`mt-awaiting${activeMeeting.missing_members.length ? '' : ' is-complete'}`}>
@@ -3833,7 +3833,12 @@ function ThemeMeetingPanel({
               </section>
             )}
 
-            {showPersonalUpdateForm && (
+            {(showPersonalUpdateForm || canEditSpeaker) && <div className="mt-form-column">
+            {showPersonalUpdateForm && canEditSpeaker && <div className="mt-form-switch" aria-label="Update form">
+              <button type="button" className="ops-secondary" aria-pressed={!speakerFormActive} onClick={() => setSpeakerFormActive(false)}>Your update</button>
+              <button type="button" className="ops-secondary" aria-pressed={speakerFormActive} onClick={() => setSpeakerFormActive(true)}>Temporary speaker</button>
+            </div>}
+            {showPersonalUpdateForm && (!canEditSpeaker || !speakerFormActive) && (
               <form className="theme-update-form mt-form" onSubmit={submitUpdate} aria-labelledby="mt-form-title">
                 <div className="mt-form-head">
                   <div className="mt-form-title-row">
@@ -3968,6 +3973,8 @@ function ThemeMeetingPanel({
                 </div>
               </form>
             )}
+            <div ref={setSpeakerEditorTarget} style={{ display: canEditSpeaker && (!showPersonalUpdateForm || speakerFormActive) ? undefined : 'none' }} />
+            </div>}
           </div>
 
           {pastPlans.length > 0 && (
@@ -6356,6 +6363,11 @@ function ThemeMeetingSettingsPanel() {
                             ))}
                           </select>
                         </label>
+                        <label className="theme-settings-field"><span>Additional coordinators</span>
+                          <select multiple value={theme.additional_coordinator_users} onChange={event => updateTheme(theme.theme_id, { additional_coordinator_users: Array.from(event.currentTarget.selectedOptions, option => option.value) })}>
+                            {users.filter(user => (theme.member_users || []).includes(user.username) && user.username !== coordinatorUsername).map(user => <option key={user.username} value={user.username}>{user.displayName} (@{user.username})</option>)}
+                          </select>
+                        </label>
                       </div>
                     ) : (
                       <div className="theme-settings-readonly-grid">
@@ -7042,8 +7054,8 @@ function UsersView({
     const draft = drafts[user.id] || draftFromUser(user);
     setMessage(null);
     setError(null);
-    if (!statusOnly && draft.temporaryPassword && passwordStrength(draft.temporaryPassword) === 'weak') {
-      setError(`Temporary password: ${passwordRequirementError}`);
+    if (!statusOnly && draft.temporaryPassword && !isValidTemporaryPassword(draft.temporaryPassword)) {
+      setError(`Temporary password: ${temporaryPasswordHint}`);
       return;
     }
     setBusyId(user.id);
@@ -7080,8 +7092,8 @@ function UsersView({
     event.preventDefault();
     setMessage(null);
     setError(null);
-    if (passwordStrength(createDraft.temporaryPassword) === 'weak') {
-      setError(`Temporary password: ${passwordRequirementError}`);
+    if (!isValidTemporaryPassword(createDraft.temporaryPassword)) {
+      setError(`Temporary password: ${temporaryPasswordHint}`);
       return;
     }
     setBusyCreate(true);
@@ -7627,13 +7639,13 @@ function UsersView({
               <input
                 type="password"
                 required
-                minLength={8}
+                minLength={temporaryPasswordMinLength}
                 autoComplete="new-password"
                 aria-describedby="create-user-password-help"
                 value={createDraft.temporaryPassword}
                 onChange={(event) => setCreateDraft((current) => ({ ...current, temporaryPassword: event.target.value }))}
               />
-              <small id="create-user-password-help" className="field-help">{passwordRequirementText} It must be changed at first sign-in.</small>
+              <small id="create-user-password-help" className="field-help">{temporaryPasswordHint} It must be changed at first sign-in.</small>
             </label>
             {dialogError}
             <footer>
@@ -7759,10 +7771,14 @@ function UsersView({
               <span>Temporary password</span>
               <input
                 type="password"
+                minLength={temporaryPasswordMinLength}
+                autoComplete="new-password"
+                aria-describedby="edit-user-password-help"
                 value={editingDraft.temporaryPassword}
                 onChange={(event) => setDraft(editingUser.id, { temporaryPassword: event.target.value })}
                 placeholder={editingUser.hasPassword ? 'Leave blank to keep the current password' : 'Required to activate'}
               />
+              <small id="edit-user-password-help" className="field-help">{temporaryPasswordHint} It must be changed at next sign-in.</small>
             </label>
             {dialogError}
             <footer>

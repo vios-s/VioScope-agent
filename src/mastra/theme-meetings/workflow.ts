@@ -31,6 +31,8 @@ export type MeetingAction = MeetingWorkflow['actions'][number];
 export type AgendaConfirmation = MeetingWorkflow['confirmations'][number];
 export const agendaSelectionSchema = z.array(z.object({
   username: z.string().trim().min(1), minutes: z.number().int().min(0).max(60), deferred: z.boolean(),
+  speakerName: z.string().trim().min(1).max(120).optional(),
+  speakerSummary: z.string().max(5000).refine(value => !value.trim() || value.trim().split(/\s+/).length <= 50, 'Temporary speaker summary must be 50 words or fewer.').optional(),
 }).strict()).max(200);
 export const newActionSchema = z.object({ projectId: z.string().uuid().nullable().default(null), decision: text, task: text, owner: z.string().trim().min(1), dueDate: meetingDateSchema }).strict();
 
@@ -72,19 +74,25 @@ export function confirmAgenda(state: MeetingWorkflow, meeting: ThemeMeetingPlan[
   if (meeting.cancelled) throw new Error('Restore the cancelled meeting before confirming an agenda.');
   const selected = agendaSelectionSchema.parse(selections);
   const usernames = selected.map((item) => item.username);
-  if (new Set(usernames).size !== usernames.length || selected.length !== meeting.agenda_items.length) {
+  if (new Set(usernames).size !== usernames.length || meeting.agenda_items.some((item) => !usernames.includes(item.member_username || ''))) {
     throw new Error('Review every submitted item exactly once. Refresh the agenda.');
   }
   const entries = selected.map((selection) => {
-    const source = meeting.agenda_items.find((item) => item.member_username === selection.username);
+    const temporary = /^:speaker:[0-9a-f-]{36}$/i.test(selection.username);
+    if (!temporary && selection.speakerSummary !== undefined) throw new Error('Only temporary speakers can have a coordinator-written summary.');
+    const saved = latestConfirmation(state, date, meeting.theme_id)?.entries.find((item) => item.member_username === selection.username);
+    const source = meeting.agenda_items.find((item) => item.member_username === selection.username) || (temporary && saved) || (temporary && selection.speakerName ? {
+      meeting_date: date, theme_id: meeting.theme_id, theme_title: meeting.title, member: selection.speakerName,
+      member_username: selection.username, update_type: 'short_update' as const, duration_minutes: selection.minutes,
+      progress_text: '', questions: '', submitted_at: new Date().toISOString(),
+    } : undefined);
     if (!source) throw new Error('The agenda changed. Refresh before confirming.');
     if ((source.update_type === 'nothing_to_report' && selection.minutes !== 0) ||
         (source.update_type !== 'nothing_to_report' && selection.minutes < 1)) throw new Error('Invalid slot duration.');
-    if (source.update_type === 'short_update' && (selection.minutes < 5 || selection.minutes > 7)) throw new Error('Updates must be 5–7 minutes.');
-    return { ...source, duration_minutes: selection.minutes, deferred: selection.deferred };
+    return { ...source, ...(temporary && selection.speakerSummary !== undefined ? { progress_text: selection.speakerSummary.trim() } : {}), duration_minutes: selection.minutes, deferred: selection.deferred };
   });
-  if (entries.filter((item) => !item.deferred).reduce((sum, item) => sum + item.duration_minutes, 0) > meeting.duration_minutes) {
-    throw new Error('The agenda exceeds the meeting time. Shorten or defer an item.');
+  if (entries.filter((item) => !item.deferred).reduce((sum, item) => sum + item.duration_minutes, 0) > Math.min(60, meeting.duration_minutes)) {
+    throw new Error('The agenda exceeds the meeting time. Shorten a scheduled slot before confirming.');
   }
   const record = confirmationSchema.parse({ meetingDate: date, themeId: meeting.theme_id,
     version: (latestConfirmation(state, date, meeting.theme_id)?.version || 0) + 1,

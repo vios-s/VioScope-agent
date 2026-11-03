@@ -420,6 +420,8 @@ async function main() {
           }),
         ),
       );
+      assert.equal(afterAdd.plan.meetings.some((meeting: { theme_id: string }) => meeting.theme_id === coordinator.otherThemeId), false);
+      assert.equal('notificationPreferences' in afterAdd.user, false);
       assert.ok(
         afterAdd.plan.meetings
           .find((meeting: { theme_id: string }) => meeting.theme_id === coordinator.themeId)

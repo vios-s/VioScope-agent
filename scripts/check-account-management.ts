@@ -44,7 +44,7 @@ const users = {
   admin: { username: 'account.smoke.admin', role: 'administrator' as const, password: 'AdminPass1!' },
   pi: { username: 'account.smoke.pi', role: 'pi' as const, password: 'PiPass123!' },
   member: { username: 'account.smoke.member', role: 'member' as const, password: 'Member123!' },
-  reset: { username: 'account.smoke.reset', role: 'member' as const, password: '123456' },
+  reset: { username: 'account.smoke.reset', role: 'member' as const, password: 'temporary' },
   disabled: { username: 'account.smoke.disabled', role: 'member' as const, password: 'Disabled123!' },
   profileOnly: { username: 'account.smoke.profile', role: 'viewer' as const },
   recover: { username: 'account.smoke.recover', role: 'member' as const, password: 'Recover123!' },
@@ -381,7 +381,7 @@ async function main() {
     const memberList = await usersRoute.GET(getRequest('/api/users', cookieFor(member)));
     assert.equal(memberList.status, 403, 'Member should not list users.');
 
-    const inviteTemporaryPassword = 'Invite-Temp1!';
+    const inviteTemporaryPassword = 'inviteonly';
     const missingTemporaryPassword = await usersRoute.POST(jsonRequest('/api/users', {
       username: users.noEmailInvite.username,
       role: users.noEmailInvite.role,
@@ -393,7 +393,7 @@ async function main() {
       temporaryPassword: 'a',
     }, cookieFor(admin)));
     assert.equal(weakTemporaryPassword.status, 400, 'Add member must reject a weak temporary password.');
-    assert.match((await jsonBody(weakTemporaryPassword)).error, /medium strength/);
+    assert.match((await jsonBody(weakTemporaryPassword)).error, /at least 8 characters/);
     const noEmailCreate = await usersRoute.POST(jsonRequest('/api/users', {
       username: users.noEmailInvite.username,
       role: users.noEmailInvite.role,
@@ -425,6 +425,24 @@ async function main() {
     const noEmailChangedUser = (await jsonBody(noEmailGoodChange)).user;
     assert.equal(noEmailChangedUser.email, email(users.noEmailInvite.username));
     assert.equal(noEmailChangedUser.passwordResetRequired, false);
+
+    const activationPassword = 'SyntheticActivation1!';
+    const activate = () => usersRoute.POST(jsonRequest('/api/users', {
+      username: users.profileOnly.username, email: email(users.profileOnly.username), temporaryPassword: activationPassword,
+    }, cookieFor(admin)));
+    const concurrent = await Promise.all([activate(), activate()]);
+    assert.deepEqual(concurrent.map(response => response.status).sort(), [200, 400]);
+    const activated = await login(users.profileOnly.username, activationPassword);
+    assert.ok(activated.body.user.passwordResetRequired);
+    const reuse = await changePasswordRoute.POST(jsonRequest('/api/auth/change-password', {
+      currentPassword: activationPassword, newPassword: activationPassword,
+    }, activated.cookie || undefined));
+    assert.equal(reuse.status, 400, 'Forced change must replace the temporary password.');
+    const clearReset = await userRoute.PATCH(
+      jsonRequest('/api/users/' + activated.body.user.id, { passwordResetRequired: false }, cookieFor(admin)),
+      { params: Promise.resolve({ userId: activated.body.user.id }) },
+    );
+    assert.equal(clearReset.status, 400, 'An account edit cannot promote a temporary password to a permanent one.');
 
     const piCreatesAdmin = await usersRoute.POST(jsonRequest('/api/users', {
       username: users.piBlockedAdmin.username,

@@ -32,13 +32,14 @@ try {
     [{ piUsernames: [' ', ''], pdraUsernames: ['reviewer'] }, /at least one project PI/],
     [{ piUsernames: ['principal'], pdraUsernames: [] }, /at least one project PDRA/],
     [{ piUsernames: ['reviewer'], pdraUsernames: ['second'] }, /active PI/],
-    [{ piUsernames: ['principal'], pdraUsernames: ['owner'] }, /own PDRA/],
   ] as const) {
     const response = await route.POST(new Request('http://localhost/api/projects', { method: 'POST',
       headers: { 'content-type': 'application/json', cookie: `${sessionCookieName}=${createSessionToken(owner)}` },
       body: JSON.stringify({ title: 'Rejected empty team', ...team }) }));
     assert.equal(response.status, 400); assert.match((await response.json()).error, error);
   }
+  const ownProject = await createProject({ title: 'Owner as PDRA', piUsername: 'principal', pdraUsername: 'owner' }, owner);
+  assert.equal(ownProject.pdraUsername, 'owner');
   const project = await createProject({ title: 'Existing project', piUsername: 'principal', pdraUsername: 'reviewer' }, owner);
   const legacy = await updateProject(project.id, { piUsernames: [], pdraUsernames: [], pdraUsername: null }, owner);
   assert.deepEqual(legacy.piUsernames, []);
@@ -72,6 +73,14 @@ try {
   assert.equal(await modal.locator('.checklist-hint').count(), 0);
   const pi = modal.getByRole('textbox', { name: 'Project PIs', exact: true });
   const pdra = modal.getByRole('textbox', { name: 'Project PDRAs', exact: true });
+  await pdra.fill('owne');
+  await modal.getByRole('group', { name: 'Project PDRAs suggestions' }).getByRole('button', { name: /@owner/ }).click();
+  assert.equal(await modal.getByLabel('Lead PDRA reviewer').inputValue(), 'owner');
+  const deadline = modal.getByLabel('Submission deadline');
+  await deadline.fill('31/02/2027');
+  assert.equal(await deadline.evaluate((input: HTMLInputElement) => input.validity.valid), false);
+  await deadline.fill('05/01/2027');
+  assert.equal(await deadline.evaluate((input: HTMLInputElement) => input.validity.valid), true);
   assert.equal(await modal.locator('select[multiple]').count(), 0);
   assert.equal(await modal.locator('.field-required').count(), 3);
   assert.equal(await pi.getAttribute('aria-describedby'), null);
@@ -123,7 +132,18 @@ try {
   assert.deepEqual(result.pdraUsernames, ['reviewer', 'second']);
   assert.equal(result.pdraUsername, 'reviewer');
   assert.equal(result.project, 'custom-team');
+  assert.equal(result.submissionDeadline, '2027-01-05');
   assert.deepEqual(result.collaborators, ['second']);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByLabel(`Project overview for ${result.title}`).click();
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click();
+  await page.getByRole('button', { name: 'Archive project', exact: true }).click();
+  const archiveDialog = page.getByRole('dialog', { name: 'Archive project?' });
+  await archiveDialog.getByLabel('Type the project title to confirm').fill(result.title);
+  await archiveDialog.getByRole('button', { name: 'Archive project' }).click();
+  await page.getByRole('tab', { name: /^Archived/ }).click();
+  await page.getByLabel(`Unarchive ${result.title}`).click();
+  await page.getByLabel(`Unarchive ${result.title}`).waitFor({ state: 'hidden' });
   assert.deepEqual(errors, []);
   console.log('Compiled UI: search, keyboard/mouse selection, multi-account values, lead removal, required fields, save and three widths passed.');
 } finally {

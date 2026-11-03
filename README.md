@@ -161,7 +161,7 @@ npm run users:import-team
 npm run users:seed-memory
 ```
 
-Create a first-login local account. With no password argument, the username is used once and the user must add email and reset password before normal app access:
+Create a first-login local account. With no password argument, the command prints a randomly generated temporary password. The user must set a new password and supply any missing email address at first sign-in:
 
 ```bash
 npm run users:create -- alice member

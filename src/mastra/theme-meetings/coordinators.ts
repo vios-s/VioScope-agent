@@ -9,8 +9,9 @@ export async function coordinatorThemesByUsername(): Promise<Map<string, string[
     return null;
   });
   for (const theme of config?.themes || []) {
-    const username = theme.coordinator_user?.trim().toLowerCase();
-    if (username) themes.set(username, [...(themes.get(username) || []), theme.theme_id]);
+    for (const username of [theme.coordinator_user, ...theme.additional_coordinator_users].map(name => name?.trim().toLowerCase()).filter((name): name is string => Boolean(name))) {
+      themes.set(username, [...(themes.get(username) || []), theme.theme_id]);
+    }
   }
   return themes;
 }

@@ -72,13 +72,14 @@ export async function GET(request: Request) {
     const emailedAt = manager && prefix ? (await readThemeMeetingEmailDeliveries()).deliveries
       .filter((delivery) => delivery.id.startsWith(prefix)).map((delivery) => delivery.sent_at).sort().at(-1) || null : null;
     return NextResponse.json({
-      manager, readOnly, viewerUsername: user.username, cancelled: meeting.cancelled, duration: meeting.duration_minutes,
+      manager, readOnly, viewerUsername: user.username, cancelled: meeting.cancelled, duration: Math.min(60, meeting.duration_minutes),
       sourceVersion: agendaSourceVersion(meeting, confirmation), emailedAt,
       // Managers only: counts and names (never addresses) for the Email dialog, from the same rules the send uses.
       emailAudience: manager && !readOnly && confirmation && !meeting.cancelled
         ? await confirmedAgendaEmailAudience({ ...payload.plan, meetings: [meeting] }, payload.config, key.themeId, confirmation.version) : null,
       viewerId: user.id,
-      candidates: meeting.agenda_items.filter((item) => isAgendaPlaceholder(item) || visible(item.member_username)),
+      candidates: [...meeting.agenda_items.filter((item) => isAgendaPlaceholder(item) || visible(item.member_username)),
+        ...(manager ? (confirmation?.entries || []).filter((item) => item.member_username?.startsWith(':speaker:')) : [])],
       // Unconfirmed draft submissions stay visible only to their author and managers. For the theme's current/next
       // meeting, members see the confirmed schedule (as the confirmed agenda email circulates it): scheduled entries
       // in full, legacy deferred entries as name and update type only. For earlier meetings members see only their own entries.

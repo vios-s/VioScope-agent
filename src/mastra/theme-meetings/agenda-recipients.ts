@@ -19,7 +19,7 @@ export function themeAgendaRequiredReason(config: ThemeMeetingConfig, themeId: s
   const normalized = username.trim().toLowerCase();
   if (!theme || !normalized) return null;
   if ((theme.member_users || []).some((account) => account.trim().toLowerCase() === normalized)) return 'member';
-  return (theme.coordinator_user || '').trim().toLowerCase() === normalized ? 'coordinator' : null;
+  return [theme.coordinator_user || '', ...theme.additional_coordinator_users].some(account => account.trim().toLowerCase() === normalized) ? 'coordinator' : null;
 }
 
 export function isThemeAgendaSubscriptionRequired(config: ThemeMeetingConfig, themeId: string, username: string): boolean {
@@ -43,7 +43,7 @@ export function themeAgendaRecipients(
     recipients.set(key, recipient);
   };
   for (const meeting of meetings) {
-    for (const username of [meeting.coordinator_username || '', ...meeting.member_usernames]) add(username, meeting);
+    for (const username of [meeting.coordinator_username || '', ...meeting.additional_coordinator_usernames, ...meeting.member_usernames]) add(username, meeting);
     for (const subscription of subscriptions) if (subscription.themeId === meeting.theme_id) add(subscription.username, meeting);
   }
   return recipients;

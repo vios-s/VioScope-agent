@@ -4,8 +4,6 @@ import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session'
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import {
-  assertMediumPassword,
-  getUserByUsername,
   isUserPosition,
   listUsersForAdmin,
   parseAssignableUserRole,
@@ -85,16 +83,9 @@ export async function POST(request: Request) {
     }
     validateEmail(email);
     assertAssignableRole(actor, nextRole);
-    // "Add member" must never overwrite an existing account (password, role, status); only a
-    // profile-only record from the public team cache may be activated this way.
-    const existing = await getUserByUsername(username);
-    if (existing && existing.provisioningStatus !== 'profile_only') {
-      throw new Error('A member with this username already exists. Use Edit to change their details.');
-    }
-    // No default: the temporary password must meet the normal rule and is changed at first sign-in.
+    // No default: the supplied temporary password is changed at first sign-in.
     const temporaryPassword = text(body.temporaryPassword);
     if (!temporaryPassword) throw new Error('Set a temporary password for the new member.');
-    assertMediumPassword(temporaryPassword);
 
     const createdUser = await upsertLocalUser({
       username,
@@ -106,7 +97,7 @@ export async function POST(request: Request) {
       passwordResetRequired: true,
       source: 'manual',
       metadata: { aliases: textArray(body.aliases), email, position, created_by: 'admin-ui' },
-    });
+    }, 'create-or-activate');
 
     await recordAuditLog({
       actor,

@@ -309,7 +309,7 @@
   border-top: 1px solid var(--vs-line);
 }
 
-.mt-agenda-list li {
+.mt-agenda-list > li {
   display: grid;
   grid-template-columns: 56px minmax(0, 1fr) auto;
   gap: 16px;
@@ -549,6 +549,25 @@
   border: 1px solid var(--vs-line);
   border-radius: var(--vs-radius-panel);
   background: var(--vs-surface);
+}
+
+.mt-form-column {
+  flex: 2 1 360px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.mt-form-switch {
+  display: flex;
+  gap: 8px;
+}
+
+.mt-form-switch button[aria-pressed='true'] {
+  border-color: var(--vs-accent);
+  color: var(--vs-accent-strong);
+  background: var(--vs-row-hover);
 }
 
 .mt-form label,
@@ -1405,7 +1424,7 @@ button.mt-past-row:focus-visible {
 /* ---------- Narrow screens ---------- */
 
 @media (max-width: 640px) {
-  .mt-agenda-list li {
+  .mt-agenda-list > li {
     grid-template-columns: 48px minmax(0, 1fr);
   }
 
@@ -1448,7 +1467,7 @@ button.mt-past-row:focus-visible {
 
 /* ---------- Agenda reordering (drag handle, pointer + keyboard) ---------- */
 
-.mt-board.is-editable .mt-agenda-list li {
+.mt-board.is-editable .mt-agenda-list > li {
   grid-template-columns: 32px 48px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
@@ -1707,7 +1726,7 @@ button.mt-past-row:focus-visible {
 .theme-workflow-status.is-overdue::before { background: var(--vs-danger-dot); }
 
 @media (max-width: 640px) {
-  .mt-board.is-editable .mt-agenda-list li {
+  .mt-board.is-editable .mt-agenda-list > li {
     grid-template-columns: 32px 40px minmax(0, 1fr);
     gap: 8px;
   }
@@ -1912,7 +1931,7 @@ button.mt-past-row:focus-visible {
 
 /* Members see their own update form first on narrow screens. */
 @media (max-width: 767px) {
-  .mt-layout.is-member-first .mt-form {
+  .mt-layout.is-member-first .mt-form-column {
     order: -1;
   }
 

@@ -1,3 +1,5 @@
+import { AuthError } from '../auth/session';
+import { canManageTheme } from './access';
 import { withFileLock } from '../atomic-file';
 import { formatMeetingProject } from './project-context';
 import {
@@ -104,6 +106,7 @@ export function confirmedAgendaDeliveryPrefix(meetingDate: string, themeId: stri
 }
 
 export type UpdateThemeMeetingMemberInput = ThemeMeetingStoreOptions & {
+  actor: AuthUser;
   themeId: string;
   userId?: string;
   username?: string;
@@ -263,16 +266,20 @@ function coordinatorDisplayName(
   theme: ThemeMeetingConfig['themes'][number],
   usersByUsername: Map<string, Pick<AuthUser, 'username' | 'displayName'>>,
 ): string {
-  return theme.coordinator_user
+  const primary = theme.coordinator_user
     ? usersByUsername.get(normalizeUsername(theme.coordinator_user))?.displayName || theme.coordinator
     : theme.coordinator;
+  const additional = [...new Set(theme.additional_coordinator_users.map(normalizeUsername))]
+    .filter(username => username !== normalizeUsername(theme.coordinator_user || ''))
+    .map(username => usersByUsername.get(username)?.displayName || username);
+  return [primary, ...additional].join(', ');
 }
 
 function configuredThemeUsernames(config: ThemeMeetingConfig): string[] {
   return [
     ...config.pi_users,
     config.administrator_user || '',
-    ...config.themes.flatMap((theme) => [theme.coordinator_user || '', ...(theme.member_users || [])]),
+    ...config.themes.flatMap((theme) => [theme.coordinator_user || '', ...theme.additional_coordinator_users, ...(theme.member_users || [])]),
   ]
     .map(normalizeUsername)
     .filter(Boolean)
@@ -491,6 +498,7 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
         duration_minutes: theme.duration_minutes,
         coordinator: coordinatorDisplayName(theme, usersByUsername),
         coordinator_username: theme.coordinator_user ? normalizeUsername(theme.coordinator_user) : undefined,
+        additional_coordinator_usernames: theme.additional_coordinator_users.map(normalizeUsername),
         members: entries.map((entry) => entry.displayName),
         member_usernames: entries.map((entry) => entry.username || ''),
         submitted_members: submittedEntries.map((entry) => entry.displayName),
@@ -826,48 +834,53 @@ export async function updateThemeMeetingMember(input: UpdateThemeMeetingMemberIn
 }> {
   // Read-modify-write of the whole config file under the same advisory lock as the config route.
   const { path: configPath } = await readThemeMeetingConfig(input);
-  const result = await withFileLock(configPath, async () => {
-  const { config } = await readThemeMeetingConfig({ ...input, configPath });
-  const user = input.userId
-    ? await getUserById(input.userId)
-    : input.username
-      ? await getUserByUsername(input.username)
-      : null;
+  if (input.meetingDate) meetingDateSchema.parse(input.meetingDate);
+  const member = await withFileLock(configPath, async () => {
+    const { config } = await readThemeMeetingConfig({ ...input, configPath });
+    const actor = await getUserById(input.actor.id);
+    if (!actor || actor.provisioningStatus !== 'active' || actor.passwordResetRequired || actor.sessionVersion !== input.actor.sessionVersion || !canManageTheme(config, input.themeId, actor)) {
+      throw new AuthError('Only administrators, PIs, and the theme coordinator can manage theme members.', 403, 'forbidden');
+    }
+    const user = input.userId
+      ? await getUserById(input.userId)
+      : input.username
+        ? await getUserByUsername(input.username)
+        : null;
 
-  if (!user) {
-    throw new Error('User not found.');
-  }
-  if (user.provisioningStatus !== 'active') {
-    throw new Error('Only active accounts can be theme meeting members.');
-  }
+    if (!user) {
+      throw new Error('User not found.');
+    }
+    if (input.action === 'add' && user.provisioningStatus !== 'active') {
+      throw new Error('Only active accounts can be theme meeting members.');
+    }
 
-  const theme = config.themes.find((candidate) => candidate.theme_id === input.themeId);
-  if (!theme) {
-    throw new Error(`Unknown theme: ${input.themeId}`);
-  }
+    const theme = config.themes.find((candidate) => candidate.theme_id === input.themeId);
+    if (!theme) {
+      throw new Error(`Unknown theme: ${input.themeId}`);
+    }
 
-  const username = normalizeUsername(user.username);
-  const usersByUsername = await userDirectory();
-  usersByUsername.set(username, user);
-  const existingUsernames = theme.member_users?.length
-    ? theme.member_users.map(normalizeUsername)
-    : memberEntries(theme, usersByUsername).map((entry) => entry.username).filter((value): value is string => Boolean(value));
-  const nextUsernames =
-    input.action === 'add'
-      ? [...new Set([...existingUsernames, username])]
-      : existingUsernames.filter((candidate) => candidate !== username);
+    const username = normalizeUsername(user.username);
+    if (!theme.member_users?.length && theme.members.length) {
+      throw new Error('Link the existing theme members to account usernames before editing this roster.');
+    }
+    const usersByUsername = new Map((await listUsersForAdmin()).map(member => [normalizeUsername(member.username), member]));
+    const existingUsernames = (theme.member_users || []).map(normalizeUsername);
+    const nextUsernames =
+      input.action === 'add'
+        ? [...new Set([...existingUsernames, username])]
+        : existingUsernames.filter((candidate) => candidate !== username);
 
-  if (input.action === 'remove' && normalizeUsername(theme.coordinator_user) === username) {
-    throw new Error('Cannot remove the theme coordinator from their own theme.');
-  }
+    if (input.action === 'remove' && [theme.coordinator_user, ...theme.additional_coordinator_users].some(name => normalizeUsername(name || '') === username)) {
+      throw new Error('Cannot remove the theme coordinator from their own theme.');
+    }
 
-  theme.member_users = nextUsernames;
-  theme.members = nextUsernames.map((nextUsername) => usersByUsername.get(nextUsername)?.displayName || nextUsername);
-  await writeThemeMeetingConfig(config, { configPath });
-  return { config, user };
+    theme.member_users = nextUsernames;
+    theme.members = nextUsernames.map((nextUsername) => usersByUsername.get(nextUsername)?.displayName || nextUsername);
+    await writeThemeMeetingConfig(config, { configPath });
+    return user;
   });
-  const { plan } = await buildThemeMeetingPlan({ ...input, meetingDate: input.meetingDate });
-  return { user: result.user, plan, config: result.config };
+  const { plan, config } = await buildThemeMeetingPlan({ ...input, meetingDate: input.meetingDate });
+  return { user: member, plan, config };
 }
 
 export function renderThemeMeetingPlan(plan: ThemeMeetingPlan): string {

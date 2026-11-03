@@ -74,6 +74,9 @@ try {
   let draft = await ok(await get('chair'));
   const entries = draft.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: item.member_username.startsWith(':') ? 5 : 30, deferred: false }));
   assert.equal((await post('alice', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries })).status, 403);
+  const speakerEntry = { username: ':speaker:00000000-0000-4000-8000-000000000001', speakerName: 'Guest', speakerSummary: 'Summary from a coordinator.', minutes: 5, deferred: false };
+  assert.equal((await post('alice', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: [...entries, speakerEntry] })).status, 403, 'Members cannot add or edit a temporary speaker summary.');
+  assert.equal((await post('outsider', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries: [...entries, speakerEntry] })).status, 403, 'Another theme coordinator cannot edit this agenda.');
   assert.equal((await post('chair', { operation: 'confirm', sourceVersion: draft.sourceVersion, entries })).status, 400, 'Reject overbooking.');
   // Legacy data: per-item deferral is no longer offered in the UI, but the server still reads and stores it.
   entries.find((item: { username: string }) => item.username === 'carol')!.deferred = true;

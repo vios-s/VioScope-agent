@@ -121,7 +121,7 @@ async function checkMember(browser: any) {
     assert.equal((await saveResponse).ok(), true);
     await page.locator('.vs-details-list').getByText('AIED UX', { exact: true }).waitFor({ state: 'visible' });
 
-    await page.getByRole('tab', { name: 'Details', exact: true }).click();
+    await page.getByRole('tab', { name: 'Overview', exact: true }).click();
     await page.getByRole('region', { name: 'Project research workflow' }).getByRole('tab', { name: 'Tasks', exact: true }).click();
     const todoPanel = page.getByRole('region', { name: 'Project research workflow' });
     await todoPanel.getByText('Add a task', { exact: true }).click();
@@ -173,8 +173,8 @@ async function checkMember(browser: any) {
     await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible' });
 
     await page.getByLabel(`Project overview for ${title}`).click();
-    await page.getByRole('button', { name: `More actions for ${title}` }).click();
-    await page.getByRole('menuitem', { name: 'Archive project' }).click();
+    await page.getByRole('tab', { name: 'Details', exact: true }).click();
+    await page.getByRole('button', { name: 'Archive project', exact: true }).click();
     const archiveDialog = page.getByRole('dialog', { name: 'Archive project?' });
     assert.equal(await archiveDialog.getByRole('button', { name: 'Archive project' }).isDisabled(), true, 'Archive needs the typed project title.');
     await archiveDialog.getByLabel('Type the project title to confirm').fill(title);

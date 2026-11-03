@@ -115,6 +115,12 @@ try {
   assert.deepEqual(await subscriptions.listThemeAgendaSubscriptions(member.id), []);
 
   const { plan } = await planner.buildThemeMeetingPlan({ meetingDate: '2026-10-21', validateUsers: true });
+  const coCoordinatorPath = join(directory, 'co-coordinator.yaml');
+  await writeFile(coCoordinatorPath, stringify({ ...config, themes: config.themes.map(theme => theme.theme_id === 'C' ? { ...theme, additional_coordinator_users: ['member.d'] } : theme) }));
+  const coCoordinatorPlan = (await planner.buildThemeMeetingPlan({ meetingDate: '2026-10-21', validateUsers: true, configPath: coCoordinatorPath })).plan;
+  assert.equal(coCoordinatorPlan.meetings.find(meeting => meeting.theme_id === 'C')?.coordinator, 'member.c, member.d');
+  const { renderThemeMeetingAgendaEmail } = await import('../src/mastra/theme-meetings/agenda-email');
+  assert.match(renderThemeMeetingAgendaEmail(coCoordinatorPlan).text, /Coordinator: member\.c, member\.d/);
   assert.ok(plan.meetings.every((meeting) => !meeting.member_usernames.includes(observer.username)));
   assert.ok(plan.meetings.every((meeting) => !meeting.missing_member_usernames.includes(observer.username)));
   assert.equal(canManageTheme(config, 'C', observer), false);
