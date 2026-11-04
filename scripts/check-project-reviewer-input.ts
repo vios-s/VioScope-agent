@@ -61,6 +61,17 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.addLocatorHandler(page.locator('.welcome-dialog'), () => page.getByLabel('Close welcome message').click());
   await page.goto(base + '/?view=projects');
+  const titles = () => page.locator('.vs-project-table tbody .project-title-link').allTextContents();
+  const projectHeader = page.getByRole('columnheader', { name: 'Project' });
+  await projectHeader.getByRole('button').click();
+  assert.equal(await projectHeader.getAttribute('aria-sort'), 'ascending');
+  const ascending = await titles();
+  assert.ok(ascending.length >= 2, 'Sorting needs at least two projects.');
+  assert.deepEqual(ascending, [...ascending].sort((left, right) => left.localeCompare(right)));
+  await projectHeader.getByRole('button').press('Enter');
+  assert.equal(await projectHeader.getAttribute('aria-sort'), 'descending');
+  assert.deepEqual(await titles(), [...ascending].reverse());
+  assert.equal(await page.getByRole('columnheader', { name: 'Owner' }).getAttribute('aria-sort'), 'none');
   await page.getByRole('button', { name: 'Add project', exact: true }).click();
   const modal = page.locator('.project-modal');
   await modal.getByLabel('Full project name').fill('Searchable review team');

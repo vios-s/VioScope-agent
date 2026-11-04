@@ -9,6 +9,9 @@ import {
   Bell,
   CalendarDays,
   Check,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   ChevronDown,
   ChevronLeft,
   ClipboardCheck,
@@ -634,6 +637,32 @@ const statusLabels: Record<ProjectStatus, string> = {
   stale: 'Stale',
   needs_input: 'Needs input',
 };
+
+type ProjectSortKey = 'project' | 'owner' | 'stage' | 'status' | 'target';
+type ProjectSort = { key: ProjectSortKey; dir: 'asc' | 'desc' } | null;
+const projectSortColumns: [ProjectSortKey, string][] = [['project', 'Project'], ['owner', 'Owner'], ['stage', 'Stage'], ['status', 'Status'], ['target', 'Target']];
+// Ascending status runs from healthy to most urgent.
+const statusSortRank: Record<ProjectStatus, number> = { on_track: 0, needs_input: 1, stale: 2, blocked: 3 };
+
+function compareProjects(left: ManagedProject, right: ManagedProject, key: ProjectSortKey): number {
+  switch (key) {
+    case 'project': return left.title.localeCompare(right.title);
+    case 'owner': return left.ownerUsername.localeCompare(right.ownerUsername);
+    case 'stage': return left.stage - right.stage || left.stageProgress - right.stageProgress;
+    case 'status': return statusSortRank[left.status] - statusSortRank[right.status];
+    case 'target': return (left.submissionDeadline || '').localeCompare(right.submissionDeadline || '') || (left.venue || '').localeCompare(right.venue || '');
+  }
+}
+
+/** No sort keeps the list's default order; projects without a deadline stay last when sorting by Target. */
+function sortProjects(projects: ManagedProject[], sort: ProjectSort): ManagedProject[] {
+  if (!sort) return projects;
+  const sign = sort.dir === 'asc' ? 1 : -1;
+  return [...projects].sort((left, right) => {
+    if (sort.key === 'target' && Boolean(left.submissionDeadline) !== Boolean(right.submissionDeadline)) return left.submissionDeadline ? -1 : 1;
+    return sign * compareProjects(left, right, sort.key) || left.title.localeCompare(right.title);
+  });
+}
 
 const lifecycleLabels: Record<ProjectLifecycle, string> = {
   active: 'Active',
@@ -4467,6 +4496,7 @@ function ProjectsView({
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [projectFilter, setProjectFilter] = useState<ProjectListFilter>(initialFilter);
   const [trackFilter, setTrackFilter] = useState('');
+  const [projectSort, setProjectSort] = useState<ProjectSort>(null);
 
   const projects = projectsPayload?.projects || [];
   // Active = work in progress (active or paused); finished and archived projects have their own tabs.
@@ -4478,9 +4508,9 @@ function ProjectsView({
   const filterLabels: Record<ProjectListFilter, string> = { active: 'Active', attention: 'Needs attention', finished: 'Finished', archived: 'Archived' };
   // Lifecycle is the tab; "Needs attention" is a toggle filter within Active.
   const lifecycleTab = projectFilter === 'attention' ? 'active' : projectFilter;
-  const matchingProjects = filterLists[projectFilter]
+  const matchingProjects = sortProjects(filterLists[projectFilter]
     .filter((project) => !trackFilter || project.track === trackFilter)
-    .filter((project) => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(projectQuery.trim().toLowerCase()));
+    .filter((project) => `${project.title} ${project.ownerUsername}`.toLowerCase().includes(projectQuery.trim().toLowerCase())), projectSort);
   const memberArtifacts = [...activeProjects, ...finishedProjects].flatMap((project) =>
     currentProjectArtifacts(project).map((artifact) => ({ project, artifact })),
   );
@@ -4638,11 +4668,19 @@ function ProjectsView({
               {matchingProjects.length > 0 && <table className="ops-table vs-project-table">
                 <thead>
                   <tr>
-                    <th scope="col">Project</th>
-                    <th scope="col">Owner</th>
-                    <th scope="col">Stage</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Target</th>
+                    {projectSortColumns.map(([key, label]) => {
+                      const dir = projectSort?.key === key ? projectSort.dir : null;
+                      const SortIcon = dir === 'asc' ? ArrowUp : dir === 'desc' ? ArrowDown : ArrowUpDown;
+                      return (
+                        <th key={key} scope="col" aria-sort={dir === 'asc' ? 'ascending' : dir === 'desc' ? 'descending' : 'none'}>
+                          <button className={`vs-sort-button${dir ? ' active' : ''}`} type="button"
+                            onClick={() => setProjectSort({ key, dir: dir === 'asc' ? 'desc' : 'asc' })}>
+                            {label}
+                            <SortIcon aria-hidden="true" />
+                          </button>
+                        </th>
+                      );
+                    })}
                     <th scope="col" className="vs-actions-col">Actions</th>
                   </tr>
                 </thead>

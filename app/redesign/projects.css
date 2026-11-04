@@ -96,6 +96,34 @@
   text-align: right;
 }
 
+.vs-projects .vs-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.vs-projects .vs-sort-button svg {
+  width: 13px;
+  height: 13px;
+  opacity: 0.45;
+}
+
+.vs-projects .vs-sort-button.active svg,
+.vs-projects .vs-sort-button:hover svg {
+  opacity: 1;
+}
+
+.vs-projects .vs-sort-button:focus-visible {
+  outline: 2px solid var(--vs-accent);
+  outline-offset: 2px;
+}
+
 .vs-projects .vs-project-table .vs-project-cell {
   min-width: 220px;
 }
