@@ -90,11 +90,12 @@ async function checkEmptyMemberCreateProject(browser: any) {
     await modal.getByLabel('Full project name').fill(createdTitle);
     await modal.getByRole('textbox', { name: 'Project PIs', exact: true }).fill(users.pi);
     await modal.getByRole('textbox', { name: 'Project PDRAs', exact: true }).fill(users.admin);
+    await modal.getByLabel('Lead PDRA reviewer').selectOption(users.admin);
     // Slug is generated visibly for every creator; watch path stays administrator-only.
     assert.equal(await modal.getByLabel('Slug', { exact: true }).inputValue(), autoCreatedSlug);
     await modal.getByLabel('Collaborators').fill(`${users.member}, External Education Partner`);
     await modal.getByLabel('Venue').fill('ICLR');
-    await modal.getByLabel('Submission deadline').fill('2026-10-15');
+    await modal.getByLabel('Submission deadline').fill('15/10/2026');
     await page.getByRole('button', { name: 'Create project' }).click();
     await page.getByRole('button', { name: createdTitle, exact: true }).waitFor({ state: 'visible', timeout: 15_000 });
     await page.getByText('Track A').first().waitFor({ state: 'visible' });
@@ -114,14 +115,14 @@ async function checkMember(browser: any) {
     assert.equal(await detailsForm.getByLabel('Full project name').inputValue(), title);
     assert.equal(await detailsForm.getByLabel('Slug').count(), 0, 'Slug is administrator-only.');
     await detailsForm.getByLabel('Venue').fill('AIED UX');
-    await detailsForm.getByLabel('Submission deadline').fill('2026-10-01');
+    await detailsForm.getByLabel('Submission deadline').fill('01/10/2026');
     await detailsForm.getByLabel('Notes').fill('Updated through Playwright project UI smoke.');
     const saveResponse = page.waitForResponse((response: any) => response.url().includes('/api/projects/') && response.request().method() === 'PATCH');
     await detailsForm.getByRole('button', { name: 'Save changes' }).click();
     assert.equal((await saveResponse).ok(), true);
     await page.locator('.vs-details-list').getByText('AIED UX', { exact: true }).waitFor({ state: 'visible' });
 
-    await page.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await page.getByRole('tab', { name: 'Details', exact: true }).click();
     await page.getByRole('region', { name: 'Project research workflow' }).getByRole('tab', { name: 'Tasks', exact: true }).click();
     const todoPanel = page.getByRole('region', { name: 'Project research workflow' });
     await todoPanel.getByText('Add a task', { exact: true }).click();
@@ -173,7 +174,7 @@ async function checkMember(browser: any) {
     await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible' });
 
     await page.getByLabel(`Project overview for ${title}`).click();
-    await page.getByRole('tab', { name: 'Details', exact: true }).click();
+    await page.getByRole('tab', { name: 'Overview', exact: true }).click();
     await page.getByRole('button', { name: 'Archive project', exact: true }).click();
     const archiveDialog = page.getByRole('dialog', { name: 'Archive project?' });
     assert.equal(await archiveDialog.getByRole('button', { name: 'Archive project' }).isDisabled(), true, 'Archive needs the typed project title.');

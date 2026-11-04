@@ -101,6 +101,7 @@ export async function changeProjectWorkflow(projectId:string,input:unknown,user:
    const row=(await db.pool.query(`SELECT ${taskColumns} FROM project_tasks WHERE id=$1 AND project_id=$2 FOR UPDATE`,[command.id,projectId])).rows[0] as ProjectTask|undefined;
    if(!row)throw new Error('Task not found.');if(row.revision!==command.revision)throw conflict();
    if(!edit&&row.data.owner!==user.username)throw new AuthError('Only the task assignee, project owner, PI or administrator can update this task.',403,'forbidden');
+   if(!edit && (command.status==='cancelled' || row.data.status==='cancelled'))throw new AuthError('Only project managers can remove or restore tasks.',403,'forbidden');
    if(row.sourceKind==='meeting'&&!['open','done'].includes(command.status))throw new Error('Meeting tasks use Open or Done.');
    const metadata={task:command.task??row.data.task,owner:command.owner??row.data.owner,dueDate:command.dueDate===undefined?row.data.dueDate:command.dueDate,priority:command.priority??row.data.priority};
    const metadataChanged=Object.entries(metadata).some(([key,value])=>value!==row.data[key as keyof typeof row.data]);

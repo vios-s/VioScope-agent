@@ -36,6 +36,7 @@ try {
   let confirmed: any = null;
   let posted: any = null;
   let manager = true;
+  let canAddAction = true;
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
@@ -49,12 +50,13 @@ try {
       const m = url.searchParams.get('themeId') === 'B' ? other : meeting;
       if (route.request().method() === 'POST') {
         posted = route.request().postDataJSON();
+        if (posted.operation === 'add_action') return route.fulfill({ json: { ok: true } });
         assert.equal(posted.operation, 'confirm');
         confirmed = { meetingDate: date, themeId: 'A', version: 1, confirmedBy: 'chair', confirmedAt: '2026-10-30T12:15:00Z',
           entries: posted.entries.map((selection: any) => ({ ...(meeting.agenda_items.find((item) => item.member_username === selection.username) || confirmed?.entries.find((item: any) => item.member_username === selection.username) || { meeting_date: date, theme_id: 'A', theme_title: meeting.title, member: selection.speakerName, member_username: selection.username, update_type: 'short_update', progress_text: '', questions: '', submitted_at: '2026-10-30T12:00:00Z' }), ...(selection.speakerSummary !== undefined ? { progress_text: selection.speakerSummary } : {}), duration_minutes: selection.minutes, deferred: false })) };
         return route.fulfill({ json: { ok: true, version: 1 } });
       }
-      return route.fulfill({ json: { viewerId: manager ? 'chair-id' : 'alex-id', viewerUsername: manager ? 'chair' : 'alex', manager, cancelled: false, duration: 60, sourceVersion: confirmed ? 'confirmed-v1' : 'draft-v0', members: m.member_usernames,
+      return route.fulfill({ json: { viewerId: manager ? 'chair-id' : 'alex-id', viewerUsername: manager ? 'chair' : 'alex', manager, canAddAction, cancelled: false, duration: 60, sourceVersion: confirmed ? 'confirmed-v1' : 'draft-v0', members: m.member_usernames,
         candidates: manager ? [...m.agenda_items, ...(m.theme_id === 'A' ? confirmed?.entries.filter((item: any) => item.member_username.startsWith(':speaker:')) || [] : [])] : m.agenda_items.filter((item) => item.member_username?.startsWith(':') || item.member_username === 'alex'), confirmation: m.theme_id === 'A' ? confirmed : null, projects: [], actions: [] } });
     }
     return route.fulfill({ json: { notifications: [], sessions: [], users: [], count: 0, unreadCount: 0 } });
@@ -63,9 +65,9 @@ try {
   await page.locator('.console-topbar').waitFor();
   await dismissWelcomeIfVisible(page);
   const list = page.getByRole('list', { name: 'Agenda', exact: true });
-  await list.locator('li').filter({ hasText: 'Triage & Admin' }).waitFor();
+  await list.locator('li').filter({ hasText: 'PI announcement' }).waitFor();
   await page.getByRole('button', { name: 'Temporary speaker', exact: true }).click();
-  assert.deepEqual(await list.locator('.mt-item-main > strong').allTextContents(), ['Triage & Admin', 'Robust model evaluation', 'Data quality benchmark', 'Efficient experiment design', 'Assignments']);
+  assert.deepEqual(await list.locator('.mt-item-main > strong').allTextContents(), ['PI announcement', 'Robust model evaluation', 'Data quality benchmark', 'Efficient experiment design', 'Assignments']);
   assert.deepEqual(await list.locator('time').allTextContents(), ['10:00', '10:05', '10:35', '10:40', '10:45']);
   assert.equal(Boolean(posted), false);
   await list.getByText('Project snapshot').first().click();
@@ -104,10 +106,10 @@ try {
   assert.equal(await confirmButton.isEnabled(), false, 'An agenda of 61 minutes cannot be confirmed.');
   await page.getByRole('button', { name: 'Remove temporary speaker Fourth update' }).click();
 
-  await page.getByRole('spinbutton', { name: 'Minutes for Triage & Admin' }).fill('6');
+  await page.getByRole('spinbutton', { name: 'Minutes for PI announcement' }).fill('6');
   const handle = list.getByRole('button', { name: /Reorder Assignments/ });
   await handle.focus(); await handle.press('ArrowUp');
-  assert.deepEqual(await list.locator('.mt-item-main > strong').allTextContents(), ['Triage & Admin', 'Robust model evaluation', 'Data quality benchmark', 'Efficient experiment design', 'Assignments', 'Guest speaker']);
+  assert.deepEqual(await list.locator('.mt-item-main > strong').allTextContents(), ['PI announcement', 'Robust model evaluation', 'Data quality benchmark', 'Efficient experiment design', 'Assignments', 'Guest speaker']);
   await page.getByRole('spinbutton', { name: 'Minutes for Alex Morgan' }).fill('60');
   assert.equal(await page.getByRole('button', { name: 'Confirm the agenda as version 1' }).isDisabled(), true);
   await page.getByRole('spinbutton', { name: 'Minutes for Alex Morgan' }).fill('20');
@@ -127,8 +129,10 @@ try {
   await page.getByRole('spinbutton', { name: 'Minutes for Guest speaker' }).fill('6');
   assert.equal(await page.getByRole('button', { name: 'Confirm the agenda as version 2' }).isEnabled(), true);
   await page.getByLabel('Temporary speaker summary').fill('Discuss the revised results.');
+  assert.equal(await page.getByRole('button', { name: 'Email confirmed agenda version 1' }).isDisabled(), true, 'Unapplied changes cannot be emailed as the old version.');
   assert.equal(await page.getByRole('button', { name: 'Confirm the agenda as version 2' }).isDisabled(), true, 'An unapplied summary edit blocks confirmation.');
   await page.getByRole('button', { name: 'Update agenda draft' }).click();
+  assert.equal(await page.getByRole('button', { name: 'Email confirmed agenda version 1' }).isDisabled(), true, 'Applied changes must be confirmed before emailing.');
   await page.waitForFunction(() => !document.querySelector<HTMLButtonElement>('[aria-label="Confirm the agenda as version 2"]')?.disabled);
   manager = false;
   await page.reload(); await list.waitFor();
@@ -138,6 +142,23 @@ try {
   await list.getByText('Guest speaker', { exact: true }).waitFor();
   await list.getByText('Discuss the new results.', { exact: true }).waitFor();
   assert.equal(await page.getByLabel('Temporary speaker summary').count(), 0, 'Members cannot edit summaries.');
+  await dismissWelcomeIfVisible(page);
+  await page.getByText('Decisions & actions', { exact: false }).first().click();
+  const actionForm = page.getByRole('group', { name: 'Record a decision and action' });
+  await actionForm.waitFor();
+  assert.equal(await actionForm.getByLabel('Responsible member').getAttribute('readonly'), '');
+  await actionForm.getByLabel('Decision', { exact: true }).fill('Review the baseline.');
+  await actionForm.getByLabel('Next action').fill('Run the experiment.');
+  await actionForm.getByLabel('Due date').fill('2026-11-06');
+  await actionForm.getByRole('button', { name: 'Add action' }).click();
+  await page.waitForFunction(() => document.body.textContent?.includes('Saved.'));
+  assert.equal(posted.action.owner, 'alex', 'Member-created actions are assigned to the signed-in member.');
+  canAddAction = false;
+  await page.reload(); await list.waitFor();
+  await dismissWelcomeIfVisible(page);
+  await page.getByText('Decisions & actions', { exact: false }).first().click();
+  await page.getByText('New decisions and actions can be added until 16:00 UK time on the Friday after the meeting. You can still update actions assigned to you.').waitFor();
+  assert.equal(await page.getByRole('group', { name: 'Record a decision and action' }).count(), 0);
   assert.deepEqual(errors, []);
   console.log(`Agenda browser checks passed: default order, 1440/768/390 layouts, keyboard sorting, durations, overbooking, confirmation persistence and member view. Screenshots: ${output}`);
 } finally {

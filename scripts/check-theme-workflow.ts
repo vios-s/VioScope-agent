@@ -173,7 +173,7 @@ try {
   const cutoffMail = sent.at(-1)!;
   assert.equal(sent.length, sentBeforeCutoff + 4);
   assert.equal(cutoffMail.subject, `VioScope confirmed theme meeting agenda ${formatDay(date)} Theme A`);
-  assert.match(cutoffMail.text, /Confirmed version 3, by @chair/);
+  assert.doesNotMatch(cutoffMail.text, /Confirmed version 3, by @chair/);
   assert.match(cutoffMail.text, /10:00 \| /, 'The cutoff email uses the confirmed order with start times.');
   assert.doesNotMatch(cutoffMail.text + cutoffMail.html, /advisory until confirmed|Missing updates/);
   assert.ok(cutoffMail.text.includes(`Date: ${formatLongDay(date)}`) && formatLongDay(date).startsWith('Wednesday '));
@@ -204,9 +204,10 @@ try {
   await removeThemeMeetingCancellation(date, 'A');
   assert.equal(sent.length, 11);
   const action = { decision: 'Proceed with the baseline check.', task: 'Run the baseline and attach results.', owner: 'alice', dueDate: day(2) };
-  assert.equal((await post('alice', { operation: 'add_action', action })).status, 403);
+  assert.equal((await post('alice', { operation: 'add_action', action: { ...action, owner: 'bob' } })).status, 403, 'Members cannot create actions assigned to others.');
+  assert.equal((await post('outsider', { operation: 'add_action', action: { ...action, owner: 'outsider' } })).status, 403, 'Non-members cannot create theme actions.');
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, owner: 'outsider' } })).status, 400);
-  await ok(await post('chair', { operation: 'add_action', action }));
+  await ok(await post('alice', { operation: 'add_action', action }));
   saved = await ok(await get('chair'));
   const item = saved.actions[0];
   assert.equal((await ok(await get('bob'))).actions.length, 0, 'Member cannot see someone else’s actions.');
@@ -239,6 +240,7 @@ try {
   await ok(await pastPost('principal', { operation: 'confirm', sourceVersion: chairPast.sourceVersion, entries: pastEntries }));
   await readOnly(await pastPost('chair', { operation: 'email_confirmed', version: 1 }));
   await readOnly(await pastPost('chair', { operation: 'add_action', action }));
+  await readOnly(await pastPost('alice', { operation: 'add_action', action }));
   await ok(await pastPost('principal', { operation: 'add_action', action: { ...action, task: 'Earlier follow-up.' } }));
   const pastAction = (await ok(await get('alice', pastDate))).actions.find((entry: { task: string }) => entry.task === 'Earlier follow-up.');
   await readOnly(await pastPost('chair', { operation: 'update_action', id: pastAction.id, version: pastAction.version, status: 'done', note: 'Coordinator edit.' }));
@@ -280,6 +282,8 @@ try {
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, owner: 'bob', projectId: project.id } })).status, 400, 'Assignment does not grant project access.');
   const privateProject = await projects.createProject({ title: 'Private synthetic project', piUsername: 'principal', pdraUsername: 'bob', ownerUsername: 'outsider' }, accounts.get('principal')!);
   assert.equal((await post('chair', { operation: 'add_action', action: { ...action, projectId: privateProject.id } })).status, 404, 'Theme management does not grant project access.');
+  assert.equal((await post('alice', { operation: 'add_action', action: { ...action, projectId: privateProject.id } })).status, 404, 'Members cannot link projects they cannot access.');
+  assert.ok((await ok(await get('alice'))).projects.some((entry: { id: string }) => entry.id === project.id), 'Members can select accessible projects.');
   await ok(await post('chair', { operation: 'add_action', action: { ...action, projectId: project.id } }));
   const linked = (await ok(await projectGet('outsider'))).actions[0];
   assert.equal(linked.projectId, project.id);

@@ -170,6 +170,25 @@ async function main() {
       await postgres.disconnect();
     }
     assert.deepEqual((await patch(admin, feedbackId, { status: 'in_progress', adminNote: 'Reopened.' })).requesterNotified, { web: false, email: false });
+    await createPostgresClient().pool.query("UPDATE users SET provisioning_status='active' WHERE id=$1", [owner.id]);
+    const old = (await feedbackRoute.GET(requestFor(owner, '/api/feedback')).then(response => response.json())).queries.find((item: {id: string}) => item.id === feedbackId);
+    const edit = { operation: 'edit', expectedTitle: old.title, expectedDescription: old.description, title: 'Revised request', description: 'Revised description.' };
+    const editRequest = (user: AuthUser, method: string, body: unknown) => requestFor(user, '/api/feedback/' + feedbackId, { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal((await feedbackItemRoute.PATCH(editRequest(intruder, 'PATCH', edit), { params: Promise.resolve({ feedbackId }) })).status, 403);
+    assert.equal((await feedbackItemRoute.PATCH(editRequest(owner, 'PATCH', edit), { params: Promise.resolve({ feedbackId }) })).status, 200);
+    assert.equal((await feedbackItemRoute.PATCH(editRequest(owner, 'PATCH', edit), { params: Promise.resolve({ feedbackId }) })).status, 409);
+    const remove = { expectedTitle: edit.title, expectedDescription: edit.description };
+    assert.equal((await feedbackItemRoute.DELETE(editRequest(owner, 'DELETE', remove), { params: Promise.resolve({ feedbackId }) })).status, 200);
+    const stored = (await createPostgresClient().pool.query('SELECT history,deleted_at FROM feedback_queries WHERE id=$1', [feedbackId])).rows[0];
+    assert.ok(stored.deleted_at);
+    assert.ok(stored.history.some((entry: {action:string}) => entry.action === 'edited'));
+    assert.ok(stored.history.some((entry: {action:string}) => entry.action === 'deleted'));
+    const removed = await feedbackRoute.GET(requestFor(owner, '/api/feedback?removed=true')).then(response => response.json());
+    assert.equal(removed.queries.find((item: {id:string}) => item.id === feedbackId).history.some((entry: {action:string}) => entry.action === 'deleted'), true);
+    const hidden = await feedbackRoute.GET(requestFor(intruder, '/api/feedback?removed=true')).then(response => response.json());
+    assert.equal(hidden.queries.some((item: {id:string}) => item.id === feedbackId), false);
+
+    assert.equal((await feedbackRoute.GET(requestFor(owner, '/api/feedback')).then(response => response.json())).queries.some((item: {id:string}) => item.id === feedbackId), false);
     console.log(JSON.stringify({ feedbackId, ownerQueries: ownerPayload.queries.length, status: updated.query.status, requesterNotifications: notices.length, mailpitAvailable }, null, 2));
   } finally {
     await cleanup();

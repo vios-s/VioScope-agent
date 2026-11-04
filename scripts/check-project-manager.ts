@@ -496,6 +496,24 @@ async function main() {
       'PI comment should be attached to the timeline update.',
     );
 
+    const comment = commentBody.project!.updates.find((item: any) => item.id === updateId).comments.find((item: any) => item.byUsername === pi.username);
+    const editBody = { id: comment.id, expectedText: comment.text, text: 'Revised PI comment.' };
+    const editComment = await commentsRoute.PATCH(jsonRequest('/comments', editBody, pi), updateContext(updateId));
+    assert.equal(editComment.status, 200);
+    assert.equal((await commentsRoute.PATCH(jsonRequest('/comments', editBody, pi), updateContext(updateId))).status, 409);
+    assert.equal((await commentsRoute.DELETE(jsonRequest('/comments', { id: comment.id, expectedText: 'Revised PI comment.' }, owner), updateContext(updateId))).status, 403);
+    assert.equal((await commentsRoute.DELETE(jsonRequest('/comments', { id: comment.id, expectedText: 'Revised PI comment.' }, pi), updateContext(updateId))).status, 200);
+    const commentDb = createPostgresClient();
+    const storedComment = (await commentDb.pool.query('SELECT history, deleted_at FROM project_update_comments WHERE id=$1', [comment.id])).rows[0];
+    assert.equal(storedComment.history.length, 2);
+    assert.ok(storedComment.deleted_at);
+    const historyResponse = await commentsRoute.GET(jsonRequest('/comments', {}, pi), updateContext(updateId));
+    const historyBody = await historyResponse.json();
+    assert.equal(historyBody.comments.find((item: any) => item.id === comment.id).history.length, 2);
+    const otherHistory = await commentsRoute.GET(jsonRequest('/comments', {}, owner), updateContext(updateId));
+    assert.equal((await otherHistory.json()).comments.some((item: any) => item.id === comment.id), false);
+
+
     const editUpdateResponse = await updateRoute.PATCH(
       jsonRequest(`/api/project-updates/${updateId}`, {
         date: secondUpdateDate,
@@ -514,10 +532,26 @@ async function main() {
     assert.equal(editUpdateResponse.status, 200, editUpdateBody.error || 'Project update edit failed.');
     assert.equal(editUpdateBody.project?.updates?.[0]?.text, 'Edited revised design note.', 'Edited update text should persist.');
 
+    const untouchedResponse = await commentsRoute.POST(jsonRequest('/comments', { text: 'Unedited comment.' }, owner), updateContext(updateId));
+    assert.equal(untouchedResponse.status, 200);
     const deleteUpdateResponse = await updateRoute.DELETE(emptyRequest(`/api/project-updates/${updateId}`, owner, 'DELETE'), updateContext(updateId));
     const deleteUpdateBody = await bodyOf<{ project?: any }>(deleteUpdateResponse);
     assert.equal(deleteUpdateResponse.status, 200, deleteUpdateBody.error || 'Project update deletion failed.');
     assert.equal(deleteUpdateBody.project?.updates?.some((update: any) => update.id === updateId), false, 'Deleted update should be absent.');
+    const archiveRoute = await import('../app/api/projects/[projectId]/comment-history/route');
+    const projectId = deleteUpdateBody.project!.id;
+    const archiveContext = { params: Promise.resolve({ projectId }) };
+    const ownArchive = await archiveRoute.GET(emptyRequest('/history', pi, 'GET'), archiveContext);
+    const archived = (await ownArchive.json()).comments.find((item: any) => item.id === comment.id);
+    assert.equal(archived.text, 'Revised PI comment.');
+    assert.equal(archived.deleted, true);
+    assert.equal(archived.history[0].text, 'PI comment on this update.');
+    const anotherArchive = await archiveRoute.GET(emptyRequest('/history', owner, 'GET'), archiveContext);
+    const ownerArchive = (await anotherArchive.json()).comments;
+    assert.equal(ownerArchive.some((item: any) => item.id === comment.id), false);
+    assert.equal(ownerArchive.some((item: any) => item.text === 'Unedited comment.' && item.history.length === 0), true);
+    assert.equal((await archiveRoute.GET(emptyRequest('/history', outsider, 'GET'), archiveContext)).status, 404);
+
 
     const archiveResponse = await projectRoute.DELETE(
       emptyRequest(`/api/projects/${project.id}`, pi, 'DELETE'),

@@ -1,5 +1,5 @@
 'use client';
-import { themeAgendaTypeLabels, isAgendaPlaceholder } from '../src/mastra/theme-meetings/schema';
+import { themeAgendaTypeLabels, isAgendaPlaceholder, isTemporarySpeaker, speakerSummaryWordLimit, temporarySpeakerPrefix, wordCount } from '../src/mastra/theme-meetings/schema';
 
 import { MeetingProjectSummary } from './meeting-project-summary';
 import { ConfirmDialog } from './confirm-dialog';
@@ -14,12 +14,13 @@ import type { ConfirmedAgendaEmailAudience } from '../src/mastra/theme-meetings/
 import type { ThemeMeetingAgendaItem } from '../src/mastra/theme-meetings/schema';
 
 type Payload = {
-  viewerId: string; viewerUsername?: string; manager: boolean;
+  viewerId: string; viewerUsername: string; manager: boolean;
   /** A coordinator viewing a meeting before the theme's current one: everything is shown, nothing can be changed. */
   readOnly?: boolean; cancelled: boolean; duration: number; sourceVersion: string; members: string[];
   candidates: ThemeMeetingAgendaItem[]; confirmation: AgendaConfirmation | null; emailedAt?: string | null;
   emailAudience?: ConfirmedAgendaEmailAudience | null;
   projects: Array<{ id: string; title: string }>;
+  canAddAction: boolean;
   actions: Array<MeetingAction & { version: string; projectTitle: string | null }>;
 };
 type Selection = { username: string; minutes: number; deferred: boolean; speakerName?: string; speakerSummary?: string };
@@ -145,7 +146,7 @@ function initialSelections(payload: Payload): Selection[] {
   return [...payload.candidates].sort((a, b) => index(a.member_username) - index(b.member_username)).map((item) => {
     const saved = existing.find((entry) => entry.member_username === item.member_username);
     // Per-item skipping was retired: a new version always schedules every submission (older deferred entries stay read-only).
-    return { username: item.member_username || '', deferred: false, ...(item.member_username?.startsWith(':speaker:') ? { speakerSummary: saved?.progress_text ?? item.progress_text } : {}),
+    return { username: item.member_username || '', deferred: false, ...(isTemporarySpeaker(item.member_username) ? { speakerSummary: saved?.progress_text ?? item.progress_text } : {}),
       minutes: item.update_type === 'nothing_to_report' ? 0 : saved?.update_type === item.update_type ? saved.duration_minutes : item.duration_minutes };
   });
 }
@@ -162,7 +163,7 @@ function ItemSummary({ item, projectLink, showSpeakerSummary }: { item: ThemeMee
   return <span className="mt-item-main">
     <strong>{item.project_context?.title || item.member}</strong>
     <span>{isAgendaPlaceholder(item) ? item.progress_text : item.project_context ? `${item.member} · Project stage ${item.project_context.stage ?? 'not recorded'}` : 'No linked project'}</span>
-    {showSpeakerSummary && item.member_username?.startsWith(':speaker:') && item.progress_text && <span>{item.progress_text}</span>}
+    {showSpeakerSummary && isTemporarySpeaker(item.member_username) && item.progress_text && <span>{item.progress_text}</span>}
     {item.project_context && <details className="mt-snapshot"><summary>Project snapshot</summary>
       <MeetingProjectSummary context={item.project_context} title={projectLink(item.project_context.projectId, item.project_context.title)} /></details>}
   </span>;
@@ -184,8 +185,8 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
   const [, rerender] = useReducer((count: number) => count + 1, 0);
   const stored = unsavedOrders.get(orderKey);
   const orderValid = Boolean(stored && data && stored.sourceVersion === data.sourceVersion
-    && data.candidates.filter(item => !item.member_username?.startsWith(':speaker:')).every(item => stored.entries.some(entry => entry.username === item.member_username))
-    && stored.entries.every(entry => entry.username.startsWith(':speaker:') || data.candidates.some(item => item.member_username === entry.username)));
+    && data.candidates.filter(item => !isTemporarySpeaker(item.member_username)).every(item => stored.entries.some(entry => entry.username === item.member_username))
+    && stored.entries.every(entry => isTemporarySpeaker(entry.username) || data.candidates.some(item => item.member_username === entry.username)));
   const edited = orderValid ? stored!.entries : null;
   const setEdited = (next: Selection[] | null) => {
     if (next && sourceVersion) unsavedOrders.set(orderKey, { sourceVersion, entries: next }); else unsavedOrders.delete(orderKey);
@@ -245,8 +246,8 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
   const minutesInvalid = editable && scheduled.some((row) => row.item.update_type !== 'nothing_to_report' && !validMinutes(row.minutes));
   const changedSinceConfirmation = Boolean(canEdit && confirmation && (confirmation.entries.length !== data!.candidates.length ||
     data!.candidates.some((item) => !confirmation.entries.some((entry) => entry.member_username === item.member_username && entry.submitted_at === item.submitted_at))));
-  const confirmedSelections = (confirmation?.entries || []).map((entry) => ({ username: entry.member_username || '', minutes: entry.duration_minutes, deferred: entry.deferred, ...(entry.member_username?.startsWith(':speaker:') ? { speakerSummary: entry.progress_text } : {}) }));
-  const summaryInvalid = entries.some(entry => entry.speakerSummary && entry.speakerSummary.trim().split(/\s+/).length > 50);
+  const confirmedSelections = (confirmation?.entries || []).map((entry) => ({ username: entry.member_username || '', minutes: entry.duration_minutes, deferred: entry.deferred, ...(isTemporarySpeaker(entry.member_username) ? { speakerSummary: entry.progress_text } : {}) }));
+  const summaryInvalid = entries.some(entry => entry.speakerSummary && wordCount(entry.speakerSummary) > speakerSummaryWordLimit);
   const upToDate = Boolean(confirmation && !changedSinceConfirmation && sameSelections(entries, confirmedSelections));
   const nextVersion = (confirmation?.version || 0) + 1;
   const scheduledNames = scheduled.map((row) => row.item.member_username || row.item.member);
@@ -389,8 +390,8 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
       <ItemSummary item={item} projectLink={projectLink} showSpeakerSummary={!editable} />
       {editable ? <span className="mt-arrange-controls">
         <span className={`mt-slot mt-slot-${item.update_type}`}>{themeAgendaTypeLabels[item.update_type]}</span>
-        {username.startsWith(':speaker:') && <button type="button" className="mt-link-btn" disabled={busy} aria-label={`Edit temporary speaker ${item.member}`} onClick={() => { setEditingSpeaker(username); setSpeakerName(item.member); setSpeakerSummary(entries.find(entry => entry.username === username)?.speakerSummary || ''); onEditSpeaker(); }}>Edit</button>}
-        {username.startsWith(':speaker:') && <button type="button" className="mt-link-btn" disabled={busy} aria-label={`Remove temporary speaker ${item.member}`} onClick={() => { setEdited(entries.filter(entry => entry.username !== username)); if (editingSpeaker === username) { setEditingSpeaker(null); setSpeakerName(''); setSpeakerSummary(''); } }}>Remove</button>}
+        {isTemporarySpeaker(username) && <button type="button" className="mt-link-btn" disabled={busy} aria-label={`Edit temporary speaker ${item.member}`} onClick={() => { setEditingSpeaker(username); setSpeakerName(item.member); setSpeakerSummary(entries.find(entry => entry.username === username)?.speakerSummary || ''); onEditSpeaker(); }}>Edit</button>}
+        {isTemporarySpeaker(username) && <button type="button" className="mt-link-btn" disabled={busy} aria-label={`Remove temporary speaker ${item.member}`} onClick={() => { setEdited(entries.filter(entry => entry.username !== username)); if (editingSpeaker === username) { setEditingSpeaker(null); setSpeakerName(''); setSpeakerSummary(''); } }}>Remove</button>}
         {fixed ? <span className="mt-minutes-text" title={`${themeAgendaTypeLabels[item.update_type]} slots are fixed at ${minutes} minutes`}>{minutes} min</span> : <label className="mt-minutes" title={`Slot minutes can be edited (${min}–${max})`}>
           <input type="number" inputMode="numeric" step={1} min={min} max={max} required value={Number.isFinite(minutes) ? minutes : ''}
             disabled={busy} aria-label={`Minutes for ${item.member}`}
@@ -423,11 +424,11 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
     {editable && <p id={`mt-drag-hint-${themeId}`} className="mt-board-hint">Reorder by dragging or arrow keys; set minutes before confirming.</p>}
     {editable && speakerEditorTarget && createPortal(<form className="mt-form mt-temporary-form" onSubmit={event => {
       event.preventDefault();
-      if (!speakerName.trim() || speakerSummary.trim().split(/\s+/).filter(Boolean).length > 50) return;
+      if (!speakerName.trim() || wordCount(speakerSummary) > speakerSummaryWordLimit) return;
       if (editingSpeaker) {
         update(editingSpeaker, { speakerSummary });
       } else {
-        const entry = { username: `:speaker:${crypto.randomUUID()}`, speakerName: speakerName.trim(), speakerSummary, minutes: 5, deferred: false };
+        const entry = { username: `${temporarySpeakerPrefix}${crypto.randomUUID()}`, speakerName: speakerName.trim(), speakerSummary, minutes: 5, deferred: false };
         const position = entries.findIndex(item => item.username === ':assignments');
         const next = [...entries];
         next.splice(position < 0 ? next.length : position, 0, entry);
@@ -438,12 +439,12 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
       <div className="mt-form-head"><h2>{editingSpeaker ? 'Edit temporary speaker' : 'Add temporary speaker'}</h2><p>Apply this form to the agenda draft, then confirm the agenda to save it.</p></div>
       <label><span>Speaker name</span><input aria-label="Temporary speaker name" required maxLength={120} value={speakerName} readOnly={Boolean(editingSpeaker)} onChange={event => setSpeakerName(event.target.value)} /></label>
       <label><span>Progress summary · optional</span><textarea aria-label="Temporary speaker summary" rows={4} maxLength={5000} value={speakerSummary} onChange={event => setSpeakerSummary(event.target.value)} placeholder="Summarise the speaker’s update" /></label>
-      <p className="mt-word-count">{speakerSummary.trim().split(/\s+/).filter(Boolean).length} of 50 words</p>
+      <p className="mt-word-count">{wordCount(speakerSummary)} of {speakerSummaryWordLimit} words</p>
       <div className="mt-form-buttons">{editingSpeaker && <button type="button" className="ops-secondary" onClick={() => { setEditingSpeaker(null); setSpeakerName(''); setSpeakerSummary(''); }}>Cancel</button>}
-        <button type="submit" className="ops-primary" disabled={busy || !speakerName.trim() || speakerSummary.trim().split(/\s+/).filter(Boolean).length > 50}>{editingSpeaker ? 'Update agenda draft' : 'Add to agenda'}</button></div>
+        <button type="submit" className="ops-primary" disabled={busy || !speakerName.trim() || wordCount(speakerSummary) > speakerSummaryWordLimit}>{editingSpeaker ? 'Update agenda draft' : 'Add to agenda'}</button></div>
     </form>, speakerEditorTarget)}
     {editable && <details className="mt-template-guide"><summary>Recommended meeting format · 60 minutes</summary>
-      <p>5 min Triage &amp; Admin · 30 min Deep Dive · 20 min Updates · 5 min Assignments.</p>
+      <p>5 min PI announcement · 30 min Deep Dive · 20 min Updates · 5 min Assignments.</p>
       <p>One Discussant-led Deep Dive and 2–3 Updates of 5–7 minutes are recommended. Adjust the slots to fit the meeting.</p>
       <p>Adjust freely; all submissions stay in the draft.</p>
     </details>}
@@ -469,14 +470,15 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
           aria-label={`Confirm the agenda as version ${nextVersion}`} aria-describedby={minutesInvalid ? minutesHintId : speakerFormDirty ? `mt-speaker-pending-${themeId}` : undefined}
           title={upToDate ? `Version ${confirmation!.version} is already confirmed` : undefined}>
           <Check aria-hidden="true" />Confirm</button>
-        <button className="ops-secondary" type="button" disabled={busy || !confirmation} onClick={() => setDialog('email')}
-          aria-label={confirmation ? `Email confirmed agenda version ${confirmation.version}` : 'Email the agenda'} aria-describedby={confirmation ? undefined : emailHintId}
+        <button className="ops-secondary" type="button" disabled={busy || !confirmation || dirty || speakerFormDirty} onClick={() => setDialog('email')}
+          aria-label={confirmation ? `Email confirmed agenda version ${confirmation.version}` : 'Email the agenda'} aria-describedby={!confirmation ? emailHintId : dirty || speakerFormDirty ? `mt-email-pending-${themeId}` : undefined}
           title={confirmation ? undefined : 'Confirm the agenda first'}>
           <Mail aria-hidden="true" />Email</button>
       </div>
       {minutesInvalid && <p id={minutesHintId} className="mt-email-hint">Enter whole minutes from 1 to 60 for each scheduled slot.</p>}
       {summaryInvalid && <p className="mt-email-hint" role="alert">Temporary speaker summaries must be 50 words or fewer.</p>}
       {speakerFormDirty && <p id={`mt-speaker-pending-${themeId}`} className="mt-email-hint" role="status">Add or update the temporary speaker before confirming the agenda.</p>}
+      {confirmation && (dirty || speakerFormDirty) && <p id={`mt-email-pending-${themeId}`} className="mt-email-hint" role="status">Confirm your agenda changes before emailing the updated version.</p>}
       {!confirmation && <p id={emailHintId} className="vs-sr-only">Confirm the agenda first.</p>}
     </div>}
     <ConfirmDialog id={`mt-confirm-agenda-${themeId}`} open={dialog === 'confirm'} tone="default" title="Confirm this agenda?"
@@ -555,13 +557,14 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
           </li>)}</ol>}
         </>}
         {data.manager && data.readOnly && <p className="ops-muted-line" role="note">Read only after Friday, 16:00 UK time.</p>}
-        {data.manager && !data.readOnly && !data.confirmation && !data.cancelled && <p className="ops-muted-line">Confirm the agenda before recording decisions and actions.</p>}
-        {data.manager && !data.readOnly && data.confirmation && !data.cancelled && <form className="theme-workflow-panel" onSubmit={(event) => { event.preventDefault(); void save({ operation: 'add_action', action: { ...action, projectId: action.projectId || null } }); }}>
+        {!data.manager && !data.canAddAction && !data.cancelled && <p className="ops-muted-line" role="note">New decisions and actions can be added until 16:00 UK time on the Friday after the meeting. You can still update actions assigned to you.</p>}
+        {data.canAddAction && !data.confirmation && !data.cancelled && <p className="ops-muted-line">{data.manager ? 'Confirm the agenda before recording decisions and actions.' : 'Decisions and actions can be recorded once the agenda is confirmed.'}</p>}
+        {data.canAddAction && data.confirmation && !data.cancelled && <form className="theme-workflow-panel" onSubmit={(event) => { event.preventDefault(); void save({ operation: 'add_action', action: { ...action, owner: data.manager ? action.owner : data.viewerUsername, projectId: action.projectId || null } }); }}>
           <fieldset disabled={busy}><legend>Record a decision and action</legend>
             <label>Decision <textarea required maxLength={2000} value={action.decision} onChange={(event) => setAction({ ...action, decision: event.target.value })} /></label>
             <label>Next action <textarea required maxLength={2000} value={action.task} onChange={(event) => setAction({ ...action, task: event.target.value })} /></label>
             <div className="theme-workflow-fields">
-              <label>Responsible member <select required value={action.owner} onChange={(event) => setAction({ ...action, owner: event.target.value })}><option value="">Choose member</option>{data.members.map((member) => <option key={member} value={member}>{person(member)}</option>)}</select></label>
+              {data.manager ? <label>Responsible member <select required value={action.owner} onChange={(event) => setAction({ ...action, owner: event.target.value })}><option value="">Choose member</option>{data.members.map((member) => <option key={member} value={member}>{person(member)}</option>)}</select></label> : <label>Responsible member <input value={person(data.viewerUsername)} readOnly /></label>}
               <label>Linked project (optional) <select value={action.projectId} aria-describedby={`theme-action-project-help-${themeId}`} onChange={(event) => setAction({ ...action, projectId: event.target.value })}>
                 <option value="">No project — group action</option>{data.projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
               </select><small id={`theme-action-project-help-${themeId}`} className="theme-workflow-help">Linking grants no access.</small></label>

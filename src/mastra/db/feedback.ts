@@ -1,4 +1,5 @@
-import { createPostgresClient } from './postgres';
+import { AuthError } from '../auth/session';
+import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { ensureUsersTable, type AuthUser } from './users';
 
 export const feedbackStatuses = ['pending', 'in_progress', 'solved', 'closed'] as const;
@@ -23,7 +24,11 @@ export type FeedbackQuery = {
   updatedAt: string;
   resolvedAt: string | null;
   resolvedByUsername: string | null;
+  history: FeedbackHistoryEntry[];
+  deletedAt: string | null;
 };
+
+export type FeedbackHistoryEntry = { by: string; at: string; action: 'edited' | 'deleted' | 'reply'; title?: string; description?: string; status?: string; adminNote?: string };
 
 type FeedbackRow = {
   id: string;
@@ -40,6 +45,8 @@ type FeedbackRow = {
   updated_at: Date | string;
   resolved_at: Date | string | null;
   resolved_by_username: string | null;
+  history: FeedbackHistoryEntry[];
+  deleted_at: Date | string | null;
 };
 
 type FeedbackAttachmentRow = {
@@ -71,10 +78,23 @@ function toFeedbackQuery(row: FeedbackRow): FeedbackQuery {
     updatedAt: new Date(row.updated_at).toISOString(),
     resolvedAt: row.resolved_at ? new Date(row.resolved_at).toISOString() : null,
     resolvedByUsername: row.resolved_by_username,
+    history: row.history,
+    deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : null,
   };
 }
 
+let ensureFeedbackTablePromise: Promise<void> | null = null;
+
+// Runs once per process: the ALTER TABLE statements take an exclusive table lock even when nothing changes.
 export async function ensureFeedbackTable(): Promise<void> {
+  ensureFeedbackTablePromise ||= ensureFeedbackTableOnce().catch((error) => {
+    ensureFeedbackTablePromise = null;
+    throw error;
+  });
+  return ensureFeedbackTablePromise;
+}
+
+async function ensureFeedbackTableOnce(): Promise<void> {
   await ensureUsersTable();
   const postgres = createPostgresClient('vioscope-feedback');
 
@@ -98,6 +118,8 @@ export async function ensureFeedbackTable(): Promise<void> {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await postgres.pool.query("ALTER TABLE feedback_queries ADD COLUMN IF NOT EXISTS history JSONB NOT NULL DEFAULT '[]'::jsonb");
+    await postgres.pool.query('ALTER TABLE feedback_queries ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS feedback_queries_user_idx ON feedback_queries (user_id, created_at DESC)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS feedback_queries_status_idx ON feedback_queries (status, updated_at DESC)');
   } finally {
@@ -108,6 +130,8 @@ export async function ensureFeedbackTable(): Promise<void> {
 const feedbackSelect = `
   SELECT
     feedback.id::text,
+    feedback.history,
+    feedback.deleted_at,
     feedback.title,
     feedback.description,
     feedback.status,
@@ -164,7 +188,7 @@ export async function createFeedbackQuery(input: {
   }
 }
 
-export async function listFeedbackQueries(user: AuthUser): Promise<FeedbackQuery[]> {
+export async function listFeedbackQueries(user: AuthUser, includeRemoved = false): Promise<FeedbackQuery[]> {
   await ensureFeedbackTable();
   const postgres = createPostgresClient('vioscope-feedback-list');
   const admin = user.role === 'administrator';
@@ -172,7 +196,7 @@ export async function listFeedbackQueries(user: AuthUser): Promise<FeedbackQuery
   try {
     const result = await postgres.pool.query<FeedbackRow>(
       `${feedbackSelect}
-       ${admin ? '' : 'WHERE feedback.user_id = $1::uuid'}
+       WHERE ${includeRemoved ? 'feedback.deleted_at IS NOT NULL' : 'feedback.deleted_at IS NULL'} ${admin ? '' : 'AND feedback.user_id = $1::uuid'}
        ORDER BY feedback.updated_at DESC`,
       admin ? [] : [user.id],
     );
@@ -195,7 +219,7 @@ export async function getFeedbackAttachmentForUser(
       `
         SELECT id::text, user_id::text, attachment_path, attachment_name, attachment_mime_type, attachment_size
         FROM feedback_queries
-        WHERE id = $1::uuid ${admin ? '' : 'AND user_id = $2::uuid'}
+        WHERE id = $1::uuid AND deleted_at IS NULL ${admin ? '' : 'AND user_id = $2::uuid'}
       `,
       admin ? [id] : [id, user.id],
     );
@@ -227,10 +251,13 @@ export async function updateFeedbackQuery(
     const changed = await postgres.pool.query<{ previous_status: FeedbackStatus; previous_note: string }>(
       `
         WITH previous AS (
-          SELECT id, status, admin_note FROM feedback_queries WHERE id = $1::uuid FOR UPDATE
+          SELECT id, status, admin_note FROM feedback_queries WHERE id = $1::uuid AND deleted_at IS NULL FOR UPDATE
         )
         UPDATE feedback_queries feedback
         SET
+          history = CASE WHEN previous.status IS DISTINCT FROM $2 OR previous.admin_note IS DISTINCT FROM $3
+            THEN history || jsonb_build_array(jsonb_build_object('by',$5::text,'at',now(),'action','reply','status',previous.status,'adminNote',previous.admin_note))
+            ELSE history END,
           status = $2,
           admin_note = $3,
           resolved_at = CASE WHEN $2 IN ('solved', 'closed') THEN now() ELSE NULL END,
@@ -240,7 +267,7 @@ export async function updateFeedbackQuery(
         WHERE feedback.id = previous.id
         RETURNING previous.status AS previous_status, previous.admin_note AS previous_note
       `,
-      [id, input.status, input.adminNote.trim(), input.actor.id],
+      [id, input.status, input.adminNote.trim(), input.actor.id, input.actor.username],
     );
     const previous = changed.rows[0];
     if (!previous) throw new Error('Feedback request was not found.');
@@ -252,4 +279,25 @@ export async function updateFeedbackQuery(
   } finally {
     await postgres.disconnect();
   }
+}
+
+export async function changeFeedbackContent(id: string, actor: AuthUser, expected: { title: string; description: string }, next: { title: string; description: string } | null): Promise<FeedbackQuery | null> {
+  await ensureFeedbackTable();
+  if (next && (!next.title.trim() || next.title.trim().length > 180 || !next.description.trim() || next.description.trim().length > 10000)) throw new Error('Enter a title and description within the allowed limits.');
+  return withDatabaseTransaction(async () => {
+    const db = createPostgresClient();
+    const result = await db.pool.query<{ user_id: string; title: string; description: string }>(
+      'SELECT user_id::text,title,description FROM feedback_queries WHERE id=$1 AND deleted_at IS NULL FOR UPDATE', [id]);
+    const row = result.rows[0];
+    if (!row) throw new AuthError('Feedback request was not found.', 404, 'not_found');
+    if (row.user_id !== actor.id && actor.role !== 'administrator') throw new AuthError('Only the requester or an administrator can change this request.', 403, 'forbidden');
+    if (row.title !== expected.title || row.description !== expected.description) throw new AuthError('This request changed. Reload and try again.', 409, 'conflict');
+    await db.pool.query(`UPDATE feedback_queries SET title=COALESCE($2,title),description=COALESCE($3,description),
+      deleted_at=CASE WHEN $2::text IS NULL THEN now() ELSE NULL END,updated_at=now(),
+      history=history || jsonb_build_array(jsonb_build_object('by',$4::text,'at',now(),'action',CASE WHEN $2::text IS NULL THEN 'deleted' ELSE 'edited' END,'title',title,'description',description))
+      WHERE id=$1`, [id, next?.title.trim() ?? null, next?.description.trim() ?? null, actor.username]);
+    if (!next) return null;
+    const saved = await db.pool.query<FeedbackRow>(`${feedbackSelect} WHERE feedback.id=$1`, [id]);
+    return toFeedbackQuery(saved.rows[0]);
+  });
 }

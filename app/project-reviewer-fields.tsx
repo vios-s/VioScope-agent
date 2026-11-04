@@ -20,17 +20,19 @@ export function ProjectReviewTeamFields({ team, owner, users, onChange, required
   team: Team; owner: string; users: User[]; onChange: (team: Team) => void; required?: boolean;
 }) {
   const hint = useId();
+  // The owner may be an additional PDRA but never the lead (the lead's review must be independent).
+  const leads = (pdraUsernames: string[]) => pdraUsernames.filter(username => username !== owner);
   return <>
     <ReviewerInput label="Project PIs" required={required} placeholder="Search PI accounts"
       users={users.filter(user => ['pi', 'administrator'].includes(user.role))} value={team.piUsernames}
       onChange={piUsernames => onChange({ ...team, piUsernames })} />
     <ReviewerInput label="Project PDRAs" required={required} placeholder="Search reviewer accounts"
       users={users} value={team.pdraUsernames}
-      onChange={pdraUsernames => onChange({ ...team, pdraUsernames, pdraUsername: pdraUsernames.includes(team.pdraUsername) ? team.pdraUsername : pdraUsernames[0] || '' })} />
+      onChange={pdraUsernames => onChange({ ...team, pdraUsernames, pdraUsername: leads(pdraUsernames).includes(team.pdraUsername) ? team.pdraUsername : leads(pdraUsernames)[0] || '' })} />
     <div className="project-reviewer-field"><label htmlFor={hint + '-lead'}><span>Lead PDRA reviewer{required && <span className="field-required" aria-hidden="true"> *</span>}</span></label>
       <select id={hint + '-lead'} required={required} value={team.pdraUsername} onChange={event => onChange({ ...team, pdraUsername: event.target.value })}>
-        <option value="" disabled={team.pdraUsernames.length > 0}>Not assigned</option>
-        {team.pdraUsernames.map(username => <option key={username} value={username}>@{username}</option>)}
+        <option value="" disabled={leads(team.pdraUsernames).length > 0}>Not assigned</option>
+        {leads(team.pdraUsernames).map(username => <option key={username} value={username}>@{username}</option>)}
       </select>
     </div>
   </>;

@@ -17,8 +17,13 @@ const timeStringSchema = z.string().regex(time24Pattern, 'Use a 24-hour time bet
 
 export const themeUpdateTypeSchema = z.enum(['deep_dive', 'short_update', 'nothing_to_report']);
 export const themeUpdateTypeLabels = { deep_dive: 'Deep Dive', short_update: 'Update', nothing_to_report: 'Nothing to Report' } as const;
-export const themeAgendaTypeLabels = { ...themeUpdateTypeLabels, triage_admin: 'Admin', assignments: 'Assignments' } as const;
+export const themeAgendaTypeLabels = { ...themeUpdateTypeLabels, triage_admin: 'PI', assignments: 'Assignments' } as const;
 export const isAgendaPlaceholder = (item: { update_type: string }) => item.update_type === 'triage_admin' || item.update_type === 'assignments';
+// Coordinator-added temporary speakers have no account; their agenda username is this prefix plus a UUID.
+export const temporarySpeakerPrefix = ':speaker:';
+export const isTemporarySpeaker = (username?: string | null) => Boolean(username?.startsWith(temporarySpeakerPrefix));
+export const speakerSummaryWordLimit = 50;
+export const wordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
 // Normalize retired types only when reading saved records, never for new submissions.
 const storedThemeUpdateTypeSchema = z.preprocess((value) =>
   value === 'milestone_check' ? 'short_update' : value === 'strategic_slot' ? 'deep_dive' : value,

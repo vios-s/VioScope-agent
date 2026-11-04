@@ -195,6 +195,8 @@ type ManagedProjectArtifact = {
   createdAt: string;
 };
 
+type CommentHistoryRecord = { id: string; text: string; deleted: boolean; history: Array<{ by: string; at: string; text: string; action: 'edited' | 'deleted' }> };
+
 type ManagedProjectUpdateComment = {
   id: string;
   updateId: string;
@@ -446,6 +448,8 @@ type FeedbackQuery = {
   updatedAt: string;
   resolvedAt: string | null;
   resolvedByUsername: string | null;
+  history: Array<{ by: string; at: string; action: 'edited' | 'deleted' | 'reply'; title?: string; description?: string; status?: string; adminNote?: string }>;
+  deletedAt: string | null;
 };
 
 type FeedbackPayload = {
@@ -2545,6 +2549,10 @@ function ProjectDetailModal({
   const [mode, setMode] = useState<ProjectDetailMode>(initialMode);
   const [draft, setDraft] = useState(() => defaultTimelineDraft(project));
   const [editorOpen, setEditorOpen] = useState(false);
+  const [removedUpdateComments, setRemovedUpdateComments] = useState<Array<CommentHistoryRecord & { updateDate: string }> | null>(null);
+  const [commentHistory, setCommentHistory] = useState<Record<string, CommentHistoryRecord[]>>({});
+  const [editingComment, setEditingComment] = useState<{ id: string; text: string; original: string } | null>(null);
+  const [commentToRemove, setCommentToRemove] = useState<{ updateId: string; comment: ManagedProjectUpdateComment } | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [editingUpdateId, setEditingUpdateId] = useState<string | null>(null);
   const [updateToDelete, setUpdateToDelete] = useState<ManagedProjectUpdate | null>(null);
@@ -2765,6 +2773,34 @@ function ProjectDetailModal({
     }
   }
 
+  async function loadRemovedUpdateComments() {
+    try {
+      const result = await requestJson<{ comments: Array<CommentHistoryRecord & { updateDate: string }> }>(`/api/projects/${project.id}/comment-history`, 'Could not load comment history.');
+      setRemovedUpdateComments(result.comments);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not load comment history.'); }
+  }
+
+  async function loadCommentHistory(updateId: string) {
+    try {
+      const result = await requestJson<{ comments: CommentHistoryRecord[] }>(`/api/project-updates/${updateId}/comments`, 'Could not load comment history.');
+      setCommentHistory(current => ({ ...current, [updateId]: result.comments }));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not load comment history.'); }
+  }
+
+  async function changeComment(updateId: string, comment: ManagedProjectUpdateComment, remove: boolean) {
+    setBusy(updateId); setError(null);
+    try {
+      const body = await requestJson<ProjectsPayload>(`/api/project-updates/${updateId}/comments`, 'Could not change comment.', {
+        method: remove ? 'DELETE' : 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: comment.id, expectedText: remove ? comment.text : editingComment?.original, text: editingComment?.text }),
+      });
+      if (!body.project) throw new Error('Could not change comment.');
+      setEditingComment(null); await onChanged(body.project);
+      if (commentHistory[updateId]) await loadCommentHistory(updateId);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not change comment.'); }
+    finally { setBusy(null); }
+  }
+
   return (
     <>
     <div className="users-modal-backdrop" role="presentation" onClick={onClose}>
@@ -2957,9 +2993,31 @@ function ProjectDetailModal({
                     {update.comments.map((comment) => (
                       <div className="timeline-comment" key={comment.id}>
                         <strong>{comment.byUsername}</strong>
-                        <span>{comment.text}</span>
+                        {editingComment?.id === comment.id ? <form onSubmit={event => { event.preventDefault(); void changeComment(update.id, comment, false); }}>
+                          <label>Edit comment<input required value={editingComment.text} onChange={event => setEditingComment({ ...editingComment, text: event.target.value })}/></label>
+                          <div className="timeline-actions">
+                            <button className="ops-primary" type="submit" disabled={busy === update.id}>Save</button>
+                            <button className="ops-secondary" type="button" onClick={() => setEditingComment(null)}>Cancel</button>
+                          </div>
+                        </form> : <span>{comment.text}</span>}
+                        {canComment && comment.byUsername === viewer.username && editingComment?.id !== comment.id && <div className="timeline-actions">
+                          <button className="ops-secondary" type="button" aria-label="Edit comment" disabled={busy === update.id} onClick={() => setEditingComment({ id: comment.id, text: comment.text, original: comment.text })}>
+                            <Pencil aria-hidden="true" /> Edit
+                          </button>
+                          <button className="ops-secondary danger-action" type="button" aria-label="Remove comment" disabled={busy === update.id} onClick={() => setCommentToRemove({ updateId: update.id, comment })}>
+                            <Trash2 aria-hidden="true" /> Remove
+                          </button>
+                        </div>}
                       </div>
                     ))}
+                    <details onToggle={event => { if (event.currentTarget.open) void loadCommentHistory(update.id); }}>
+                      <summary>My comment history</summary>
+                      {commentHistory[update.id] && !commentHistory[update.id].length && <p>No edited or removed comments.</p>}
+                      {commentHistory[update.id]?.map(item => <article key={item.id}>
+                        <p>{item.deleted ? 'Removed comment' : 'Current comment'} · {item.text}</p>
+                        <ol>{item.history.map((entry, index) => <li key={index}>{entry.action === 'deleted' ? 'Removed' : 'Edited'} · {fmt.formatDayTime(entry.at)} · @{entry.by}<p>{entry.text}</p></li>)}</ol>
+                      </article>)}
+                    </details>
                     {canComment && (
                       <div className="timeline-comment-form">
                         <input
@@ -3002,6 +3060,14 @@ function ProjectDetailModal({
               <div className="ops-muted-line">No timeline updates yet</div>
             )}
           </div>
+          <details onToggle={event => { if (event.currentTarget.open) void loadRemovedUpdateComments(); }}>
+            <summary>My comments on removed updates</summary>
+            {removedUpdateComments && !removedUpdateComments.length && <p>No comments on removed updates.</p>}
+            {removedUpdateComments?.map(comment => <article key={comment.id}>
+              <p>Update from {formatDate(comment.updateDate)} · {comment.deleted ? 'Removed comment' : 'Comment'} · {comment.text}</p>
+              <ol>{comment.history.map((entry, index) => <li key={index}>{entry.action === 'deleted' ? 'Removed' : 'Edited'} · {fmt.formatDayTime(entry.at)} · @{entry.by}<p>{entry.text}</p></li>)}</ol>
+            </article>)}
+          </details>
         </section>
 
         {project.access.canAddUpdate && (
@@ -3168,12 +3234,24 @@ function ProjectDetailModal({
         id="project-update-delete-confirm"
         open={Boolean(updateToDelete)}
         title="Delete this update?"
-        message="The update will be removed from the project history and cannot be restored. Its attached files will no longer appear on the project; their records are kept for audit."
+        message="The update will be removed from the project history and cannot be restored. Its attached files will no longer appear on the project. Comment histories and file records are retained."
         confirmLabel="Delete update"
         busy={Boolean(updateToDelete && busy === `delete:${updateToDelete.id}`)}
         onCancel={() => setUpdateToDelete(null)}
         onConfirm={() => {
           if (updateToDelete) void deleteUpdate(updateToDelete);
+        }}
+      />
+      <ConfirmDialog
+        id="project-comment-remove-confirm"
+        open={Boolean(commentToRemove)}
+        title="Remove this comment?"
+        message="The comment will no longer appear on the update. Its history will be retained."
+        confirmLabel="Remove comment"
+        onCancel={() => setCommentToRemove(null)}
+        onConfirm={() => {
+          if (commentToRemove) void changeComment(commentToRemove.updateId, commentToRemove.comment, true);
+          setCommentToRemove(null);
         }}
       />
 
@@ -7821,8 +7899,22 @@ function feedbackDate(value: string) {
   return fmt.formatDayTime(value);
 }
 
-function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocused?: () => void }) {
+function FeedbackHistory({ history }: { history: FeedbackQuery['history'] }) {
+  return <details><summary>Request history</summary>
+    {!history.length && <p>No changes recorded.</p>}
+    <ol>{history.map((entry, index) => <li key={index}>
+      {entry.action === 'reply' ? 'Administrator reply updated' : entry.action === 'deleted' ? 'Removed' : 'Edited'} · {feedbackDate(entry.at)}
+      {entry.action !== 'reply' && <> · @{entry.by}</>}
+      {entry.title && <p>{entry.title}</p>}{entry.description && <p>{entry.description}</p>}
+      {entry.action === 'reply' && <p>Previous status: {entry.status}; previous reply: {entry.adminNote || 'None'}</p>}
+    </li>)}</ol>
+  </details>;
+}
+
+function FeedbackView({ viewer, focusId, onFocused }: { viewer: CurrentUser; focusId?: string | null; onFocused?: () => void }) {
   const [queries, setQueries] = useState<FeedbackQuery[]>([]);
+  const [removedQueries, setRemovedQueries] = useState<FeedbackQuery[] | null>(null);
+  const [feedbackToRemove, setFeedbackToRemove] = useState<FeedbackQuery | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -7833,6 +7925,7 @@ function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocus
   const [attachment, setAttachment] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingFeedback, setEditingFeedback] = useState<{ id: string; title: string; description: string; originalTitle: string; originalDescription: string } | null>(null);
   const [managerDrafts, setManagerDrafts] = useState<Record<string, { status: FeedbackStatus; adminNote: string }>>({});
 
   const applyQueries = useCallback((nextQueries: FeedbackQuery[]) => {
@@ -7953,6 +8046,29 @@ function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocus
     }
   }
 
+  async function loadRemovedFeedback() {
+    try {
+      const result = await requestJson<FeedbackPayload>('/api/feedback?removed=true', 'Could not load removed requests.');
+      setRemovedQueries(result.queries || []);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not load removed requests.'); }
+  }
+
+  async function changeFeedback(query: FeedbackQuery, remove: boolean) {
+    setSavingId(query.id); setError(null);
+    try {
+      const body = await requestJson<FeedbackPayload>(`/api/feedback/${query.id}`, 'Could not change feedback.', {
+        method: remove ? 'DELETE' : 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operation: 'edit', expectedTitle: remove ? query.title : editingFeedback?.originalTitle, expectedDescription: remove ? query.description : editingFeedback?.originalDescription, title: editingFeedback?.title, description: editingFeedback?.description }),
+      });
+      if (!remove && !body.query) throw new Error('Could not change feedback.');
+      setEditingFeedback(null);
+      if (remove && removedQueries) await loadRemovedFeedback();
+      applyQueries(remove ? queries.filter(item => item.id !== query.id) : queries.map(item => item.id === query.id ? body.query! : item));
+      setMessage(remove ? 'Feedback request removed.' : 'Feedback request updated.');
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Could not change feedback.'); }
+    finally { setSavingId(null); }
+  }
+
   const filterCounts = useMemo(
     () => Object.fromEntries(feedbackFilters.map(([filter]) => [filter, queries.filter((query) => feedbackMatchesFilter(filter, query.status)).length])),
     [queries],
@@ -8043,6 +8159,21 @@ function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocus
               <button className="ops-secondary" type="button" disabled={loading} onClick={() => void reload()}>Retry</button>
             </div>
           )}
+          <details onToggle={event => { if (event.currentTarget.open) void loadRemovedFeedback(); }}>
+            <summary>Removed requests</summary>
+            {removedQueries && !removedQueries.length && <p>No removed requests.</p>}
+            {removedQueries?.map(query => <article className="feedback-card" key={query.id}>
+              <header>
+                <h3>{query.title}</h3>
+                <span className="feedback-card-meta">
+                  {canManage && <>{query.submitterDisplayName} (@{query.submitterUsername}) · </>}
+                  Removed {feedbackDate(query.deletedAt || query.updatedAt)}
+                </span>
+              </header>
+              <p className="feedback-description">{query.description}</p>
+              <FeedbackHistory history={query.history || []}/>
+            </article>)}
+          </details>
           {!loaded || loading ? (
             <SettingsLoading label="Loading feedback requests" />
           ) : !queries.length ? (
@@ -8067,12 +8198,23 @@ function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocus
                       </span>
                     </header>
                     <p className="feedback-description">{query.description}</p>
+                    {editingFeedback?.id === query.id ? <form onSubmit={event => { event.preventDefault(); void changeFeedback(query, false); }}>
+                      <label>Title<input required maxLength={180} value={editingFeedback.title} onChange={event => setEditingFeedback({ ...editingFeedback, title: event.target.value })}/></label>
+                      <label>Description<textarea required maxLength={10000} value={editingFeedback.description} onChange={event => setEditingFeedback({ ...editingFeedback, description: event.target.value })}/></label>
+                      <button className="ops-primary" type="submit" disabled={savingId === query.id}>Save changes</button>
+                      <button className="ops-secondary" type="button" onClick={() => setEditingFeedback(null)}>Cancel</button>
+                    </form> : (viewer.username === query.submitterUsername || canManage) && <div>
+                      <button className="ops-secondary" type="button" disabled={savingId === query.id} onClick={() => setEditingFeedback({ id: query.id, title: query.title, description: query.description, originalTitle: query.title, originalDescription: query.description })}>Edit request</button>
+                      <button className="ops-secondary" type="button" disabled={savingId === query.id} onClick={() => setFeedbackToRemove(query)}>Remove request</button>
+                    </div>}
+
                     {query.attachment && (
                       <a className="feedback-attachment" href={`/api/feedback/${query.id}/attachment`}>
                         <Download aria-hidden="true" />
                         Download {query.attachment.name}
                       </a>
                     )}
+                    {query.history?.length > 0 && <FeedbackHistory history={query.history}/>}
                     {!canManage && query.adminNote && (
                       <aside className="feedback-reply" aria-label="Administrator reply">
                         <small>
@@ -8118,6 +8260,18 @@ function FeedbackView({ focusId, onFocused }: { focusId?: string | null; onFocus
           )}
         </section>
       </div>
+      <ConfirmDialog
+        id="feedback-remove-confirm"
+        open={Boolean(feedbackToRemove)}
+        title="Remove this feedback request?"
+        message="The request will no longer appear in the feedback list. Its history will be retained."
+        confirmLabel="Remove request"
+        onCancel={() => setFeedbackToRemove(null)}
+        onConfirm={() => {
+          if (feedbackToRemove) void changeFeedback(feedbackToRemove, true);
+          setFeedbackToRemove(null);
+        }}
+      />
     </ConsolePageFrame>
   );
 }
@@ -8733,7 +8887,7 @@ export function OperationsConsole() {
             </>
           )}
           {activeView === 'checklists' && <ChecklistsView key={user.id} userId={user.id} onProjectCreated={loadProjects} reviewProjectId={reviewFocus?.projectId} reviewRequest={reviewFocus?.request} />}
-          {activeView === 'feedback' && <FeedbackView focusId={feedbackFocusId} onFocused={() => setFeedbackFocusId(null)} />}
+          {activeView === 'feedback' && <FeedbackView viewer={user} focusId={feedbackFocusId} onFocused={() => setFeedbackFocusId(null)} />}
           {activeView === 'users' && (
             <UsersView
               user={user}

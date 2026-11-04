@@ -48,8 +48,9 @@ async function main() {
   assert.equal(verifySessionToken(token)?.sub, user.id);
   assert.equal(verifySessionToken(`${token}x`), null);
   assert.equal(canSeeAll(user), true);
-  assert.equal(isUserName('Alice Example', user), true);
-  assert.equal(isUserName('AE', user), true);
+  assert.equal(isUserName('alice', user), true);
+  assert.equal(isUserName('Alice Example', user), false);
+  assert.equal(isUserName('AE', user), false);
   assert.equal(isUserName('someone else', user), false);
 
   console.log('User password checks passed.');

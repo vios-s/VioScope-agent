@@ -648,6 +648,23 @@ async function ensureProjectTablesOnce(): Promise<void> {
         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await postgres.pool.query("ALTER TABLE project_update_comments ADD COLUMN IF NOT EXISTS history JSONB NOT NULL DEFAULT '[]'::jsonb");
+    await postgres.pool.query('ALTER TABLE project_update_comments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ');
+    await postgres.pool.query(`
+      CREATE TABLE IF NOT EXISTS project_deleted_update_comments (
+        id UUID PRIMARY KEY,
+        project_id UUID NOT NULL REFERENCES project_records(id) ON DELETE CASCADE,
+        update_id UUID NOT NULL,
+        update_date DATE NOT NULL,
+        by_username TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        deleted_at TIMESTAMPTZ,
+        history JSONB NOT NULL,
+        update_removed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await postgres.pool.query('CREATE INDEX IF NOT EXISTS project_deleted_comments_owner_idx ON project_deleted_update_comments (project_id, by_username)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS project_records_owner_idx ON project_records (owner_username)');
     await postgres.pool.query('CREATE UNIQUE INDEX IF NOT EXISTS project_records_owner_slug_idx ON project_records (lower(owner_username), slug)');
     await postgres.pool.query('CREATE INDEX IF NOT EXISTS project_records_track_idx ON project_records (track)');
@@ -692,7 +709,7 @@ async function hydrateProjects(rows: ProjectRow[], user: AuthUser): Promise<Proj
           `
             SELECT id::text, update_id::text, by_username, text, created_at
             FROM project_update_comments
-            WHERE update_id = ANY($1::uuid[])
+            WHERE update_id = ANY($1::uuid[]) AND deleted_at IS NULL
             ORDER BY created_at ASC
           `,
           [updateIds],
@@ -804,11 +821,21 @@ async function validateProjectReviewers(input: ProjectCreateInput, owner: string
     next === undefined ? names : [...(next ? [next] : []), ...names.filter(name => name !== previous)];
   const piUsernames = cleanList(input.piUsernames ?? legacyList(current ? projectPIs(current) : [], current?.piUsername, input.piUsername));
   const pdraUsernames = cleanList(input.pdraUsernames ?? legacyList(current ? projectPDRAs(current) : [], current?.pdraUsername, input.pdraUsername));
+  const ownerUsername = cleanUsername(owner);
   const pdraUsername = input.pdraUsername === undefined
-    ? (current?.pdraUsername && pdraUsernames.includes(current.pdraUsername) ? current.pdraUsername : pdraUsernames[0] || null)
+    ? (current?.pdraUsername && pdraUsernames.includes(current.pdraUsername) ? current.pdraUsername : pdraUsernames.find(name => name !== ownerUsername) || pdraUsernames[0] || null)
     : input.pdraUsername ? cleanUsername(input.pdraUsername) : null;
-  if (pdraUsernames.length && !pdraUsername) throw new Error('Choose one lead PDRA from the assigned PDRAs.');
+  if (pdraUsernames.length && !pdraUsername) {
+    throw new Error(pdraUsernames.every(name => name === ownerUsername)
+      ? 'Add a PDRA other than the project owner to act as lead PDRA.'
+      : 'Choose one lead PDRA from the assigned PDRAs.');
+  }
   if (pdraUsername && !pdraUsernames.includes(pdraUsername)) throw new Error('The lead PDRA must be included in the assigned PDRAs.');
+  // The owner may be an additional PDRA, but the lead carries the independent review duty.
+  // An unchanged legacy owner-lead is left in place so unrelated edits still save.
+  if (pdraUsername === ownerUsername && (!current || current.pdraUsername !== pdraUsername || cleanUsername(current.ownerUsername) !== ownerUsername)) {
+    throw new Error('Choose a lead PDRA other than the project owner.');
+  }
   for (const username of piUsernames) {
     const account = await getUserByUsername(username);
     if (!account || account.provisioningStatus !== 'active' || !canSeeAll(account)) throw new Error('Project PI must be an active PI or administrator account.');
@@ -1232,6 +1259,13 @@ export async function deleteProjectUpdate(updateId: string, actor: AuthUser): Pr
     const project = await getProjectForUser(projectId, actor);
     if (!project.access.canEdit) throw new AuthError('You do not have permission to delete project updates.', 403, 'forbidden');
 
+    const locked = await client.query('SELECT id FROM project_updates WHERE id=$1 FOR UPDATE', [updateId]);
+    if (!locked.rowCount) throw new AuthError('Project update not found.', 404, 'not_found');
+    await client.query(`
+      INSERT INTO project_deleted_update_comments (id,project_id,update_id,update_date,by_username,text,created_at,deleted_at,history)
+      SELECT c.id,u.project_id,u.id,u.update_date,c.by_username,c.text,c.created_at,c.deleted_at,c.history
+      FROM project_update_comments c JOIN project_updates u ON u.id=c.update_id WHERE u.id=$1
+    `, [updateId]);
     await client.query('UPDATE project_artifacts SET deleted_at = now(), is_current = false WHERE source_update_id = $1 AND deleted_at IS NULL', [updateId]);
     await client.query('DELETE FROM project_updates WHERE id = $1', [updateId]);
 
@@ -1269,6 +1303,68 @@ export async function addProjectUpdateComment(updateId: string, textValue: strin
   } finally {
     await postgres.disconnect();
   }
+}
+
+// Row-level access check without hydrating the whole project; same rule as getProjectForUser.
+async function accessibleProjectRow(projectId: string, actor: AuthUser): Promise<ProjectRow> {
+  const [row] = await projectRowsByIdOrSlug(projectId);
+  if (!row || !accessReason(row, actor)) throw new AuthError('Project not found or access denied.', 404, 'not_found');
+  return row;
+}
+
+export async function listOwnRemovedUpdateComments(projectId: string, actor: AuthUser) {
+  await ensureProjectTables();
+  const project = await accessibleProjectRow(projectId, actor);
+  const result = await createPostgresClient().pool.query<{
+    id: string; update_date: string | Date; text: string; deleted_at: Date | null; history: unknown[];
+  }>(`
+    SELECT id::text,update_date,text,deleted_at,history
+    FROM project_deleted_update_comments
+    WHERE project_id=$1 AND by_username=$2
+    ORDER BY update_removed_at DESC,created_at
+  `, [project.id, actor.username]);
+  return result.rows.map(row => ({
+    id: row.id, updateDate: dateOnly(row.update_date),
+    text: row.text, deleted: Boolean(row.deleted_at), history: row.history,
+  }));
+}
+
+export async function listOwnCommentHistory(updateId: string, actor: AuthUser) {
+  await ensureProjectTables();
+  const db = createPostgresClient();
+  const found = await db.pool.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id=$1', [updateId]);
+  if (!found.rows[0]) throw new AuthError('Project update not found.', 404, 'not_found');
+  await accessibleProjectRow(found.rows[0].project_id, actor);
+  const result = await db.pool.query<{ id: string; text: string; deleted_at: Date | null; history: unknown[] }>(
+    'SELECT id::text,text,deleted_at,history FROM project_update_comments WHERE update_id=$1 AND by_username=$2 ORDER BY created_at', [updateId, actor.username]);
+  return result.rows.filter(row => row.deleted_at || row.history.length).map(row => ({
+    id: row.id, text: row.text, deleted: Boolean(row.deleted_at), history: row.history,
+  }));
+}
+
+export async function changeProjectUpdateComment(updateId: string, commentId: string, expectedText: string, nextText: string | null, actor: AuthUser): Promise<ProjectRecord> {
+  await ensureProjectTables();
+  if (!expectedText || (nextText !== null && !nextText.trim())) throw new Error('Comment text is required.');
+  return withDatabaseTransaction(async () => {
+    const db = createPostgresClient();
+    const found = await db.pool.query<{ project_id: string }>('SELECT project_id::text FROM project_updates WHERE id=$1', [updateId]);
+    const projectId = found.rows[0]?.project_id;
+    if (!projectId) throw new AuthError('Project update not found.', 404, 'not_found');
+    await db.pool.query('SELECT id FROM project_records WHERE id=$1 FOR UPDATE', [projectId]);
+    // Row-level access check only; the full project is hydrated once, for the response.
+    await accessibleProjectRow(projectId, actor);
+    const result = await db.pool.query<{ by_username: string; text: string }>(
+      'SELECT by_username,text FROM project_update_comments WHERE id=$1 AND update_id=$2 AND deleted_at IS NULL FOR UPDATE', [commentId, updateId]);
+    const comment = result.rows[0];
+    if (!comment) throw new AuthError('Comment not found.', 404, 'not_found');
+    if (comment.by_username !== actor.username) throw new AuthError('Only the author can change this comment.', 403, 'forbidden');
+    if (comment.text !== expectedText) throw new AuthError('This comment changed. Reload and try again.', 409, 'conflict');
+    await db.pool.query(`UPDATE project_update_comments SET text=COALESCE($2,text),
+      deleted_at=CASE WHEN $2::text IS NULL THEN now() ELSE NULL END,
+      history=history || jsonb_build_array(jsonb_build_object('by',$3::text,'at',now(),'text',text,'action',CASE WHEN $2::text IS NULL THEN 'deleted' ELSE 'edited' END))
+      WHERE id=$1`, [commentId, nextText?.trim() ?? null, actor.username]);
+    return getProjectForUser(projectId, actor);
+  });
 }
 
 export async function getProjectArtifactForUser(

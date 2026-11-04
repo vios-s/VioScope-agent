@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { isAgendaPlaceholder } from '../../../../src/mastra/theme-meetings/schema';
+import { isAgendaPlaceholder, isTemporarySpeaker } from '../../../../src/mastra/theme-meetings/schema';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
@@ -8,7 +8,7 @@ import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { getProjectForUser, listProjectsForUser } from '../../../../src/mastra/db/projects';
 import { getUserByUsername } from '../../../../src/mastra/db/users';
 import { canManageTheme, isPastMeetingReadOnly } from '../../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan, confirmedAgendaDeliveryPrefix, nextThemeMeetingDate, confirmedAgendaEmailAudience, sendThemeMeetingAgendaEmails } from '../../../../src/mastra/theme-meetings/planner';
+import { buildThemeMeetingPlan, confirmedAgendaDeliveryPrefix, coordinatorEditWindowOpen, nextThemeMeetingDate, confirmedAgendaEmailAudience, sendThemeMeetingAgendaEmails } from '../../../../src/mastra/theme-meetings/planner';
 import { readThemeMeetingEmailDeliveries, resolveThemeMeetingUpdatesPath } from '../../../../src/mastra/theme-meetings/store';
 import { contentHash, withFileLock } from '../../../../src/mastra/atomic-file';
 import { addMeetingAction, agendaSelectionSchema, agendaSourceVersion, applyConfirmedAgendas, changeMeetingWorkflow, confirmAgenda,
@@ -79,7 +79,7 @@ export async function GET(request: Request) {
         ? await confirmedAgendaEmailAudience({ ...payload.plan, meetings: [meeting] }, payload.config, key.themeId, confirmation.version) : null,
       viewerId: user.id,
       candidates: [...meeting.agenda_items.filter((item) => isAgendaPlaceholder(item) || visible(item.member_username)),
-        ...(manager ? (confirmation?.entries || []).filter((item) => item.member_username?.startsWith(':speaker:')) : [])],
+        ...(manager ? (confirmation?.entries || []).filter((item) => isTemporarySpeaker(item.member_username)) : [])],
       // Unconfirmed draft submissions stay visible only to their author and managers. For the theme's current/next
       // meeting, members see the confirmed schedule (as the confirmed agenda email circulates it): scheduled entries
       // in full, legacy deferred entries as name and update type only. For earlier meetings members see only their own entries.
@@ -89,7 +89,8 @@ export async function GET(request: Request) {
         return entry.deferred ? [{ meeting_date: entry.meeting_date, theme_id: entry.theme_id, theme_title: entry.theme_title, member: entry.member,
           member_username: entry.member_username, update_type: entry.update_type, duration_minutes: entry.duration_minutes, deferred: true }] : [entry];
       }) } : confirmation,
-      projects: manager ? projects.filter((project) => project.lifecycle !== 'archived').map(({ id, title }) => ({ id, title })) : [],
+      projects: projects.filter((project) => project.lifecycle !== 'archived').map(({ id, title }) => ({ id, title })),
+      canAddAction: !readOnly && (manager || coordinatorEditWindowOpen(payload.config, key.meetingDate)),
       members: manager ? meeting.member_usernames : [user.username],
       actions: state.actions.filter((action) => action.themeId === key.themeId && action.meetingDate <= key.meetingDate &&
         visible(action.owner) && (!action.projectId || projectTitles.has(action.projectId))).map((action) => ({ ...action,
@@ -104,8 +105,10 @@ export async function POST(request: Request) {
     if (command.operation === 'email_confirmed') return await emailConfirmedAgenda(request, command);
     // Match the submission writer's lock, then serialize agenda/action revisions.
     const result = await withFileLock(resolveThemeMeetingUpdatesPath(), async () => changeMeetingWorkflow({}, async (state) => {
-      const { user, meeting, manager, readOnly } = await context(request, command);
-      if (command.operation !== 'update_action' && !manager) throw new AuthError('Only the theme coordinator, PI or administrator can do this.', 403, 'forbidden');
+      const { user, meeting, manager, readOnly, payload } = await context(request, command);
+      if (command.operation === 'confirm' && !manager) throw new AuthError('Only the theme coordinator, PI or administrator can do this.', 403, 'forbidden');
+      if (command.operation === 'add_action' && !manager && command.action.owner !== user.username) throw new AuthError('Members can only add actions assigned to themselves.', 403, 'forbidden');
+      if (command.operation === 'add_action' && !manager && !coordinatorEditWindowOpen(payload.config, command.meetingDate)) throw readOnlyError();
       if (command.operation !== 'update_action' && readOnly) throw readOnlyError();
       if (meeting.cancelled && command.operation !== 'update_action') throw new Error('This meeting is skipped. Restore it first.');
       if (command.operation === 'confirm') {

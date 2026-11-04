@@ -1213,6 +1213,7 @@
 }
 
 .users-modal.project-detail-modal .timeline-actions .ops-secondary,
+.users-modal.project-detail-modal .timeline-actions .ops-primary,
 .users-modal.project-detail-modal .timeline-comment-form .ops-secondary {
   min-height: var(--vs-control-sm);
   padding: 0 12px;

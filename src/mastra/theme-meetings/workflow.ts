@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { atomicWrite, contentHash, withFileLock } from '../atomic-file';
 import { resolveThemeMeetingUpdatesPath, type ThemeMeetingStoreOptions } from './store';
-import { themeMeetingAgendaItemSchema, type ThemeMeetingPlan } from './schema';
+import { speakerSummaryWordLimit, themeMeetingAgendaItemSchema, wordCount, type ThemeMeetingPlan } from './schema';
 
 export const meetingDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a valid date.').refine(
   (value) => !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value,
@@ -32,7 +32,7 @@ export type AgendaConfirmation = MeetingWorkflow['confirmations'][number];
 export const agendaSelectionSchema = z.array(z.object({
   username: z.string().trim().min(1), minutes: z.number().int().min(0).max(60), deferred: z.boolean(),
   speakerName: z.string().trim().min(1).max(120).optional(),
-  speakerSummary: z.string().max(5000).refine(value => !value.trim() || value.trim().split(/\s+/).length <= 50, 'Temporary speaker summary must be 50 words or fewer.').optional(),
+  speakerSummary: z.string().max(5000).refine(value => wordCount(value) <= speakerSummaryWordLimit, `Temporary speaker summary must be ${speakerSummaryWordLimit} words or fewer.`).optional(),
 }).strict()).max(200);
 export const newActionSchema = z.object({ projectId: z.string().uuid().nullable().default(null), decision: text, task: text, owner: z.string().trim().min(1), dueDate: meetingDateSchema }).strict();
 

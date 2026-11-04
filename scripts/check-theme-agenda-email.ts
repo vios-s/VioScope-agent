@@ -50,6 +50,19 @@ assert.match(email.text, /Update \(10 min\)/);
 assert.match(email.text, /results\.\n• Next:/);
 assert.doesNotMatch(email.text, /^#|milestone_check|nothing_to_report/m);
 assert.match(email.text, /advisory until confirmed/);
+for (const [stage, label] of [[1, 'Idea / Proposal'], [2, 'Design / Planning'], [3, 'Experiments / Build'], [4, 'Writing / Packaging'], [5, 'Submission / Finish']] as const) {
+  const item = { ...plan.meetings[0]!.agenda_items[0]!, project_context: { projectId: '00000000-0000-4000-8000-000000000001', title: 'Example project', ownerUsername: 'example', stage, actions: [] } };
+  const rendered = renderThemeMeetingAgendaEmail({ ...plan, meetings: [{ ...plan.meetings[0]!, agenda_items: [item] }] });
+  assert.ok(rendered.text.includes(`Stage: ${stage} — ${label}`));
+  assert.ok(rendered.html.includes(`<strong>Stage:</strong> ${stage} — ${label}`));
+}
+const mixed = renderThemeMeetingAgendaEmail(plan, { confirmations: { A: { version: 2, confirmedBy: 'chair', confirmedAt: '2026-10-13T12:00:00Z', skipped: [] } } });
+assert.doesNotMatch(mixed.html, /background-color:#e6f2ec|Confirmed version 2|Themes marked as confirmed/);
+assert.doesNotMatch(mixed.html, /Confirmed themes were confirmed|Other themes are advisory/);
+assert.doesNotMatch(mixed.text, /Confirmed version 2|Themes marked as confirmed/);
+assert.match(mixed.html, /Theme A &mdash; Example research theme &middot; Confirmed/);
+assert.match(mixed.html, /Theme B &mdash; Example research theme &middot; Advisory/);
+assert.match(renderThemeMeetingAgendaEmail(plan, { phase: 'preview' }).html, /background-color:#fff3cd/);
 assert.match(renderThemeMeetingAgendaEmail({ ...plan, meetings: [] }).html, /No active theme meetings/);
 assert.match(renderThemeMeetingAgendaEmail({ ...plan, meetings: [{ ...plan.meetings[0]!, agenda_items: [], overbooked: true }] }).html, /\(overbooked\)/);
 assert.match(renderThemeMeetingAgendaEmail({ ...plan, meetings: [{ ...plan.meetings[0]!, agenda_items: [] }] }).text, /No planned updates yet/);

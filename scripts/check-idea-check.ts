@@ -298,10 +298,9 @@ try {
   assert.deepEqual(agenda.agenda_items.find((item: { project_context?: { projectId: string } }) => item.project_context?.projectId === snapshot.projectId)?.project_context, snapshot);
   const { renderThemeMeetingAgendaEmail } = await import('../src/mastra/theme-meetings/agenda-email');
   const email = renderThemeMeetingAgendaEmail(linked.plan);
-  assert.match(email.text, /Run a synthetic pilot/);
-  assert.match(email.text, /Project stage: 1/);
-  assert.match(email.html, /Project stage: 1/);
-  assert.match(email.html, /2026-11-06|6 Nov 2026/);
+  assert.match(email.text, /Project: Synthetic early/);
+  assert.match(email.text, /Stage: 1/);
+  assert.match(email.html, /<strong>Stage:<\/strong> 1/);
   const workflow = await import('../src/mastra/theme-meetings/workflow');
   const state = { confirmations: [], actions: [] };
   const confirmation = workflow.confirmAgenda(state, agenda, '2099-11-04', agenda.agenda_items.map((item: { member_username: string; duration_minutes: number }) => ({ username: item.member_username, deferred: false, minutes: item.duration_minutes })), 'chair');

@@ -23,6 +23,8 @@ const items = defaultAgenda([
 assert.deepEqual(items.map((item) => item.member_username), [':triage_admin', 'bob', 'carol', 'alice', ':assignments']);
 assert.equal(items.reduce((sum, item) => sum + item.duration_minutes, 0), 75);
 assert.deepEqual(defaultAgenda([], date, 'A', 'Synthetic theme').map((item) => item.duration_minutes), [5, 5]);
+assert.equal(items[0].member, 'PI announcement');
+assert.equal(items[0].progress_text, '');
 assert.deepEqual(defaultAgenda([], date, 'A', 'Synthetic theme'), defaultAgenda([], date, 'A', 'Synthetic theme'));
 for (const item of items.filter((item) => item.member_username?.startsWith(':'))) {
   assert.equal(themeMeetingUpdateSchema.safeParse(item).success, false, 'Placeholders cannot be submitted as member updates.');
@@ -50,8 +52,11 @@ assert.throws(() => confirmAgenda(state, meeting, date, arranged.map((item) => i
 const confirmedPlan = applyConfirmedAgendas(plan, state);
 assert.deepEqual(confirmedPlan.meetings[0].agenda_items.map((item) => item.member_username), arranged.map((item) => item.username));
 const email = renderThemeMeetingAgendaEmail(confirmedPlan, { confirmation: { ...confirmation, skipped: [] } });
+assert.match(email.html, />Discussion<\/th>/);
+assert.match(email.text, /PI announcement \| PI \| 6 min/);
+assert.doesNotMatch(email.html, /PI announcement<\/h4>[\s\S]*?<p>N\/A<\/p>[\s\S]*?<\/td><\/tr>/);
 assert.match(email.text, /10:00 \| Assignments/);
-assert.match(email.text, /Triage & Admin/);
+assert.match(email.text, /PI announcement/);
 const emptyPlan = { ...plan, meetings: [{ ...meeting, agenda_items: defaultAgenda([], date, 'A', meeting.title), planned_minutes: 10, overbooked: false }] };
 assert.match(renderThemeMeetingAgendaEmail(emptyPlan).text, /No planned updates yet/);
 assert.match(renderThemeMeetingAgendaEmail(emptyPlan).html, /consider skipping/);

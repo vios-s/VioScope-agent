@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   try {
     const user = await requireSessionUser(request);
     return NextResponse.json({
-      queries: await listFeedbackQueries(user),
+      queries: await listFeedbackQueries(user, new URL(request.url).searchParams.get('removed') === 'true'),
       canManage: user.role === 'administrator',
     });
   } catch (error) {

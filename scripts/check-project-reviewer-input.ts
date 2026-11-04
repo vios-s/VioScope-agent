@@ -38,8 +38,11 @@ try {
       body: JSON.stringify({ title: 'Rejected empty team', ...team }) }));
     assert.equal(response.status, 400); assert.match((await response.json()).error, error);
   }
-  const ownProject = await createProject({ title: 'Owner as PDRA', piUsername: 'principal', pdraUsername: 'owner' }, owner);
-  assert.equal(ownProject.pdraUsername, 'owner');
+  await assert.rejects(createProject({ title: 'Owner as lead PDRA', piUsername: 'principal', pdraUsername: 'owner' }, owner), /other than the project owner/);
+  await assert.rejects(createProject({ title: 'Owner as only PDRA', piUsernames: ['principal'], pdraUsernames: ['owner'], pdraUsername: '' } as any, owner), /Add a PDRA other than the project owner/);
+  const ownProject = await createProject({ title: 'Owner as PDRA', piUsernames: ['principal'], pdraUsernames: ['owner', 'reviewer'] }, owner);
+  assert.deepEqual(ownProject.pdraUsernames, ['owner', 'reviewer']);
+  assert.equal(ownProject.pdraUsername, 'reviewer');
   const project = await createProject({ title: 'Existing project', piUsername: 'principal', pdraUsername: 'reviewer' }, owner);
   const legacy = await updateProject(project.id, { piUsernames: [], pdraUsernames: [], pdraUsername: null }, owner);
   assert.deepEqual(legacy.piUsernames, []);
@@ -75,7 +78,8 @@ try {
   const pdra = modal.getByRole('textbox', { name: 'Project PDRAs', exact: true });
   await pdra.fill('owne');
   await modal.getByRole('group', { name: 'Project PDRAs suggestions' }).getByRole('button', { name: /@owner/ }).click();
-  assert.equal(await modal.getByLabel('Lead PDRA reviewer').inputValue(), 'owner');
+  assert.equal(await modal.getByLabel('Lead PDRA reviewer').inputValue(), '');
+  assert.equal(await modal.getByLabel('Lead PDRA reviewer').locator('option[value="owner"]').count(), 0);
   const deadline = modal.getByLabel('Submission deadline');
   await deadline.fill('31/02/2027');
   assert.equal(await deadline.evaluate((input: HTMLInputElement) => input.validity.valid), false);

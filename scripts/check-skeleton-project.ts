@@ -23,8 +23,9 @@ try {
   const accounts = new Map(await Promise.all(['alice','bob','carol','outsider','principal','otherpi','admincheck'].map(async name => [name,(await users.getUserByUsername(name))!] as const)));
   const projectDb = await import('../src/mastra/db/projects');
   await assert.rejects(projectDb.createProject({title:'Invalid PI', piUsername:'bob'},accounts.get('alice')!),/PI must/);
-  const selfAssigned = await projectDb.createProject({title:'Self assigned PDRA', piUsername:'principal', pdraUsername:'alice'},accounts.get('alice')!);
-  assert.equal(selfAssigned.pdraUsername, 'alice');
+  await assert.rejects(projectDb.createProject({title:'Self lead PDRA', piUsername:'principal', pdraUsername:'alice'},accounts.get('alice')!),/other than the project owner/);
+  const selfAssigned = await projectDb.createProject({title:'Self assigned PDRA', piUsernames:['principal'], pdraUsernames:['alice','bob']} as any,accounts.get('alice')!);
+  assert.equal(selfAssigned.pdraUsername, 'bob', 'The owner may be an additional PDRA but never the lead.');
   const early = await projectDb.createProject({title:'Synthetic early-stage project', stage:2, piUsername:'principal', pdraUsername:'bob'},accounts.get('alice')!);
   let project = await projectDb.createProject({title:'Synthetic bound skeleton', stage:4, piUsername:'principal', pdraUsername:'bob',collaborators:['carol'],venue:'Fictional venue',submissionDeadline:'2026-12-15'},accounts.get('alice')!);
   assert.equal(project.piUsername,'principal');assert.equal(project.pdraUsername,'bob');

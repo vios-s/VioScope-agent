@@ -1,6 +1,9 @@
 import { formatDay, formatDayTime, formatLongDay } from '../../../app/format';
-import { themeAgendaTypeLabels as slotLabels, isAgendaPlaceholder, type ThemeMeetingAgendaItem, type ThemeMeetingPlan } from './schema';
+import { themeAgendaTypeLabels as slotLabels, isAgendaPlaceholder, isTemporarySpeaker, type ThemeMeetingAgendaItem, type ThemeMeetingPlan } from './schema';
 import { compareAgendaItems } from './agenda-template';
+
+// Placeholders and coordinator-added temporary speakers have no linked project or member questions.
+const withoutProject = (item: ThemeMeetingAgendaItem) => isAgendaPlaceholder(item) || isTemporarySpeaker(item.member_username);
 
 /** The human-confirmed version being circulated; `skipped` lists legacy entries deferred (not scheduled) in that version. */
 export type ConfirmedAgendaEmail = { version: number; confirmedBy: string; confirmedAt: string; skipped: ThemeMeetingAgendaItem[] };
@@ -14,6 +17,12 @@ function escapeHtml(value: string): string {
 }
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
+const stages: Record<number, string> = { 1: 'Idea / Proposal', 2: 'Design / Planning', 3: 'Experiments / Build', 4: 'Writing / Packaging', 5: 'Submission / Finish' };
+const stageText = (item: ThemeMeetingAgendaItem) => {
+  if (!item.project_context) return 'N/A';
+  const stage = item.project_context.stage;
+  return stage == null ? 'Not recorded' : stages[stage] ? `${stage} — ${stages[stage]}` : String(stage);
+};
 
 function multiline(value: string): string {
   return escapeHtml(value).replace(/\r\n|\r|\n/g, '<br>');
@@ -104,17 +113,9 @@ export function renderThemeMeetingAgendaEmail(
   const allConfirmed = Boolean(options.confirmation) || (meetings.length > 0 && confirmedCount === meetings.length);
   const title = preview ? 'Draft theme meeting agenda' : allConfirmed ? 'Confirmed theme meeting agenda' : 'Theme meeting agenda';
   const missingLabel = preview ? 'Not submitted yet' : 'Missing updates';
-  const confirmedLine = (confirmed: ConfirmedAgendaEmail) =>
-    `Confirmed version ${confirmed.version}, by @${confirmed.confirmedBy} on ${formatDayTime(confirmed.confirmedAt)} (UK time). Items are listed in the confirmed order; later submissions do not change this version.`;
   const notice = preview
     ? `This is a draft based on updates submitted so far (as of ${formatDayTime(plan.generated_at)}, UK time). Review who is doing a deep dive and adjust your own slot, update or presentation plans before ${options.cutoff?.weekday || 'Wednesday'} ${options.cutoff?.time || '08:00'} (${plan.timezone}). More submissions and changes may follow. The cutoff agenda will be circulated after the deadline.`
-    : options.confirmation
-      ? `Final agenda. ${confirmedLine(options.confirmation)}`
-      : allConfirmed
-        ? 'Every theme in this email has a confirmed agenda; each section shows its confirmed version.'
-        : confirmedCount
-          ? `Themes marked as confirmed show their confirmed version. ${advisory.replace('This agenda is', 'The other themes are')}`
-          : advisory;
+    : confirmedCount ? '' : advisory;
   const emptyDiscussion = preview ? 'No discussion slots requested yet.' : 'No discussion slots requested.';
   const noSlotsNotice = (meeting: Meeting) => preview
     ? 'Submissions are still open. This draft does not decide whether the meeting should be skipped.'
@@ -148,9 +149,8 @@ export function renderThemeMeetingAgendaEmail(
       const written = meeting.agenda_items.filter((item) => item.duration_minutes === 0);
       const start = starts(meeting);
       return [
-      `Theme ${meeting.theme_id} — ${meeting.title}`,
+      `Theme ${meeting.theme_id} — ${meeting.title}${confirmedCount && !allConfirmed ? confirmed ? ' · Confirmed' : ' · Advisory' : ''}`,
       `${meeting.time} | ${meeting.duration_minutes} min | Coordinator: ${meeting.coordinator}`,
-      ...(confirmed && !options.confirmation ? [confirmedLine(confirmed)] : []),
       // A confirmed email describes the confirmed snapshot only, never the live submission state.
       confirmed ? `Scheduled: ${plural(meeting.agenda_items.length, 'item')} | Planned: ${meeting.planned_minutes}/${meeting.duration_minutes} min`
         : `Submitted: ${meeting.submitted_members.length}/${meeting.members.length} | Planned: ${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}`,
@@ -161,9 +161,9 @@ export function renderThemeMeetingAgendaEmail(
       ...[...discussion, ...written].map((item, index) => [
         ...(index === 0 ? [discussion.length ? 'Discussion details' : 'Updates'] : index === discussion.length ? ['Updates'] : []),
         `${item.member} — ${slotLabels[item.update_type]} (${item.duration_minutes} min)`,
-        ...(isAgendaPlaceholder(item) ? [] : [`Project: ${item.project_context?.title || 'N/A'}`, `Stage: ${item.project_context ? item.project_context.stage ?? 'Not recorded' : 'N/A'}`]),
+        ...(withoutProject(item) ? [] : [`Project: ${item.project_context?.title || 'N/A'}`, `Stage: ${stageText(item)}`]),
         isAgendaPlaceholder(item) ? updateText(item.progress_text) : `Progress:\n${updateText(item.progress_text) || 'N/A'}`,
-        ...(isAgendaPlaceholder(item) ? [] : [`Questions: ${updateText(item.questions) || 'N/A'}`]),
+        ...(withoutProject(item) ? [] : [`Questions: ${updateText(item.questions) || 'N/A'}`]),
       ].join('\n')),
       ...(meeting.agenda_items.some((item) => !isAgendaPlaceholder(item)) ? [] : ['No planned updates yet.']),
       ...skippedText(confirmed),
@@ -184,15 +184,14 @@ export function renderThemeMeetingAgendaEmail(
     <tr><td style="padding:16px 24px;border-bottom:1px solid #edf0f3;">
       <h4 style="margin:0 0 4px;font-size:16px;line-height:1.5;">${escapeHtml(item.member)}</h4>
       <p style="margin:0 0 10px;font-size:13px;color:#52616b;">${slotLabels[item.update_type]} &middot; ${item.duration_minutes} min</p>
-      ${isAgendaPlaceholder(item) ? '' : `<div style="margin:0 0 12px;overflow-wrap:anywhere;"><div><strong>Project:</strong> ${escapeHtml(item.project_context?.title || 'N/A')}</div><div><strong>Stage:</strong> ${item.project_context ? item.project_context.stage ?? 'Not recorded' : 'N/A'}</div></div>`}
-      <div style="overflow-wrap:anywhere;word-break:break-word;">${isAgendaPlaceholder(item) ? '' : '<strong>Progress</strong>'}${updateHtml(item.progress_text) || '<p>N/A</p>'}</div>
-      ${isAgendaPlaceholder(item) ? '' : `<div style="margin:12px 0 0;overflow-wrap:anywhere;word-break:break-word;"><strong>Questions</strong>${updateHtml(item.questions) || '<p>N/A</p>'}</div>`}
+      ${withoutProject(item) ? '' : `<div style="margin:0 0 12px;overflow-wrap:anywhere;"><div><strong>Project:</strong> ${escapeHtml(item.project_context?.title || 'N/A')}</div><div><strong>Stage:</strong> ${escapeHtml(stageText(item))}</div></div>`}
+      ${isAgendaPlaceholder(item) && !item.progress_text.trim() ? '' : `<div style="overflow-wrap:anywhere;word-break:break-word;">${isAgendaPlaceholder(item) ? '' : '<strong>Progress</strong>'}${updateHtml(item.progress_text) || '<p>N/A</p>'}</div>`}
+      ${withoutProject(item) ? '' : `<div style="margin:12px 0 0;overflow-wrap:anywhere;word-break:break-word;"><strong>Questions</strong>${updateHtml(item.questions) || '<p>N/A</p>'}</div>`}
     </td></tr>`).join('')}` : '';
     return `
     <tr><td style="padding:28px 24px 12px;border-top:1px solid #dce3e9;">
-      <h2 style="margin:0 0 8px;font-size:21px;line-height:1.4;color:#183b4e;">Theme ${escapeHtml(meeting.theme_id)} &mdash; ${escapeHtml(meeting.title)}</h2>
+      <h2 style="margin:0 0 8px;font-size:21px;line-height:1.4;color:#183b4e;">Theme ${escapeHtml(meeting.theme_id)} &mdash; ${escapeHtml(meeting.title)}${confirmedCount && !allConfirmed ? confirmed ? ' &middot; Confirmed' : ' &middot; Advisory' : ''}</h2>
       <p style="margin:0 0 12px;">${escapeHtml(meeting.time)} &middot; ${meeting.duration_minutes} min &middot; Coordinator: ${escapeHtml(meeting.coordinator)}</p>
-      ${confirmed && !options.confirmation ? `<p style="margin:0 0 12px;padding:8px 12px;background-color:#e6f2ec;">${escapeHtml(confirmedLine(confirmed))}</p>` : ''}
       ${confirmed
         ? `<p style="margin:0 0 8px;color:#52616b;">Scheduled: <strong>${plural(meeting.agenda_items.length, 'item')}</strong> &nbsp; Planned: <strong>${meeting.planned_minutes}/${meeting.duration_minutes} min</strong></p>`
         : `<p style="margin:0 0 6px;color:#52616b;">Submitted: <strong>${meeting.submitted_members.length}/${meeting.members.length}</strong> &nbsp; Planned: <strong>${meeting.planned_minutes}/${meeting.duration_minutes} min${meeting.overbooked ? ' (overbooked)' : ''}</strong></p>
@@ -231,9 +230,9 @@ export function renderThemeMeetingAgendaEmail(
     <h1 style="margin:0 0 12px;font-size:28px;line-height:1.3;">${title}</h1>
     <p style="margin:0;">${escapeHtml(formatLongDay(plan.meeting_date))} &middot; Cycle ${escapeHtml(plan.cycle_group)}<br>${escapeHtml(plan.timezone)}</p>
   </td></tr>
-  ${preview ? `<tr><td style="padding:16px 24px;background-color:#fff3cd;">${escapeHtml(notice)}</td></tr>` : confirmedCount ? `<tr><td style="padding:16px 24px;background-color:#e6f2ec;">${escapeHtml(notice)}</td></tr>` : ''}
+  ${preview ? `<tr><td style="padding:16px 24px;background-color:#fff3cd;">${escapeHtml(notice)}</td></tr>` : ''}
   ${sections || '<tr><td style="padding:24px;">No active theme meetings are scheduled.</td></tr>'}
-  <tr><td style="padding:20px 24px;background-color:#edf3f6;color:#52616b;font-size:13px;">${allConfirmed ? 'Confirmed by a theme coordinator, PI or administrator in VioScope. Project details are the snapshots members shared when they submitted.' : confirmedCount ? `Confirmed themes were confirmed by a theme coordinator, PI or administrator in VioScope. ${advisory.replace('This agenda is', 'Other themes are')}` : advisory}</td></tr>
+  ${confirmedCount && !allConfirmed ? '' : `<tr><td style="padding:20px 24px;background-color:#edf3f6;color:#52616b;font-size:13px;">${allConfirmed ? 'Confirmed by a theme coordinator, PI or administrator in VioScope. Project details are the snapshots members shared when they submitted.' : advisory}</td></tr>`}
 </table>
 </td></tr></table>
 </body></html>`;

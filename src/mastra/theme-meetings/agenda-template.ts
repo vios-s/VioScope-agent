@@ -13,7 +13,7 @@ export function defaultAgenda(items: ThemeMeetingAgendaItem[], meetingDate: stri
     submitted_at: `${meetingDate}T00:00:00.000Z`,
   });
   return [
-    placeholder('triage_admin', 'Triage & Admin', 'PI reviews the dashboard, confirms the Deep Dive slot and shares brief lab announcements.'),
+    placeholder('triage_admin', 'PI announcement', ''),
     ...items.slice().sort(compareAgendaItems),
     placeholder('assignments', 'Assignments', 'Confirm the to-do items for each project before the next theme meeting.'),
   ];

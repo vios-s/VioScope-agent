@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { requireAdministrator } from '../../../../src/mastra/auth/session';
+import { requireAdministrator, requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
-import { feedbackStatuses, updateFeedbackQuery, type FeedbackStatus } from '../../../../src/mastra/db/feedback';
+import { feedbackStatuses, updateFeedbackQuery, changeFeedbackContent, type FeedbackStatus } from '../../../../src/mastra/db/feedback';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
 import { notifyFeedbackRequester } from '../../../../src/mastra/feedback/notifications';
 
@@ -10,9 +10,10 @@ export const runtime = 'nodejs';
 
 export async function PATCH(request: Request, context: { params: Promise<{ feedbackId: string }> }) {
   try {
+    const body = (await request.json()) as Record<string, unknown>;
+    if (body.operation === 'edit') return await changeContent(request, context, body, false);
     const admin = await requireAdministrator(request);
     const { feedbackId } = await context.params;
-    const body = (await request.json()) as Record<string, unknown>;
     const status = typeof body.status === 'string' ? body.status : '';
     const adminNote = typeof body.adminNote === 'string' ? body.adminNote.trim() : '';
     if (!feedbackStatuses.includes(status as FeedbackStatus)) throw new Error('Invalid feedback status.');
@@ -50,4 +51,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ feedb
   } catch (error) {
     return errorResponse(error, 400);
   }
+}
+
+async function changeContent(request: Request, context: { params: Promise<{ feedbackId: string }> }, body: Record<string, unknown>, remove: boolean) {
+  const actor = await requireSessionUser(request);
+  const { feedbackId } = await context.params;
+  const expected = { title: typeof body.expectedTitle === 'string' ? body.expectedTitle : '', description: typeof body.expectedDescription === 'string' ? body.expectedDescription : '' };
+  const next = remove ? null : { title: typeof body.title === 'string' ? body.title : '', description: typeof body.description === 'string' ? body.description : '' };
+  const query = await changeFeedbackContent(feedbackId, actor, expected, next);
+  await recordAuditLog({ actor, action: remove ? 'feedback.remove' : 'feedback.edit', targetType: 'feedback_query', targetId: feedbackId, summary: remove ? 'Feedback removed.' : 'Feedback edited.' });
+  return NextResponse.json({ query });
+}
+export async function DELETE(request: Request, context: { params: Promise<{ feedbackId: string }> }) {
+  try { return await changeContent(request, context, await request.json() as Record<string, unknown>, true); }
+  catch (error) { return errorResponse(error, 400); }
 }

@@ -1,7 +1,8 @@
 'use client';
-import { useEffect, useState, type ReactNode, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
 import { Check } from 'lucide-react';
 import { ApiRequestError, requestJson } from './client-request';
+import { ConfirmDialog } from './confirm-dialog';
 import { formatDay, formatDayTime } from './format';
 import { checkpointTypes, mergeResearchProfiles, researchMergeFields, type ResearchMergeChoice, type ResearchProfile, type WorkflowCommand, type ProjectTask } from '../src/mastra/projects/workflow';
 import { localDateTime, utcFromLocal } from '../src/mastra/projects/time';
@@ -33,7 +34,13 @@ export function ProjectWorkflow({projectId,onChanged,rail,initialTab='research'}
  const edit=data.project.access.canEdit&&data.project.lifecycle!=='archived';
  const current=data.submissions.find(item=>item.isCurrent);
 
- const counts:Record<string,string>={research:`v${data.research.revision}`,submissions:String(data.submissions.length),tasks:String(data.tasks.length),evidence:String(data.evidence.length),decisions:String(data.decisions.length+data.checklistCheckpoints.length)};
+ const listedTasks = data.tasks.filter(task => task.data.status !== 'cancelled');
+ const removedTasks = data.tasks.filter(task => task.data.status === 'cancelled');
+ const renderTask = (task: ProjectTask) => <TaskRow key={`${task.id}-${task.revision}`} task={task}
+   editable={!busy && data.project.lifecycle !== 'archived' && (edit || task.data.owner === data.viewer.username && task.data.status !== 'cancelled')}
+   canManage={edit && task.sourceKind !== 'internal_review'} assignees={data.assignees}
+   evidenceOptions={<EvidenceOptions data={data} checked={task.data.evidenceIds}/>} save={save}/>;
+ const counts:Record<string,string>={research:`v${data.research.revision}`,submissions:String(data.submissions.length),tasks:String(listedTasks.length),evidence:String(data.evidence.length),decisions:String(data.decisions.length+data.checklistCheckpoints.length)};
  const lastResearch=data.research.history.at(-1) as any;
  // D11: checkpoint states come only from recorded decisions and Skeleton reviews; never from phase or progress.
  const checkpoints=<ol className="vs-checkpoint-list">{checkpointTypes.map(type=>{
@@ -74,8 +81,9 @@ export function ProjectWorkflow({projectId,onChanged,rail,initialTab='research'}
   </>}
   {tab==='tasks'&&<>
    <h3>Project tasks</h3>
-   {!data.tasks.length&&<p>No tasks yet.</p>}
-   {data.tasks.map(task=><TaskRow key={`${task.id}-${task.revision}`} task={task} editable={!busy&&data.project.lifecycle!=='archived'&&(edit||task.data.owner===data.viewer.username)} assignees={data.assignees} canManage={edit&&task.sourceKind!=='internal_review'} evidenceOptions={<EvidenceOptions data={data} checked={task.data.evidenceIds}/>} save={save}/>)}
+   {!listedTasks.length&&<p>No tasks to display.</p>}
+   {listedTasks.map(renderTask)}
+   {removedTasks.length > 0 && <details><summary>Removed tasks ({removedTasks.length})</summary>{removedTasks.map(renderTask)}</details>}
    {edit&&<details><summary>Add a task</summary><WorkflowForm disabled={busy} submitLabel="Create project task" onSave={form=>save({operation:'task',confirmed:true,task:str(form,'task'),owner:str(form,'owner'),dueDate:optional(form,'dueDate'),priority:str(form,'priority') as any,sourceKind:'project',sourceId:null})}>
     <label>Task<textarea name="task" required/></label><Assignee users={data.assignees} value={data.project.ownerUsername}/><label>Due date<input name="dueDate" type="date"/></label><label>Submission requirement<select name="priority"><option value="normal">Not required for submission</option><option value="high">Required before submission</option></select></label>
    </WorkflowForm></details>}
@@ -105,7 +113,51 @@ function WorkflowForm({children,disabled,submitLabel,onSave,readOnlyNote,confirm
 }
 function EvidenceOptions({data,checked=[]}:{data:Payload;checked?:string[]}){return <fieldset className="workflow-evidence"><legend>Linked evidence</legend>{!data.evidence.length&&<p>Add evidence in the Evidence tab first.</p>}{data.evidence.map(item=><label className="workflow-confirm" key={item.id}><input type="checkbox" name="evidenceIds" value={item.id} defaultChecked={checked.includes(item.id)}/>{item.data.title} · {item.data.state}</label>)}</fieldset>;}
 function TaskRow({task,editable,canManage,evidenceOptions,save,assignees}:{assignees:Payload['assignees'];task:ProjectTask;editable:boolean;canManage:boolean;evidenceOptions:ReactNode;save:(command:WorkflowCommand)=>Promise<boolean>}){
- return <article className="workflow-record"><h4>{task.data.task}</h4><p>@{task.data.owner} · {label(task.data.status)} · Due {formatDay(task.data.dueDate,'not set')} · {task.data.priority==='high'?'Required before submission':'Optional for submission'} · From {task.sourceKind}</p>{task.data.decision&&<p>Meeting decision: {task.data.decision}</p>}<p>{task.data.note}</p><details><summary>Update task and completion evidence</summary><WorkflowForm disabled={!editable} submitLabel="Save task progress" onSave={form=>save({operation:'task_update',confirmed:true,id:task.id,revision:task.revision,status:str(form,'status') as any,note:str(form,'note'),evidenceIds:selectedIds(form),...(canManage&&task.sourceKind!=='meeting'?{task:str(form,'task'),owner:str(form,'owner'),dueDate:optional(form,'dueDate'),priority:str(form,'priority') as 'normal'|'high'}:{})})}>{canManage&&task.sourceKind!=='meeting'&&<><label>Task description<textarea name="task" required defaultValue={task.data.task}/></label><Assignee users={assignees} value={task.data.owner}/><label>Due date<input type="date" name="dueDate" defaultValue={task.data.dueDate||''}/></label><label>Submission requirement<select name="priority" defaultValue={task.data.priority}><option value="normal">Not required for submission</option><option value="high">Required before submission</option></select></label></>}<label>Task status<select name="status" defaultValue={task.data.status}>{(task.sourceKind==='meeting'?['open','done']:task.sourceKind==='internal_review'?['open','in_progress','blocked','done']:['open','in_progress','blocked','done','cancelled']).map(value=><option key={value} value={value}>{label(value)}</option>)}</select></label><label>Progress or completion evidence<textarea name="note" required defaultValue={task.data.note}/></label>{evidenceOptions}</WorkflowForm></details><details><summary>Task history</summary>{task.data.history.map((item,index)=><p key={index}>@{item.by} · {formatDayTime(item.at)} · {label(item.status)}: {item.note}</p>)}</details></article>;
+ const [completing, setCompleting] = useState(false);
+ const editor = useRef<HTMLDetailsElement>(null);
+ const note = useRef<HTMLTextAreaElement>(null);
+ const [status, setStatus] = useState(task.data.status);
+ const canRemove = canManage && task.sourceKind !== 'meeting';
+ const canComplete = !['done', 'cancelled'].includes(task.data.status);
+ const statuses = task.sourceKind === 'meeting' ? ['open', 'done'] : ['open', 'in_progress', 'blocked', 'done'];
+ function startCompletion() {
+   setCompleting(true);
+   setStatus('done');
+   if (editor.current) editor.current.open = true;
+   note.current?.focus();
+ }
+ const [confirmRemove, setConfirmRemove] = useState(false);
+ function remove() {
+   setConfirmRemove(false);
+   void save({ operation: 'task_update', confirmed: true, id: task.id, revision: task.revision,
+     status: 'cancelled', note: task.data.note || 'Removed from the project task list.', evidenceIds: task.data.evidenceIds });
+ }
+ return <article className="workflow-record">
+   <h4>{task.data.task}</h4>
+   <p>@{task.data.owner} · {label(task.data.status)} · Due {formatDay(task.data.dueDate,'not set')} · {task.data.priority==='high'?'Required before submission':'Optional for submission'} · From {task.sourceKind}</p>
+   {task.data.decision&&<p>Meeting decision: {task.data.decision}</p>}<p>{task.data.note}</p>
+   {editable && <div className="vs-stale-actions">
+     {canComplete && <button className="ops-secondary" type="button" onClick={startCompletion}>Complete</button>}
+     {canRemove && task.data.status !== 'cancelled' && <button className="ops-secondary" type="button" onClick={() => setConfirmRemove(true)}>Remove</button>}
+   </div>}
+   <details ref={editor}><summary>Update task and completion evidence</summary>
+     <WorkflowForm disabled={!editable || (task.sourceKind === 'internal_review' && task.data.status === 'cancelled')} submitLabel={status === 'done' && completing ? 'Complete task' : 'Save task progress'}
+       onSave={form=>save({operation:'task_update',confirmed:true,id:task.id,revision:task.revision,status,note:str(form,'note'),evidenceIds:selectedIds(form),
+         ...(canManage&&task.sourceKind!=='meeting'?{task:str(form,'task'),owner:str(form,'owner'),dueDate:optional(form,'dueDate'),priority:str(form,'priority') as 'normal'|'high'}:{})})}>
+       {canRemove && <><label>Task description<textarea name="task" required defaultValue={task.data.task}/></label>
+         <Assignee users={assignees} value={task.data.owner}/><label>Due date<input type="date" name="dueDate" defaultValue={task.data.dueDate||''}/></label>
+         <label>Submission requirement<select name="priority" defaultValue={task.data.priority}><option value="normal">Not required for submission</option><option value="high">Required before submission</option></select></label></>}
+       <label>Task status<select name="status" value={status} onChange={event=>setStatus(event.target.value as ProjectTask['data']['status'])}>
+         {task.data.status === 'cancelled' && <option value="cancelled">Cancelled</option>}
+         {statuses.map(value=><option key={value} value={value}>{label(value)}</option>)}</select></label>
+       <label>Progress or completion evidence<textarea ref={note} name="note" required defaultValue={task.data.note}/></label>{evidenceOptions}
+     </WorkflowForm>
+   </details>
+   <details><summary>Task history</summary>{task.data.history.map((item,index)=><p key={index}>@{item.by} · {formatDayTime(item.at)} · {label(item.status)}: {item.note}</p>)}</details>
+   <ConfirmDialog id={`task-remove-${task.id}`} open={confirmRemove} title="Remove this task?" confirmLabel="Remove task"
+     message={`Remove “${task.data.task}” from the project task list? Its history will be retained.`}
+     onCancel={() => setConfirmRemove(false)} onConfirm={remove} />
+ </article>;
 }
 const researchFields:[keyof ResearchProfile,string][]=[['question','Research question'],['claim','Core claim and contribution'],['validation','Validation plan'],['researchType','Research type'],['phase','Current work phase'],['risks','Main risks'],['fallback','Fallback or alternative plan'],['resourceNotes','Resource overview'],['resources','Resources and approvals']];
 // Per-field merge after a version conflict; nothing is saved until "Save merged version" is pressed.
