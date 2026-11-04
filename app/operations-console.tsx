@@ -955,7 +955,7 @@ function projectNeedsAttention(project: ManagedProject) {
 /** Why projectNeedsAttention holds, in plain words; a non-on-track status is already shown by its own chip. */
 function projectAttentionReasons(project: ManagedProject) {
   return [
-    project.blocker ? 'Blocker' : null,
+    project.blocker && project.status !== 'blocked' ? 'Blocker' : null,
     project.needsUpdate ? 'Update due' : null,
     project.attentionReason?.includes('deadline soon') ? 'Deadline soon' : null,
     project.recommendation === 'deep_dive' ? 'Deep Dive suggested' : project.recommendation === 'short_update' ? 'Update suggested' : null,
@@ -997,7 +997,8 @@ function welcomeDismissedKey(userId: string) {
 
 function welcomeDismissed(userId: string) {
   if (typeof window === 'undefined') return false;
-  return window.localStorage.getItem(welcomeDismissedKey(userId)) === 'true';
+  // Closing hides the welcome for this tab session; "Don't show again" hides it on this browser.
+  return window.localStorage.getItem(welcomeDismissedKey(userId)) === 'true' || window.sessionStorage.getItem(welcomeDismissedKey(userId)) === 'true';
 }
 
 function dismissWelcomeForever(userId: string) {
@@ -2267,11 +2268,11 @@ function ProjectRecordRail({ project, checkpoints, linked, showPeople = true }: 
           </span>
           <StageBar stage={project.stage} />
         </div>
-        <p className="vs-rail-caption">Stage {project.stage} ({project.stageProgress}%) · {lifecycleLabels[project.lifecycle]}</p>
-        <div className="vs-rail-checkpoints">
+        <p className="vs-rail-caption">{project.stageProgress > 0 ? `${project.stageProgress}% through stage ${project.stage} · ` : ''}{lifecycleLabels[project.lifecycle]}</p>
+        {checkpoints && <div className="vs-rail-checkpoints">
           <h4>Checkpoints</h4>
-          {checkpoints ?? <p className="vs-rail-caption">Recorded checkpoint decisions are listed in Details.</p>}
-        </div>
+          {checkpoints}
+        </div>}
       </section>
       {showPeople && <section className="vs-rail-section">
         <h3>People</h3>
@@ -2864,7 +2865,8 @@ function ProjectDetailModal({
         </header>
 
         <div className="project-modal-tabs vs-record-tabs" role="tablist" aria-label="Project record sections" onKeyDown={tablistKeyDown}>
-          {([['details', 'Overview', LayoutDashboard], ['workflow', 'Details', ClipboardList], ['progress', 'Update', Plus]] as const).map(([value, text, Icon]) => (
+          {/* Viewers who cannot add updates only see the timeline there, so the tab is named for it. */}
+          {([['details', 'Overview', LayoutDashboard], ['workflow', 'Details', ClipboardList], project.access.canAddUpdate ? ['progress', 'Update', Plus] as const : ['progress', 'Timeline', History] as const] as const).map(([value, text, Icon]) => (
             <button key={value} className={mode === value ? 'selected' : ''} role="tab" id={`project-record-tab-${value}`} aria-selected={mode === value} aria-controls="project-record-panel" tabIndex={mode === value ? 0 : -1} type="button" onClick={() => setMode(value)}>
               <Icon aria-hidden="true" size={16} />{text}
             </button>
@@ -2879,8 +2881,6 @@ function ProjectDetailModal({
           <div className="project-details-layout">
             <ProjectDetailsList
               project={project}
-              status={<span className="vs-chip-row"><StatusChip status={project.status} />{projectInProgress(project) && <AttentionChip project={project} />}</span>}
-              lifecycle={lifecycleLabels[project.lifecycle]}
               admin={viewer.role === 'administrator'}
               onEdit={project.access.canEdit && project.lifecycle !== 'archived' ? () => setEditorOpen(true) : undefined}
             />
@@ -2960,7 +2960,7 @@ function ProjectDetailModal({
                 </div>
               ))
             ) : (
-              <div className="ops-muted-line">No materials yet. Attach files from the Update tab.</div>
+              <div className="ops-muted-line">No materials yet.{project.access.canAddUpdate ? ' Attach files from the Update tab.' : ''}</div>
             )}
             {oldArtifacts.length > 0 && <div className="ops-muted-line">{oldArtifacts.length} previous versions retained</div>}
           </div>
@@ -3884,7 +3884,10 @@ function ThemeMeetingPanel({
                     )}
                   </ThemeMeetingWorkflow>
                 ) : !activeCard.cancelled && (
-                  <p className="mt-agenda-empty">{plannedCount ? `${plannedCount} ${plannedCount === 1 ? 'update' : 'updates'}` : 'No updates'} planned.</p>
+                  <p className="mt-agenda-empty">
+                    {plannedCount ? `${plannedCount} ${plannedCount === 1 ? 'update' : 'updates'}` : 'No member updates yet'}
+                    {activeCard.planned_minutes ? ` · ${activeCard.planned_minutes} of ${activeCard.duration_minutes} min planned, including fixed slots.` : '.'}
+                  </p>
                 )}
 
                 {activeMeeting && canManageActive && (
@@ -3951,6 +3954,7 @@ function ThemeMeetingPanel({
                   <div className="mt-form-title-row">
                     <h2 id="mt-form-title">{submittedUpdate ? 'Your submitted update' : 'Your update'}</h2>
                   </div>
+                  {selectedMeeting && <p className="mt-form-context">For {selectedMeeting.title}{updateMeetingLabel ? ` · ${updateMeetingLabel}` : ''}</p>}
                   <p className={`mt-form-status ${submittedUpdate ? 'is-submitted' : submissionsClosed ? 'is-closed' : 'is-pending'}`} id="mt-form-status">
                     <strong>{submittedUpdate ? 'Submitted' : 'Not submitted'}</strong>
                     {submittedUpdate ? <span>{submittedAtLabel}</span> : null}
@@ -3987,7 +3991,7 @@ function ThemeMeetingPanel({
                         {personalUpdateMeetings.map((meeting) => <option key={meeting.theme_id} value={meeting.theme_id}>{meeting.title}</option>)}
                       </select>
                     </label>
-                  ) : <div className="mt-static-field"><span>Theme</span><strong>{selectedMeeting?.title}</strong></div>}
+                  ) : null}
                   {submitMembers.length > 1 ? (
                     <label>
                       <span>Member</span>
@@ -3995,7 +3999,7 @@ function ThemeMeetingPanel({
                         {submitMembers.map((nextMember) => <option key={nextMember.username} value={nextMember.username}>{nextMember.displayName}</option>)}
                       </select>
                     </label>
-                  ) : <div className="mt-static-field"><span>Member</span><strong>{submitMembers[0]?.displayName}</strong></div>}
+                  ) : null}
                   {(sourceProjects.length > 0 || (sourceProjectId && sourceProjectId !== 'none')) && (
                     <label className="mt-form-wide">
                       <span>Project</span>
@@ -4287,7 +4291,7 @@ function BriefingView({
               <div className="bf-section-head">
                 <div>
                   <h2 id="bf-ledger-title">Needs a decision or follow-up</h2>
-                  <p>Needs coordinator or PI attention before the next meeting.</p>
+                  <p>{viewer.role === 'pi' || viewer.role === 'administrator' ? 'Projects to review before the next theme meeting.' : 'Your projects to update or discuss before the next theme meeting.'}</p>
                 </div>
               </div>
               {!projectsPayload ? (
@@ -4707,9 +4711,8 @@ function ProjectsView({
                         <td>
                           <div className="table-stage">
                             <StageBar stage={project.stage} />
-                            <span>Stage {project.stage}/5</span>
+                            <span>Stage {project.stage}/5{project.stageProgress > 0 ? ` · ${project.stageProgress}%` : ''}</span>
                           </div>
-                          <div className="vs-cell-sub">{project.stageProgress}% progress</div>
                         </td>
                         <td className="vs-status-cell">
                           <span className="vs-chip-row">
@@ -4719,7 +4722,7 @@ function ProjectsView({
                         </td>
                         <td className="vs-target-cell">
                           <div>{project.venue || 'Not set'}</div>
-                          <div className="vs-cell-sub">{project.submissionDeadline ? `Deadline ${formatShortDate(project.submissionDeadline)}` : 'No deadline set'}</div>
+                          <div className="vs-cell-sub vs-nowrap">{project.submissionDeadline ? `Deadline ${formatShortDate(project.submissionDeadline)}` : 'No deadline set'}</div>
                           {project.target && <div className="vs-cell-sub project-target-summary" title={project.target}>{project.target}</div>}
                         </td>
                         <td className="vs-actions-cell">
@@ -4781,15 +4784,7 @@ function ProjectsView({
             <section className="vs-lower-main" aria-labelledby="project-meeting-prep-title">
               <div className="vs-section-head">
                 <div>
-                  <h2 id="project-meeting-prep-title">Prepare for your theme meeting</h2>
-                  <p>Find slot suggestions and draft updates in Meetings.</p>
-                </div>
-              </div>
-              <button className="vs-link-button" type="button" onClick={onOpenMeeting}>Open Meetings</button>
-
-              <div className="vs-section-head">
-                <div>
-                  <h2>My library</h2>
+                  <h2 id="project-meeting-prep-title">My library</h2>
                   <p>{memberArtifacts.length} linked materials</p>
                 </div>
               </div>
@@ -5664,6 +5659,11 @@ function TopbarNotificationCenter({
   const visibleEvents = themeNotifications;
   const visibleLogs = attentionProjects;
 
+  // Open on the first tab that has something new instead of an empty Messages tab.
+  useEffect(() => {
+    if (open) setTab(unreadMessages.length ? 'messages' : unreadEvents.length ? 'events' : visibleLogs.length ? 'logs' : 'messages');
+  }, [open]);
+
   useEffect(() => {
     if (!open) return undefined;
 
@@ -6321,7 +6321,7 @@ function ThemeMeetingSettingsPanel() {
                     <p>Theme meetings use UK local time.</p>
                   </div>
                   <div className="theme-settings-control">
-                    <input aria-label="Timezone" value="Europe/London" readOnly />
+                    <span>Europe/London</span>
                   </div>
                 </div>
                 <div className="theme-settings-row">
@@ -6723,7 +6723,7 @@ function AuditLogSettingsPanel() {
                           title={compactJson(log.metadata)}
                         >
                           <FileText aria-hidden="true" />
-                          View JSON
+                          <span className="vs-sr-only">View JSON</span>
                         </button>
                       </td>
                     </tr>
@@ -8654,6 +8654,7 @@ export function OperationsConsole() {
     if (user && welcomeDontShowAgain) {
       dismissWelcomeForever(user.id);
     }
+    if (user) window.sessionStorage.setItem(welcomeDismissedKey(user.id), 'true');
     setWelcomeOpen(false);
   }
 

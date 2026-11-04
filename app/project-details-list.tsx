@@ -1,5 +1,4 @@
 'use client';
-import type { ReactNode } from 'react';
 import {projectPIs,projectPDRAs} from '../src/mastra/projects/review-team';
 import { Pencil } from 'lucide-react';
 import { formatDay } from './format';
@@ -13,17 +12,13 @@ type ManagedProject = {
 const person = (username: string | null | undefined) => (username ? `@${username}` : 'Not assigned');
 
 /** Read-only project details; editing opens the shared Add/Edit project form. */
-export function ProjectDetailsList({ project, status, lifecycle, admin, onEdit }: {
+export function ProjectDetailsList({ project, admin, onEdit }: {
   project: ManagedProject;
-  status: ReactNode;
-  lifecycle: string;
   admin: boolean;
   onEdit?: () => void;
 }) {
-  const rows: Array<[string, ReactNode]> = [
-    ['Status', status],
-    ['Stage', `Stage ${project.stage} of 5`],
-    ['Lifecycle', lifecycle],
+  // Status, stage and lifecycle are shown in the record header and stage rail.
+  const rows: Array<[string, string]> = [
     ['Track', `Track ${project.track}`],
     ['Owner', person(project.ownerUsername)],
     ['PIs', projectPIs(project).map(person).join(', ')||'Not assigned'],

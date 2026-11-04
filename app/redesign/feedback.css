@@ -65,14 +65,14 @@
   border-color: var(--vs-danger-dot);
 }
 
-/* Attachment drop line: dashed, paperclip, native file input kept for keyboard and tests */
+/* Attachment line: solid control border (no dashed rules in the design), paperclip, native file input kept for keyboard and tests */
 .feedback-form .feedback-attach {
   position: relative;
   flex-direction: row;
   align-items: center;
   gap: 10px;
   padding: 12px;
-  border: 1px dashed var(--vs-border-control);
+  border: 1px solid var(--vs-border-control);
   border-radius: var(--vs-radius-control);
   color: var(--vs-ink-2);
   font-weight: 400;

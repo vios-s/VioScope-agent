@@ -1317,8 +1317,25 @@
   font-weight: 400;
 }
 
-.audit-table {
-  min-width: 760px;
+.audit-toolbar select {
+  height: var(--vs-control-md);
+  padding-left: 10px;
+  border: 1px solid var(--vs-border-control);
+  border-radius: var(--vs-radius-control);
+  background-color: var(--vs-surface);
+  color: var(--vs-ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* Fits the settings column: the JSON button is icon-only (rows also open it) and long target ids wrap. */
+.ops-table.audit-table {
+  min-width: 0;
+}
+
+.ops-table.audit-table .audit-target-cell {
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .ops-table.audit-table td {

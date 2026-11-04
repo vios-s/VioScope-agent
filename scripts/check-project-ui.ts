@@ -171,7 +171,7 @@ async function checkMember(browser: any) {
     // The Update tab lists the saved entry with its stage; the Stage rail caption lives on Overview.
     await page.getByText('Stage 3 · 85%').first().waitFor({ state: 'visible' });
     await page.getByLabel('Close project details').click();
-    await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible' });
+    await page.getByRole('row').filter({ hasText: title }).getByText(/ · 85%$/).waitFor({ state: 'visible' });
 
     await page.getByLabel(`Project overview for ${title}`).click();
     await page.getByRole('tab', { name: 'Overview', exact: true }).click();
@@ -185,7 +185,7 @@ async function checkMember(browser: any) {
     await page.getByLabel(`Unarchive ${title}`).waitFor({ state: 'hidden', timeout: 15_000 });
     await page.getByLabel('Close project details').click();
     await page.getByRole('tab', { name: /^Active/ }).click();
-    await page.getByRole('row').filter({ hasText: title }).getByText('85% progress').waitFor({ state: 'visible', timeout: 15_000 });
+    await page.getByRole('row').filter({ hasText: title }).getByText(/ · 85%$/).waitFor({ state: 'visible', timeout: 15_000 });
 
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.getByLabel('Settings sections').getByRole('button', { name: 'Notifications' }).click();

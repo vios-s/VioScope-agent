@@ -28,6 +28,20 @@ textarea:focus-visible {
   outline-offset: var(--vs-focus-offset);
 }
 
+/*
+ * One chevron for every single-choice select so they match text inputs across browsers.
+ * ponytail: !important because ~15 screen rules set padding/background shorthands on selects;
+ * drop it if those rules move to padding-block/background-color.
+ */
+select:not([multiple]):not([size]) {
+  appearance: none;
+  padding-right: 32px !important;
+  background-image: var(--vs-select-chevron) !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  background-size: 14px !important;
+}
+
 .vs-caps {
   font: var(--vs-text-label-caps);
   letter-spacing: 0.06em;

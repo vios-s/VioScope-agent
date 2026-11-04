@@ -401,9 +401,7 @@
 
 .mt-awaiting {
   margin: 0;
-  overflow: hidden;
-  border-radius: 10px;
-  background: var(--vs-surface-2);
+  border-top: 1px solid var(--vs-line);
   font-size: 13px;
   color: var(--vs-ink);
 }
@@ -413,7 +411,7 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  padding: 12px 14px;
+  padding: 12px 0;
   font-weight: 500;
 }
 
@@ -450,7 +448,7 @@
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 4px 12px;
-  padding: 8px 14px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--vs-line-soft);
 }
 
@@ -1348,15 +1346,17 @@ button.mt-past-row:focus-visible {
   gap: 4px 12px;
 }
 
+.mt-form .mt-form-context {
+  margin: 2px 0 0;
+  color: var(--vs-ink-2);
+}
+
 .mt-form .mt-form-status {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 2px 8px;
   margin-top: 8px;
-  padding: 8px 10px;
-  border-radius: var(--vs-radius-control);
-  background: var(--vs-surface-2);
   color: var(--vs-ink-3);
 }
 
@@ -1406,8 +1406,10 @@ button.mt-past-row:focus-visible {
 /* Compact advisory block: optional help, visually secondary to the steps. */
 .mt-form .theme-project-advice {
   gap: 6px;
-  padding: 12px 14px;
-  border-style: dashed;
+  padding: 12px 0;
+  border-width: 1px 0;
+  border-radius: 0;
+  background: transparent;
   font-size: 12px;
 }
 

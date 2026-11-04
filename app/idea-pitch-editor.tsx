@@ -192,13 +192,12 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
           </label>
           {resolvedId.current && data.canEdit && <button type="button" className="ops-secondary checklist-quiet-button" disabled={locked} onClick={() => setDeleteOpen(true)}><Trash2 aria-hidden="true" />Delete pitch</button>}
         </div>
-        <p className="checklist-hint">Draft text stays until sign-out; files must be reselected after refresh.</p>
       </div>
       {!data.canManage && <p role="status" className="ops-notice">Read only · Latest pitch. History, sources and AI reviews are private.</p>}
       {source && <details className="checklist-import"><summary>Source text: {source.name}</summary><pre className="checklist-source-text">{source.text}</pre></details>}
       {data.canEdit && <details className="checklist-import idea-import" open={importOpen} onToggle={event => setImportOpen(event.currentTarget.open)}>
         <summary>Start from an existing document</summary>
-        <p id={`${prefix}-import-hint`} className="checklist-hint">32,000 characters max. Text-based PDFs only; check for missing images or equations.</p>
+        <p id={`${prefix}-import-hint`} className="checklist-hint">32,000 characters max. Text-based PDFs only; check for missing images or equations. Draft text stays until sign-out; files must be reselected after refresh.</p>
         <fieldset disabled={locked} className="idea-source-inputs"><legend className="vs-sr-only">Upload or paste</legend>
           <label className="idea-dropzone"><Upload aria-hidden="true" /><span className="idea-dropzone-title">Upload pitch document</span><span className="idea-dropzone-hint">{upload ? upload.name : 'TXT, MD, DOCX, PDF or PPTX, up to 5 MB'}</span><input type="file" aria-describedby={`${prefix}-import-hint`} accept=".txt,.md,.docx,.pdf,.pptx" onChange={(event) => { setUpload(event.target.files?.[0] || null); setPreview(null); }} /></label>
           <label className="idea-paste">Or paste the full pitch <textarea aria-describedby={`${prefix}-import-hint`} rows={5} maxLength={32000} value={pasted} placeholder="Paste pitch text" onChange={(event) => { setPasted(event.target.value); setPreview(null); }} /></label>
@@ -282,7 +281,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
             <small className="checklist-advice-meta">Based on review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span>{reviewIsStale(data.reviews[0].pitchVersion) ? ', before the latest changes' : ''}. Advisory only.</small>
           </div>;
         })()}
-        <p className="checklist-advice-meta">{data.reviews[0] ? <>Latest review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span> · <span className="vs-mono">{formatDayTime(data.reviews[0].at)}</span>. </> : 'No AI review yet. '}Advisory only; approval is separate.</p>
+        <p className="checklist-advice-meta">{data.reviews[0] ? <>Latest review of <span className="vs-mono">v{data.reviews[0].pitchVersion}</span> · <span className="vs-mono">{formatDayTime(data.reviews[0].at)}</span>. </> : 'No AI review yet. '}Approval is a separate human decision.</p>
         {data.reviews.map((review) => <details key={review.id} className="idea-review" open={review === data.reviews[0]}>
           <summary>Review of <span className="vs-mono">v{review.pitchVersion}</span> · {reviewHeadline(review.report)}{reviewIsStale(review.pitchVersion) ? ' · Draft changed — review again' : ''}</summary>
           <IdeaReviewReport report={review.report} />
@@ -297,7 +296,8 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
 
         <p className="checklist-step-state">{savedDecision ? <Check aria-hidden="true" /> : <Clock aria-hidden="true" />}<span><strong>{savedDecision ? `Current decision: ${ideaOutcomeLabels[savedDecision.outcome]}` : data.current ? 'Awaiting a human decision' : 'Save a draft before a decision'}</strong>{dirty && data.current ? ' · Unsaved changes' : ''}</span></p>
         {savedDecision && <dl className="idea-decision-record"><div><dt>Reason / evidence</dt><dd>{savedDecision.rationale}</dd></div><div><dt>Next milestone or closure</dt><dd>{savedDecision.nextMilestone}</dd></div></dl>}
-        {data.canEdit && <form onSubmit={(event) => { event.preventDefault(); void save('decide'); }}>
+        {/* Before the first save there is nothing to decide on, so the form stays hidden. */}
+        {data.canEdit && data.current && <form onSubmit={(event) => { event.preventDefault(); void save('decide'); }}>
           <fieldset disabled={locked || !data.current || dirty}><legend className="vs-sr-only">Record the human decision</legend>
             <p className="checklist-hint">Risk or early negative results alone do not justify stopping.</p>
             <label>Decision <select value={decision.outcome} onChange={(event) => { setDecision({ ...decision, outcome: event.target.value as IdeaDecision['outcome'] }); setConfirmed(false); setCreateConfirmed(false); }}>
@@ -309,7 +309,7 @@ export function IdeaPitchEditor({ userId, pitchId, onChanged, onProjectCreated, 
             <button className="ops-primary" type="submit" disabled={!confirmed || (decision.outcome === 'proceed' && missing.length > 0)}>Confirm decision</button>
             {decision.outcome === 'proceed' && missing.length > 0 && <p className="checklist-hint">Fill the missing sections and save before confirming Proceed.</p>}
           </fieldset>
-          {(!data.current || dirty) && <p className="checklist-advice-meta">Save your draft before recording a decision.</p>}
+          {dirty && <p className="checklist-advice-meta">Save your draft before recording a decision.</p>}
         </form>}
         {data.canManage && !data.canEdit && <p>Converted · Read only; cannot be deleted.</p>}
       </section>

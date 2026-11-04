@@ -93,7 +93,7 @@
 }
 
 .vs-projects .vs-project-table th.vs-actions-col {
-  text-align: right;
+  text-align: left;
 }
 
 .vs-projects .vs-sort-button {
@@ -184,7 +184,7 @@
 }
 
 .vs-projects .vs-target-cell {
-  min-width: 120px;
+  min-width: 150px;
   max-width: 220px;
 }
 
@@ -193,8 +193,9 @@
   -webkit-line-clamp: 1;
 }
 
+/* Left-aligned so Overview and Details line up in every row; a missing Update leaves a gap at the end. */
 .vs-projects .project-table-actions {
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 6px;
   min-width: 0;
   white-space: nowrap;
@@ -1212,6 +1213,10 @@
 .users-modal.project-detail-modal .timeline-update-text {
   max-width: var(--vs-measure);
   margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
   color: var(--vs-ink);
   font-size: 14px;
 }
@@ -1433,6 +1438,12 @@
   background: transparent;
   padding-inline: 0;
   resize: none;
+}
+
+/* Read-only text sizes to its content instead of keeping an empty edit box. */
+.users-modal.project-detail-modal .project-workflow fieldset:disabled textarea {
+  min-height: 0;
+  field-sizing: content;
 }
 
 /* Nested groups: resource requirements and linked evidence */
@@ -1959,6 +1970,10 @@
     width: auto;
   }
 
+  .vs-projects .project-table-actions {
+    justify-content: flex-end;
+  }
+
   .vs-details-list > div,
   .vs-saved-values > div {
     grid-template-columns: minmax(0, 1fr);
@@ -2104,3 +2119,11 @@
 .project-update-options > summary { cursor: pointer; padding: 8px 0; color: var(--vs-ink-2); }
 .project-update-options[open] > summary { margin-bottom: 8px; }
 @media (max-width: 680px) { .project-update-fields { grid-template-columns: minmax(0, 1fr); } }
+
+/* Read-only explanations are information, not warnings. */
+.ops-notice.is-quiet {
+  border-color: var(--vs-line);
+  background: var(--vs-surface-2);
+  color: var(--vs-ink-2);
+  font-weight: 400;
+}
