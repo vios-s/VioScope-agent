@@ -47,7 +47,7 @@ export function taskAsTodo(task:ProjectTask):ProjectTodoRecord {
  return {id:task.id,text:task.data.task,dueDate:task.data.dueDate,done:task.data.status==='done',createdAt:history[0]?.at||'',updatedAt:history.at(-1)?.at||''};
 }
 export function taskAsMeetingAction(task:ProjectTask):MeetingAction {
- return {id:task.id,projectId:task.projectId,themeId:task.data.themeId!,meetingDate:task.data.meetingDate!,decision:task.data.decision!,task:task.data.task,owner:task.data.owner,dueDate:task.data.dueDate!,status:task.data.status==='done'?'done':'open',note:task.data.note,history:task.data.history.map(item=>({...item,status:item.status==='done'?'done':'open'}))};
+ return {id:task.id,projectId:task.projectId,themeId:task.data.themeId!,meetingDate:task.data.meetingDate!,decision:task.data.decision!,task:task.data.task,owner:task.data.owner,dueDate:task.data.dueDate!,status:task.data.status,note:task.data.note,history:task.data.history.map(item=>({...item,status:item.status as MeetingAction['status']}))};
 }
 export async function importMeetingTasks(path:string,actions:MeetingAction[]) {
  const db=createPostgresClient();

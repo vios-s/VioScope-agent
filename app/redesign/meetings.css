@@ -1127,7 +1127,6 @@ button.mt-past-row:focus-visible {
 .theme-workflow-status {
   font-weight: 500;
   color: var(--vs-ink-2);
-  text-transform: capitalize;
 }
 
 .theme-workflow-status.is-done { color: var(--vs-ok-fg); }
@@ -1726,6 +1725,8 @@ button.mt-past-row:focus-visible {
 
 .theme-workflow-status.is-done::before { background: var(--vs-ok-dot); }
 .theme-workflow-status.is-overdue::before { background: var(--vs-danger-dot); }
+.theme-workflow-status.is-blocked::before { background: var(--vs-danger-dot); }
+.theme-workflow-status.is-cancelled::before { background: var(--vs-ink-3); }
 
 @media (max-width: 640px) {
   .mt-board.is-editable .mt-agenda-list > li {

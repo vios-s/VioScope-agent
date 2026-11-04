@@ -22,7 +22,7 @@ const commandSchema = z.discriminatedUnion('operation', [
   keySchema.extend({ operation: z.literal('confirm'), sourceVersion: z.string(), entries: agendaSelectionSchema }),
   keySchema.extend({ operation: z.literal('add_action'), action: newActionSchema }),
   keySchema.extend({ operation: z.literal('update_action'), id: z.string().uuid(), version: z.string(),
-    status: z.enum(['open', 'done']), note: z.string().trim().min(1).max(2000) }),
+    status: z.enum(['open', 'in_progress', 'blocked', 'done']), note: z.string().trim().min(1).max(2000) }),
   keySchema.extend({ operation: z.literal('email_confirmed'), version: z.number().int().positive() }),
 ]);
 

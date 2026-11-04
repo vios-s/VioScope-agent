@@ -17,12 +17,14 @@ const confirmationSchema = z.object({
   meetingDate: meetingDateSchema, themeId: z.string(), version: z.number().int().positive(),
   confirmedBy: z.string(), confirmedAt: z.string().datetime(), entries: z.array(entrySchema),
 });
-const changeSchema = z.object({ by: z.string(), at: z.string().datetime(), status: z.enum(['open', 'done']), note: z.string() });
+// Meeting actions are project tasks; project managers may also mark them in progress, blocked or removed.
+const actionStatusSchema = z.enum(['open', 'in_progress', 'blocked', 'done', 'cancelled']);
+const changeSchema = z.object({ by: z.string(), at: z.string().datetime(), status: actionStatusSchema, note: z.string() });
 const actionSchema = z.object({
   id: z.string().uuid(), themeId: z.string(), meetingDate: meetingDateSchema,
   projectId: z.string().uuid().nullable().default(null),
   decision: text, task: text, owner: z.string(), dueDate: meetingDateSchema,
-  status: z.enum(['open', 'done']), note: z.string().max(2000),
+  status: actionStatusSchema, note: z.string().max(2000),
   history: z.array(changeSchema),
 });
 export const workflowSchema = z.object({ confirmations: z.array(confirmationSchema), actions: z.array(actionSchema) });
@@ -118,8 +120,9 @@ export function addMeetingAction(state: MeetingWorkflow, themeId: string, meetin
   state.actions.push(action);
   return action;
 }
-export function updateMeetingAction(action: MeetingAction, status: 'open' | 'done', note: string, by: string, canManage: boolean) {
+export function updateMeetingAction(action: MeetingAction, status: Exclude<MeetingAction['status'], 'cancelled'>, note: string, by: string, canManage: boolean) {
   if (!canManage && action.owner !== by) throw new Error('Only the assignee or theme manager can update this action.');
+  if (action.status === 'cancelled') throw new Error('This action was removed from the project task list.');
   if (!note.trim()) throw new Error('Add a progress or completion note, including evidence where available.');
   const at = new Date().toISOString();
   const next = actionSchema.parse({ ...action, status, note: note.trim(), history: [...action.history, { by, at, status, note: note.trim() }] });

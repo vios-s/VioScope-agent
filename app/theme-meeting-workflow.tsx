@@ -32,6 +32,8 @@ type ProjectLink = (projectId: string | null | undefined, title: string, workflo
 const ukTime = (value: string) => formatDayTime(value);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 const people = (count: number) => `${count} ${count === 1 ? 'person' : 'people'}`;
+const actionStatusLabels: Record<MeetingAction['status'], string> = { open: 'Open', in_progress: 'In progress', blocked: 'Blocked', done: 'Done', cancelled: 'Removed from project tasks' };
+const closedActionStatuses: MeetingAction['status'][] = ['done', 'cancelled'];
 
 function emailDialogMessage(version: number, audience: ConfirmedAgendaEmailAudience | null | undefined, emailedAt?: string | null) {
   if (!audience || audience.version !== version) {
@@ -540,7 +542,7 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
     finally { setBusy(false); }
   }
   const person = (username: string) => memberNames[username] ? `${memberNames[username]} (@${username})` : `@${username}`;
-  const open = data?.actions.filter((item) => item.status === 'open') || [];
+  const open = data?.actions.filter((item) => !closedActionStatuses.includes(item.status)) || [];
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   return <details className="theme-workflow" id={`theme-workflow-${themeId}`} ref={detailsRef}>
     <summary>Decisions &amp; actions{data ? ` · ${open.length} open` : ''}</summary>
@@ -578,10 +580,10 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
         </form>}
         <h4 className="theme-workflow-heading">Actions · {open.length} open</h4>
         {!data.actions.length && <p className="ops-muted-line">No recorded actions.</p>}
-        {data.actions.slice().sort((a, b) => a.status.localeCompare(b.status) * -1 || a.dueDate.localeCompare(b.dueDate)).map((item) => {
-          const overdue = item.status === 'open' && item.dueDate < today;
+        {data.actions.slice().sort((a, b) => closedActionStatuses.indexOf(a.status) - closedActionStatuses.indexOf(b.status) || a.dueDate.localeCompare(b.dueDate)).map((item) => {
+          const overdue = !closedActionStatuses.includes(item.status) && item.dueDate < today;
           // On a past meeting a coordinator may update only actions assigned to them.
-          const updatable = (data.manager && !data.readOnly) || item.owner === data.viewerUsername;
+          const updatable = item.status !== 'cancelled' && ((data.manager && !data.readOnly) || item.owner === data.viewerUsername);
           return <form key={item.id} className="theme-workflow-action"
             onSubmit={(event) => { event.preventDefault(); void save({ operation: 'update_action', id: item.id, version: item.version, status: item.status, note: notes[item.id] || '' }); }}>
             <fieldset disabled={busy}><legend>{item.task}</legend>
@@ -589,11 +591,11 @@ function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChang
                 <div><dt>Responsible</dt><dd>{person(item.owner)}</dd></div>
                 <div><dt>Project</dt><dd>{item.projectTitle ? <>{projectLink(item.projectId, item.projectTitle, 'tasks')} <span className="theme-workflow-where">· Project tasks</span></> : 'No project — group action'}</dd></div>
                 <div><dt>Due</dt><dd>{formatDay(item.dueDate)}</dd></div>
-                <div><dt>Status</dt><dd><span className={`theme-workflow-status is-${item.status}${overdue ? ' is-overdue' : ''}`}>{item.status === 'done' ? 'Done' : 'Open'}{overdue ? ' · Overdue' : ''}</span></dd></div>
+                <div><dt>Status</dt><dd><span className={`theme-workflow-status is-${item.status}${overdue ? ' is-overdue' : ''}`}>{actionStatusLabels[item.status]}{overdue ? ' · Overdue' : ''}</span></dd></div>
               </dl>
               <p>Decision: {item.decision}</p>
               <p className="theme-workflow-meta">Recorded at the {formatDay(item.meetingDate)} meeting.</p>
-              <details><summary>History</summary><ul>{item.history.map((change, index) => <li key={index}>@{change.by} · {formatDayTime(change.at)} · {change.status === 'done' ? 'Done' : 'Open'}: {change.note}</li>)}</ul></details>
+              <details><summary>History</summary><ul>{item.history.map((change, index) => <li key={index}>@{change.by} · {formatDayTime(change.at)} · {actionStatusLabels[change.status]}: {change.note}</li>)}</ul></details>
               {updatable && <>
               <label>Progress note <textarea required maxLength={2000} value={notes[item.id] || ''} onChange={(event) => setNotes({ ...notes, [item.id]: event.target.value })} /></label>
               <button className="ops-secondary" type="submit" aria-label={`Save note for ${item.task}`}>Save note</button>

@@ -102,14 +102,14 @@ export async function changeProjectWorkflow(projectId:string,input:unknown,user:
    if(!row)throw new Error('Task not found.');if(row.revision!==command.revision)throw conflict();
    if(!edit&&row.data.owner!==user.username)throw new AuthError('Only the task assignee, project owner, PI or administrator can update this task.',403,'forbidden');
    if(!edit && (command.status==='cancelled' || row.data.status==='cancelled'))throw new AuthError('Only project managers can remove or restore tasks.',403,'forbidden');
-   if(row.sourceKind==='meeting'&&!['open','done'].includes(command.status))throw new Error('Meeting tasks use Open or Done.');
    const metadata={task:command.task??row.data.task,owner:command.owner??row.data.owner,dueDate:command.dueDate===undefined?row.data.dueDate:command.dueDate,priority:command.priority??row.data.priority};
    const metadataChanged=Object.entries(metadata).some(([key,value])=>value!==row.data[key as keyof typeof row.data]);
    if(row.sourceKind==='internal_review'){
     if(metadataChanged||command.status==='cancelled'||row.data.status==='cancelled')throw new Error('The assigned PDRA manages review requirements in the Revision Tracker.');
     if(command.status==='done')await checkEvidence(projectId,command.evidenceIds,true);
    }
-   if(metadataChanged&&(!edit||row.sourceKind==='meeting'))throw new Error('Only project managers can edit project task details; meeting assignments are managed in the meeting.');
+   if(metadataChanged&&!edit)throw new Error('Only project managers can edit project task details.');
+   if(row.sourceKind==='meeting'&&!metadata.dueDate)throw new Error('Meeting actions need a due date.');
    if(metadata.owner!==row.data.owner)await checkAssignee(projectId,metadata.owner);
    await checkEvidence(projectId,command.evidenceIds);
    await db.pool.query('UPDATE project_tasks SET data=$2::jsonb,revision=revision+1 WHERE id=$1',[row.id,JSON.stringify({...row.data,...metadata,verification:undefined,status:command.status,note:command.note,evidenceIds:command.evidenceIds,history:[...row.data.history,{by:user.username,at,status:command.status,note:command.note,evidenceIds:command.evidenceIds,metadata}]})]);

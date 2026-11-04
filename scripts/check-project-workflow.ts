@@ -72,6 +72,19 @@ try {
   await changeMeetingWorkflow({},async state=>updateMeetingAction(state.actions.find(item=>item.id===action.id)!,'open','Reopened from meeting.','principal',true));
   const reopened=(await getProjectWorkflow(project.id,owner)).tasks.find(item=>item.id===action.id)!;
   assert.equal(reopened.data.status,'open');assert.deepEqual((reopened.data.history[1] as any).evidenceIds,[evidenceId],'Meeting edits preserve project completion evidence history.');
+  // Project managers handle linked meeting actions like any project task; the meeting view reads the same record.
+  await assert.rejects(change({operation:'task_update',confirmed:true,id:action.id,revision:reopened.revision,status:'blocked',note:'No due date.',evidenceIds:[],task:reopened.data.task,owner:'alice',dueDate:null,priority:'normal'}),/due date/);
+  await change({operation:'task_update',confirmed:true,id:action.id,revision:reopened.revision,status:'blocked',note:'Waiting for the comparison data.',evidenceIds:[evidenceId],task:'Check the shared meeting action twice',owner:'alice',dueDate:'2026-11-20',priority:'high'});
+  let meetingView=(await readMeetingWorkflow()).actions.find(item=>item.id===action.id)!;
+  assert.deepEqual([meetingView.status,meetingView.task,meetingView.dueDate],['blocked','Check the shared meeting action twice','2026-11-20']);
+  await changeMeetingWorkflow({},async state=>updateMeetingAction(state.actions.find(item=>item.id===action.id)!,'blocked','Still waiting.','principal',true));
+  let edited=(await getProjectWorkflow(project.id,owner)).tasks.find(item=>item.id===action.id)!;
+  assert.deepEqual([edited.data.status,edited.data.priority,edited.data.evidenceIds],['blocked','high',[evidenceId]],'Meeting notes keep project-side status, requirement and evidence.');
+  await change({operation:'task_update',confirmed:true,id:action.id,revision:edited.revision,status:'cancelled',note:'Removed from the project task list.',evidenceIds:[evidenceId]});
+  meetingView=(await readMeetingWorkflow()).actions.find(item=>item.id===action.id)!;assert.equal(meetingView.status,'cancelled');
+  await assert.rejects(changeMeetingWorkflow({},async state=>updateMeetingAction(state.actions.find(item=>item.id===action.id)!,'done','Done after removal.','principal',true)),/removed/);
+  edited=(await getProjectWorkflow(project.id,owner)).tasks.find(item=>item.id===action.id)!;
+  await change({operation:'task_update',confirmed:true,id:action.id,revision:edited.revision,status:'open',note:'Restored.',evidenceIds:[],task:edited.data.task,owner:'alice',dueDate:'2026-11-20',priority:'normal'});
   await change({operation:'submission_result',confirmed:true,id:attempt.id,revision:0,outcome:'rejected',submittedAt:'2027-03-30T12:00:00Z',reviews:'Synthetic reviewer asks for broader validation.',lessons:'Broaden the validation set.',nextPlan:'Retarget the next cycle.',reason:'Recorded synthetic outcome.'});
   await change({operation:'submission',confirmed:true,currentId:attempt.id,plan:{...plan,cycle:'2027 Cycle 3',deadline:'2027-06-30T22:59:00Z'},reason:'Resubmission after revision.'});
   data=await getProjectWorkflow(project.id,owner);assert.equal(data.submissions.length,2);assert.equal(data.submissions.find(item=>item.id===attempt.id)!.result.outcome,'rejected');assert.equal(data.submissions.filter(item=>item.isCurrent).length,1);

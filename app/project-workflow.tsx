@@ -116,9 +116,8 @@ function TaskRow({task,editable,canManage,evidenceOptions,save,assignees}:{assig
  const editor = useRef<HTMLDetailsElement>(null);
  const note = useRef<HTMLTextAreaElement>(null);
  const [status, setStatus] = useState(task.data.status);
- const canRemove = canManage && task.sourceKind !== 'meeting';
  const canComplete = !['done', 'cancelled'].includes(task.data.status);
- const statuses = task.sourceKind === 'meeting' ? ['open', 'done'] : ['open', 'in_progress', 'blocked', 'done'];
+ const statuses = ['open', 'in_progress', 'blocked', 'done'];
  function startCompletion() {
    setCompleting(true);
    setStatus('done');
@@ -133,18 +132,18 @@ function TaskRow({task,editable,canManage,evidenceOptions,save,assignees}:{assig
  }
  return <article className="workflow-record">
    <h4>{task.data.task}</h4>
-   <p>@{task.data.owner} · {label(task.data.status)} · Due {formatDay(task.data.dueDate,'not set')} · {task.data.priority==='high'?'Required before submission':'Optional for submission'} · From {task.sourceKind}</p>
+   <p>@{task.data.owner} · {label(task.data.status)} · Due {formatDay(task.data.dueDate,'not set')} · {task.data.priority==='high'?'Required before submission':'Optional for submission'} · {task.sourceKind === 'meeting' && task.data.meetingDate ? `From the ${formatDay(task.data.meetingDate)} meeting` : `From ${task.sourceKind}`}</p>
    {task.data.decision&&<p>Meeting decision: {task.data.decision}</p>}<p>{task.data.note}</p>
    {editable && <div className="vs-stale-actions">
      {canComplete && <button className="ops-secondary" type="button" onClick={startCompletion}>Complete</button>}
-     {canRemove && task.data.status !== 'cancelled' && <button className="ops-secondary" type="button" onClick={() => setConfirmRemove(true)}>Remove</button>}
+     {canManage && task.data.status !== 'cancelled' && <button className="ops-secondary" type="button" onClick={() => setConfirmRemove(true)}>Remove</button>}
    </div>}
    <details ref={editor}><summary>Update task and completion evidence</summary>
      <WorkflowForm disabled={!editable || (task.sourceKind === 'internal_review' && task.data.status === 'cancelled')} submitLabel={status === 'done' && completing ? 'Complete task' : 'Save task progress'}
        onSave={form=>save({operation:'task_update',confirmed:true,id:task.id,revision:task.revision,status,note:str(form,'note'),evidenceIds:selectedIds(form),
-         ...(canManage&&task.sourceKind!=='meeting'?{task:str(form,'task'),owner:str(form,'owner'),dueDate:optional(form,'dueDate'),priority:str(form,'priority') as 'normal'|'high'}:{})})}>
-       {canRemove && <><label>Task description<textarea name="task" required defaultValue={task.data.task}/></label>
-         <Assignee users={assignees} value={task.data.owner}/><label>Due date<input type="date" name="dueDate" defaultValue={task.data.dueDate||''}/></label>
+         ...(canManage?{task:str(form,'task'),owner:str(form,'owner'),dueDate:optional(form,'dueDate'),priority:str(form,'priority') as 'normal'|'high'}:{})})}>
+       {canManage && <><label>Task description<textarea name="task" required defaultValue={task.data.task}/></label>
+         <Assignee users={assignees} value={task.data.owner}/><label>Due date<input type="date" name="dueDate" required={task.sourceKind === 'meeting'} defaultValue={task.data.dueDate||''}/></label>
          <label>Submission requirement<select name="priority" defaultValue={task.data.priority}><option value="normal">Not required for submission</option><option value="high">Required before submission</option></select></label></>}
        <label>Task status<select name="status" value={status} onChange={event=>setStatus(event.target.value as ProjectTask['data']['status'])}>
          {task.data.status === 'cancelled' && <option value="cancelled">Cancelled</option>}
