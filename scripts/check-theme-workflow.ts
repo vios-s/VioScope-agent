@@ -87,9 +87,9 @@ try {
   let saved = await ok(await get('chair'));
   assert.equal(saved.confirmation.version, 1);
   assert.equal(saved.confirmation.confirmedBy, 'chair');
-  assert.deepEqual(saved.confirmation.entries.map((item: { member_username: string }) => item.member_username), [':assignments', 'carol', 'bob', 'alice', ':triage_admin']);
+  assert.deepEqual(saved.confirmation.entries.map((item: { member_username: string }) => item.member_username), ['carol', 'bob', 'alice', ':triage_admin']);
   const confirmed = (await planner.buildThemeMeetingPlan({ meetingDate: date })).plan;
-  assert.deepEqual(confirmed.meetings[0].agenda_items.map((item) => item.member_username), [':assignments', 'bob', 'alice', ':triage_admin']);
+  assert.deepEqual(confirmed.meetings[0].agenda_items.map((item) => item.member_username), ['bob', 'alice', ':triage_admin']);
   const { notificationStateForUser } = await import('../src/mastra/theme-meetings/notification-state');
   const reminder = schema.themeMeetingNotificationSchema.parse({ id: 'deferred-reminder', action: 'first_reminder', meeting_date: date,
     cycle_group: 'AB', theme_id: 'A', member: 'carol', member_username: 'carol', title: 'Update', body: 'Update', created_at: new Date().toISOString() });
@@ -139,8 +139,8 @@ try {
   assert.ok(sent[0].text.indexOf(v2Order[0]) < sent[0].text.indexOf(v2Order[1]), 'Confirmed order is preserved.');
   assert.doesNotMatch(sent[0].text, /Deferred/, 'New versions schedule every submission, so the email lists no deferred items.');
   // The confirmed email header describes the confirmed snapshot, not the live submission state.
-  assert.match(sent[0].text, /Scheduled: 5 items \| Planned: 55\/60 min/);
-  assert.match(sent[0].html, /Scheduled: <strong>5 items<\/strong>/);
+  assert.match(sent[0].text, /Scheduled: 4 items \| Planned: 50\/60 min/);
+  assert.match(sent[0].html, /Scheduled: <strong>4 items<\/strong>/);
   assert.doesNotMatch(sent[0].text + sent[0].html, /Missing updates|Submitted:/, 'Confirmed emails omit live submission counts.');
   const { renderThemeMeetingAgendaEmail } = await import('../src/mastra/theme-meetings/agenda-email');
   const legacyDeferred = (await workflow.readMeetingWorkflow()).confirmations[0].entries.find((entry) => entry.deferred)!;
@@ -231,7 +231,7 @@ try {
   async function readOnly(response: Response) { assert.equal(response.status, 403); assert.equal((await response.json()).error, 'Coordinators can change a meeting until 16:00 on the Friday after it.'); }
   const chairPast = await ok(await get('chair', pastDate));
   assert.equal(chairPast.manager, true); assert.equal(chairPast.readOnly, true);
-  assert.equal(chairPast.candidates.length, 4, 'Coordinators still read every past submission.');
+  assert.equal(chairPast.candidates.length, 3, 'Coordinators still read every past submission.');
   assert.equal(chairPast.emailAudience, null);
   assert.equal((await ok(await get('chair'))).readOnly, false, 'The current meeting stays editable.');
   assert.equal((await ok(await get('principal', pastDate))).readOnly, false, 'PIs are never read-only.');
@@ -253,19 +253,19 @@ try {
   await readOnly(await pastPost('outsider', { themeId: 'B', operation: 'add_action', action: { ...action, owner: 'outsider' } }));
   await ok(await pastPost('outsider', { themeId: 'B', operation: 'update_action', id: bAction.id, version: bAction.version, status: 'done', note: 'Coordinator as assignee.' }));
   const pastView = await ok(await get('alice', pastDate));
-  assert.ok(pastView.confirmation.entries.length === 3 && pastView.confirmation.entries.every((item: { member_username: string }) => item.member_username === 'alice' || item.member_username.startsWith(':')), 'Earlier confirmed agendas stay private.');
+  assert.ok(pastView.confirmation.entries.length === 2 && pastView.confirmation.entries.every((item: { member_username: string }) => item.member_username === 'alice' || item.member_username.startsWith(':')), 'Earlier confirmed agendas stay private.');
   assert.ok(pastView.candidates.every((item: { member_username: string }) => item.member_username === 'alice' || item.member_username.startsWith(':')), 'Unconfirmed submissions stay private to their author.');
   // Current meeting: scheduled entries in full; legacy deferred entries reduced to name and update type.
   const nextDate = date;
   const beforeCutoff = at(-2, '00:00:00');
   for (const name of ['alice', 'bob', 'carol']) await planner.submitThemeMeetingUpdate({ meetingDate: nextDate, themeId: 'A', member: name, updateType: 'deep_dive', progressText: `${name} next evidence.`, questions: `${name} question?`, now: beforeCutoff });
   const nextDraft = await ok(await get('chair', nextDate));
-  assert.ok(nextDraft.candidates.length === 5);
+  assert.ok(nextDraft.candidates.length === 4);
   const nextEntries = nextDraft.candidates.map((item: { member_username: string }) => ({ username: item.member_username, minutes: item.member_username.startsWith(':') ? 5 : 20, deferred: item.member_username === 'carol' }));
   await ok(await post('chair', { operation: 'confirm', meetingDate: nextDate, sourceVersion: nextDraft.sourceVersion, entries: nextEntries }));
   const memberNext: Entry[] = (await ok(await get('alice', nextDate))).confirmation.entries;
   const managerNext: Entry[] = (await ok(await get('chair', nextDate))).confirmation.entries;
-  assert.equal(memberNext.length, 5, 'Members see the whole current confirmed agenda.');
+  assert.equal(memberNext.length, 4, 'Members see the whole current confirmed agenda.');
   assert.deepEqual(memberNext.find((entry) => entry.member_username === 'bob'), managerNext.find((entry) => entry.member_username === 'bob'), 'Scheduled entries are shown in full.');
   const reduced = memberNext.find((entry) => entry.member_username === 'carol')!;
   assert.deepEqual([reduced.member, reduced.update_type, reduced.deferred], ['carol', 'deep_dive', true]);

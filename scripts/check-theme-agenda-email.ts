@@ -127,7 +127,7 @@ if (previewPath) {
   assert.doesNotMatch(preview.html, /<strong>Owner:<\/strong>/);
   assert.match(preview.html, /<strong>Stage:<\/strong>/);
   assert.match(preview.html, /<strong>Questions<\/strong><p>N\/A<\/p>/);
-  assert.match(preview.text, /Confirm the to-do items for each project before the next theme meeting/);
+  assert.doesNotMatch(preview.text, /Confirm the to-do items for each project before the next theme meeting/);
   await writeFile(previewPath, preview.html);
 }
 console.log('Theme agenda email checks passed (HTML, plain text, escaping, multiline updates, MIME).');

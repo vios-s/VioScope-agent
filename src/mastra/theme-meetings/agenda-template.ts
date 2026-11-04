@@ -15,6 +15,5 @@ export function defaultAgenda(items: ThemeMeetingAgendaItem[], meetingDate: stri
   return [
     placeholder('triage_admin', 'PI announcement', ''),
     ...items.slice().sort(compareAgendaItems),
-    placeholder('assignments', 'Assignments', 'Confirm the to-do items for each project before the next theme meeting.'),
   ];
 }

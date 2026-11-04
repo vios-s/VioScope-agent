@@ -67,8 +67,8 @@ try {
   const list = page.getByRole('list', { name: 'Agenda', exact: true });
   await list.locator('li').filter({ hasText: 'PI announcement' }).waitFor();
   await page.getByRole('button', { name: 'Temporary speaker', exact: true }).click();
-  assert.deepEqual(await list.locator('.mt-item-main > strong').allTextContents(), ['PI announcement', 'Robust model evaluation', 'Data quality benchmark', 'Efficient experiment design', 'Assignments']);
-  assert.deepEqual(await list.locator('time').allTextContents(), ['10:00', '10:05', '10:35', '10:40', '10:45']);
+  assert.deepEqual(await list.locator('.mt-item-main > strong').allTextContents(), ['PI announcement', 'Robust model evaluation', 'Data quality benchmark', 'Efficient experiment design']);
+  assert.deepEqual(await list.locator('time').allTextContents(), ['10:00', '10:05', '10:35', '10:40']);
   assert.equal(Boolean(posted), false);
   await list.getByText('Project snapshot').first().click();
   assert.notEqual(await list.locator('.meeting-project-summary li').first().evaluate(element => getComputedStyle(element).display), 'grid');
@@ -102,14 +102,14 @@ try {
   assert.equal(await page.getByRole('note').filter({ hasText: /This agenda has/ }).count(), 0);
   const confirmButton = page.getByRole('button', { name: 'Confirm the agenda as version 1' });
   assert.equal(await confirmButton.isEnabled(), true, 'Four Updates within 60 minutes can be confirmed.');
-  await page.getByRole('spinbutton', { name: 'Minutes for Fourth update' }).fill('6');
+  await page.getByRole('spinbutton', { name: 'Minutes for Fourth update' }).fill('11');
   assert.equal(await confirmButton.isEnabled(), false, 'An agenda of 61 minutes cannot be confirmed.');
   await page.getByRole('button', { name: 'Remove temporary speaker Fourth update' }).click();
 
   await page.getByRole('spinbutton', { name: 'Minutes for PI announcement' }).fill('6');
-  const handle = list.getByRole('button', { name: /Reorder Assignments/ });
+  const handle = list.getByRole('button', { name: /Reorder Guest speaker/ });
   await handle.focus(); await handle.press('ArrowUp');
-  assert.deepEqual(await list.locator('.mt-item-main > strong').allTextContents(), ['PI announcement', 'Robust model evaluation', 'Data quality benchmark', 'Efficient experiment design', 'Assignments', 'Guest speaker']);
+  assert.deepEqual(await list.locator('.mt-item-main > strong').allTextContents(), ['PI announcement', 'Robust model evaluation', 'Data quality benchmark', 'Guest speaker', 'Efficient experiment design']);
   await page.getByRole('spinbutton', { name: 'Minutes for Alex Morgan' }).fill('60');
   assert.equal(await page.getByRole('button', { name: 'Confirm the agenda as version 1' }).isDisabled(), true);
   await page.getByRole('spinbutton', { name: 'Minutes for Alex Morgan' }).fill('20');
@@ -118,10 +118,19 @@ try {
   await page.getByText('Version 1 confirmed. Email it when you are ready.', { exact: true }).waitFor();
   assert.equal(posted.entries[0].minutes, 6);
   assert.equal(posted.entries[2].minutes, 15);
-  assert.equal(posted.entries[4].username, ':assignments');
+  assert.ok(posted.entries.every((entry: any) => entry.username !== ':assignments'));
   const refreshed = page.waitForResponse(response => response.url().includes('/api/theme-meetings/workflow') && response.request().method() === 'GET');
   await page.reload(); await refreshed; await list.waitFor();
   await dismissWelcomeIfVisible(page);
+  // A confirmation saved before the Assignments slot was retired still holds it; that is not a draft change.
+  confirmed.entries.push({ meeting_date: date, theme_id: 'A', theme_title: 'Theme A', member: 'Assignments', member_username: ':assignments', update_type: 'assignments',
+    duration_minutes: 5, progress_text: '', questions: '', submitted_at: '2026-10-29T12:00:00Z', deferred: false });
+  await page.reload(); await list.waitFor(); await dismissWelcomeIfVisible(page);
+  await page.getByRole('button', { name: 'Confirm the agenda as version 2' }).waitFor();
+  assert.equal(await page.getByText(/Submissions changed since version 1|Draft changed\./).count(), 0, 'A retired placeholder in an older confirmation is not a change.');
+  assert.equal(await page.getByRole('button', { name: 'Confirm the agenda as version 2' }).isDisabled(), true, 'The older confirmation is still up to date.');
+  confirmed.entries.pop();
+  await page.reload(); await list.waitFor(); await dismissWelcomeIfVisible(page);
   await page.getByRole('button', { name: 'Edit temporary speaker Guest speaker' }).click();
   assert.equal(await page.getByLabel('Temporary speaker summary').inputValue(), 'Discuss the new results.');
   await page.getByRole('button', { name: 'Confirm the agenda as version 2' }).waitFor();
@@ -136,9 +145,9 @@ try {
   await page.waitForFunction(() => !document.querySelector<HTMLButtonElement>('[aria-label="Confirm the agenda as version 2"]')?.disabled);
   manager = false;
   await page.reload(); await list.waitFor();
-  await list.locator('li').filter({ hasText: 'Assignments' }).waitFor();
+  await list.locator('li').filter({ hasText: 'PI announcement' }).waitFor();
   assert.equal(await list.getByRole('spinbutton').count(), 0, 'Members cannot change the arrangement.');
-  assert.equal(await list.locator(':scope > li').count(), 6, 'Members see the confirmed placeholders and submitted slots.');
+  assert.equal(await list.locator(':scope > li').count(), 5, 'Members see the confirmed placeholder and submitted slots.');
   await list.getByText('Guest speaker', { exact: true }).waitFor();
   await list.getByText('Discuss the new results.', { exact: true }).waitFor();
   assert.equal(await page.getByLabel('Temporary speaker summary').count(), 0, 'Members cannot edit summaries.');

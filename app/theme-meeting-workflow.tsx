@@ -244,9 +244,12 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
   const total = scheduled.reduce((sum, row) => sum + countable(row.minutes), 0);
   const over = total > duration;
   const minutesInvalid = editable && scheduled.some((row) => row.item.update_type !== 'nothing_to_report' && !validMinutes(row.minutes));
-  const changedSinceConfirmation = Boolean(canEdit && confirmation && (confirmation.entries.length !== data!.candidates.length ||
-    data!.candidates.some((item) => !confirmation.entries.some((entry) => entry.member_username === item.member_username && entry.submitted_at === item.submitted_at))));
-  const confirmedSelections = (confirmation?.entries || []).map((entry) => ({ username: entry.member_username || '', minutes: entry.duration_minutes, deferred: entry.deferred, ...(isTemporarySpeaker(entry.member_username) ? { speakerSummary: entry.progress_text } : {}) }));
+  // Placeholders the template no longer creates (the retired Assignments slot) stay in older confirmations;
+  // they are not draft changes, and the next reconfirmation simply leaves them out.
+  const confirmedEntries = (confirmation?.entries || []).filter((entry) => !isAgendaPlaceholder(entry) || data?.candidates.some((item) => item.member_username === entry.member_username));
+  const changedSinceConfirmation = Boolean(canEdit && confirmation && (confirmedEntries.length !== data!.candidates.length ||
+    data!.candidates.some((item) => !confirmedEntries.some((entry) => entry.member_username === item.member_username && entry.submitted_at === item.submitted_at))));
+  const confirmedSelections = confirmedEntries.map((entry) => ({ username: entry.member_username || '', minutes: entry.duration_minutes, deferred: entry.deferred, ...(isTemporarySpeaker(entry.member_username) ? { speakerSummary: entry.progress_text } : {}) }));
   const summaryInvalid = entries.some(entry => entry.speakerSummary && wordCount(entry.speakerSummary) > speakerSummaryWordLimit);
   const upToDate = Boolean(confirmation && !changedSinceConfirmation && sameSelections(entries, confirmedSelections));
   const nextVersion = (confirmation?.version || 0) + 1;
@@ -444,7 +447,7 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
         <button type="submit" className="ops-primary" disabled={busy || !speakerName.trim() || wordCount(speakerSummary) > speakerSummaryWordLimit}>{editingSpeaker ? 'Update agenda draft' : 'Add to agenda'}</button></div>
     </form>, speakerEditorTarget)}
     {editable && <details className="mt-template-guide"><summary>Recommended meeting format · 60 minutes</summary>
-      <p>5 min PI announcement · 30 min Deep Dive · 20 min Updates · 5 min Assignments.</p>
+      <p>5 min PI announcement · 30 min Deep Dive · 20 min Updates · 5 min flexible time.</p>
       <p>One Discussant-led Deep Dive and 2–3 Updates of 5–7 minutes are recommended. Adjust the slots to fit the meeting.</p>
       <p>Adjust freely; all submissions stay in the draft.</p>
     </details>}

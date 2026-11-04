@@ -20,9 +20,9 @@ const items = defaultAgenda([
   { ...base, member: 'Bob', member_username: 'bob', update_type: 'deep_dive', duration_minutes: 30 },
   { ...base, member: 'Carol', member_username: 'carol', update_type: 'deep_dive', duration_minutes: 30 },
 ], date, 'A', 'Synthetic theme');
-assert.deepEqual(items.map((item) => item.member_username), [':triage_admin', 'bob', 'carol', 'alice', ':assignments']);
-assert.equal(items.reduce((sum, item) => sum + item.duration_minutes, 0), 75);
-assert.deepEqual(defaultAgenda([], date, 'A', 'Synthetic theme').map((item) => item.duration_minutes), [5, 5]);
+assert.deepEqual(items.map((item) => item.member_username), [':triage_admin', 'bob', 'carol', 'alice']);
+assert.equal(items.reduce((sum, item) => sum + item.duration_minutes, 0), 70);
+assert.deepEqual(defaultAgenda([], date, 'A', 'Synthetic theme').map((item) => item.duration_minutes), [5]);
 assert.equal(items[0].member, 'PI announcement');
 assert.equal(items[0].progress_text, '');
 assert.deepEqual(defaultAgenda([], date, 'A', 'Synthetic theme'), defaultAgenda([], date, 'A', 'Synthetic theme'));
@@ -38,15 +38,15 @@ assert.throws(() => confirmAgenda(state, meeting, date, selections, 'chair'), /e
 assert.throws(() => confirmAgenda(state, meeting, date, selections.slice(1), 'chair'), /exactly once/);
 const arranged = [...selections].reverse().map((item) => ({ ...item, minutes: item.username === 'alice' ? 7 : ['bob', 'carol'].includes(item.username) ? 20 : 6 }));
 const boundaryState: MeetingWorkflow = { confirmations: [], actions: [] };
-const atLimit = arranged.map(item => item.username === 'alice' ? { ...item, minutes: 8 } : item);
+const atLimit = arranged.map(item => item.username === 'alice' ? { ...item, minutes: 14 } : item);
 confirmAgenda(boundaryState, meeting, date, atLimit, 'chair');
-const overLimit = atLimit.map(item => item.username === 'alice' ? { ...item, minutes: 9 } : item);
+const overLimit = atLimit.map(item => item.username === 'alice' ? { ...item, minutes: 15 } : item);
 assert.throws(() => confirmAgenda(boundaryState, { ...meeting, duration_minutes: 90 }, date, overLimit, 'chair'), /exceeds the meeting time/);
 assert.equal(boundaryState.confirmations.length, 1);
 const before = agendaSourceVersion(meeting, null);
 const confirmation = confirmAgenda(state, meeting, date, arranged, 'chair');
-assert.equal(confirmation.entries.reduce((sum, item) => sum + item.duration_minutes, 0), 59);
-assert.equal(confirmation.entries[0].update_type, 'assignments', 'Coordinator order overrides the default.');
+assert.equal(confirmation.entries.reduce((sum, item) => sum + item.duration_minutes, 0), 53);
+assert.equal(confirmation.entries[0].update_type, 'short_update', 'Coordinator order overrides the default.');
 assert.notEqual(agendaSourceVersion(meeting, confirmation), before);
 assert.throws(() => confirmAgenda(state, meeting, date, arranged.map((item) => item.username === 'alice' ? { ...item, minutes: 0 } : item), 'chair'), /Invalid slot duration/);
 const confirmedPlan = applyConfirmedAgendas(plan, state);
@@ -55,7 +55,7 @@ const email = renderThemeMeetingAgendaEmail(confirmedPlan, { confirmation: { ...
 assert.match(email.html, />Discussion<\/th>/);
 assert.match(email.text, /PI announcement \| PI \| 6 min/);
 assert.doesNotMatch(email.html, /PI announcement<\/h4>[\s\S]*?<p>N\/A<\/p>[\s\S]*?<\/td><\/tr>/);
-assert.match(email.text, /10:00 \| Assignments/);
+assert.match(email.text, /10:00 \| Alice/);
 assert.match(email.text, /PI announcement/);
 const emptyPlan = { ...plan, meetings: [{ ...meeting, agenda_items: defaultAgenda([], date, 'A', meeting.title), planned_minutes: 10, overbooked: false }] };
 assert.match(renderThemeMeetingAgendaEmail(emptyPlan).text, /No planned updates yet/);
@@ -63,6 +63,9 @@ assert.match(renderThemeMeetingAgendaEmail(emptyPlan).html, /consider skipping/)
 // A historical confirmed snapshot is never retrofitted with the new template.
 const legacy: MeetingWorkflow = { confirmations: [{ ...confirmation, entries: confirmation.entries.filter((item) => !item.member_username?.startsWith(':')) }], actions: [] };
 assert.equal(applyConfirmedAgendas(plan, legacy).meetings[0].agenda_items.length, 3);
+const oldAssignment = { ...items[0], member: 'Assignments', member_username: ':assignments', update_type: 'assignments' as const, progress_text: 'Review actions.', deferred: false };
+const historical: MeetingWorkflow = { confirmations: [{ ...confirmation, entries: [...confirmation.entries, oldAssignment] }], actions: [] };
+assert.ok(applyConfirmedAgendas(plan, historical).meetings[0].agenda_items.some(item => item.member_username === ':assignments'), 'Historical confirmed assignments remain visible.');
 assert.equal(state.confirmations.length, 1, 'Rejected edits add no saved versions.');
 const guest = { username: ':speaker:00000000-0000-4000-8000-000000000001', speakerName: 'Guest speaker', speakerSummary: 'Discuss the new results.', minutes: 5, deferred: false };
 const guestEntries = arranged.map(item => item.username === 'bob' ? { ...item, minutes: 15 } : item);
