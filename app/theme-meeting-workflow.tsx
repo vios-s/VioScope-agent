@@ -505,15 +505,18 @@ function AgendaBoard({ userId, themeId, meetingDate, meetingTime, cancelled, can
   </div>;
 }
 
+let handledRecordsNonce = 0;
 function FollowUp({ userId, themeId, meetingDate, revision, memberNames, onChanged, projectLink, recordsRequest }: {
   userId: string; themeId: string; meetingDate: string; revision: string; memberNames: Record<string, string>; onChanged: () => Promise<void> | void; projectLink: ProjectLink;
   recordsRequest?: RecordsRequest;
 }) {
   const [date, setDate] = useState(meetingDate);
   const detailsRef = useRef<HTMLDetailsElement | null>(null);
-  // A Past meetings row asks to show that meeting's records here.
+  // A Past meetings row asks to show that meeting's records here. Each request is honoured once: the parent keeps
+  // the last one, and a later mount for another theme card must not replay it.
   useEffect(() => {
-    if (!recordsRequest || !detailsRef.current) return;
+    if (!recordsRequest || !detailsRef.current || recordsRequest.nonce === handledRecordsNonce) return;
+    handledRecordsNonce = recordsRequest.nonce;
     setDate(recordsRequest.date);
     detailsRef.current.open = true;
     detailsRef.current.scrollIntoView({ block: 'start', behavior: 'smooth' });

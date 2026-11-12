@@ -86,7 +86,7 @@ export async function decideSkeletonReview(id: string, input: unknown, user: Aut
     } else {
       const pdra = latestDecisions.pdra;
       if (!pdra) throw new Error('Record the PDRA judgment before PI skeleton checkpoint confirmation.');
-      if (pdra.by === user.username) throw new AuthError('You recorded the PDRA judgment for this review, so another person must record the PI confirmation.', 403, 'forbidden');
+      if (record.decisions.some(item => item.kind === 'pdra' && item.by === user.username)) throw new AuthError('You recorded the PDRA judgment for this review, so another person must record the PI confirmation.', 403, 'forbidden');
       if (command.outcome === 'approved' && pdra.outcome === 'revise') throw new Error('The PDRA requested revision. Resolve it before skeleton approval.');
       if (command.outcome === 'approved' && pdra.outcome === 'SLIDE') throw new Error('The PDRA judged that this project should slide to the next submission cycle. Run a new check before skeleton approval.');
     }

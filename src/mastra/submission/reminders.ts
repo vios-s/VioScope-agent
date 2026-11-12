@@ -32,8 +32,10 @@ export async function projectSubmissionNotices(projectId:string,now=new Date()):
     const decision=decisions.find(d=>d.data.checkpoint===checkpoint)?.data;
     return decision?.outcome==='proceed'&&decision.profileRevision===(profile?.revision||0)&&isDeepStrictEqual(decision.projectSnapshot,skeletonProjectSnapshot(project));
   };
-  const piNames=projectPIs(project).length?projectPIs(project):(await listUsersForAdmin()).filter(u=>u.role==='administrator'&&u.provisioningStatus==='active').map(u=>u.username);
-  const recipients:Record<string,(string|null)[]>={skeleton_lock:[row.owner_username,row.pdra_username],code_lock:[row.owner_username],internal_review:[row.owner_username],revision_lock:[row.owner_username,row.pdra_username],submission_clearance:piNames.filter((name:string)=>name!==row.owner_username),submission_target:[row.owner_username]};
+  // The owner never clears their own project; without another assigned PI the duty falls to the administrators.
+  const assignedPIs=projectPIs(project).filter(name=>name!==row.owner_username);
+  const piNames=assignedPIs.length?assignedPIs:(await listUsersForAdmin()).filter(u=>u.role==='administrator'&&u.provisioningStatus==='active'&&u.username!==row.owner_username).map(u=>u.username);
+  const recipients:Record<string,(string|null)[]>={skeleton_lock:[row.owner_username,row.pdra_username],code_lock:[row.owner_username],internal_review:[row.owner_username],revision_lock:[row.owner_username,row.pdra_username],submission_clearance:piNames,submission_target:[row.owner_username]};
   const actions:Record<string,string>={skeleton_lock:'T−6 weeks: complete the Skeleton Lock assessment.',code_lock:'T−5 weeks: confirm the Code Lock and agreed experimental scope.',internal_review:'T−4 weeks: submit a versioned manuscript for internal review.',revision_lock:'T−2 weeks: resolve required revisions and obtain PDRA acceptance.',submission_clearance:'T−48 hours: review the Revision Tracker and record final PI clearance.',submission_target:'T−24 hours: submit the approved manuscript and record the submission outcome.'};
   const skeleton=(await checklistCheckpoints(project)).find(item=>item.checkpoint==='skeleton_lock');
   const satisfied:Record<string,boolean>={skeleton_lock:skeleton? skeleton.current&&skeleton.outcome==='proceed':completed('skeleton_lock'),code_lock:completed('code_lock'),internal_review:Boolean(valid),revision_lock:locked,submission_clearance:Boolean(cleared),submission_target:false};
@@ -68,8 +70,8 @@ export async function runSubmissionReminders(now=new Date()) {
         created+=inserted.rowCount||0;
         const current=(await pool().query('SELECT id::text FROM submission_notifications WHERE recipient_user_id=$1 AND event_key=$2',[recipient.id,notice.key])).rows[0];
         activeIds.push(current.id);
-        // A reopened requirement is the same notice, not a repeated notification on every scheduler tick.
-        await pool().query('UPDATE submission_notifications SET resolved_at=NULL,title=$2,body=$3 WHERE id=$1',[current.id,notice.title,notice.body]);
+        // A reopened requirement is the same notice, not a repeated notification on every scheduler tick; reopening a resolved one makes it unread again.
+        await pool().query('UPDATE submission_notifications SET read_at=CASE WHEN resolved_at IS NOT NULL THEN NULL ELSE read_at END,resolved_at=NULL,title=$2,body=$3 WHERE id=$1',[current.id,notice.title,notice.body]);
       }
       resolved+=(await pool().query(`UPDATE submission_notifications SET resolved_at=$3,read_at=COALESCE(read_at,$3)
         WHERE project_id=$1 AND NOT(id=ANY($2::uuid[])) AND resolved_at IS NULL`,[projectId,activeIds,now.toISOString()])).rowCount||0;

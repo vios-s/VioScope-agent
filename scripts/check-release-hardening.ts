@@ -165,11 +165,8 @@ async function main() {
 
     await writeConfig();
     await setProvisioningStatus(users.missing, 'disabled');
-    await assert.rejects(
-      () => buildThemeMeetingPlan({ configPath, updatesPath, notificationsPath, meetingDate, validateUsers: true }),
-      /inactive users/i,
-      'Theme config should reject inactive account references.',
-    );
+    // An inactive referenced account grants nothing and must not block the plan for everyone else.
+    await buildThemeMeetingPlan({ configPath, updatesPath, notificationsPath, meetingDate, validateUsers: true });
     await setProvisioningStatus(users.missing, 'active');
 
     await submitThemeMeetingUpdate({
@@ -205,10 +202,10 @@ async function main() {
     const pastResponse = await pastReminder(coordinator);
     assert.equal(pastResponse.status, 403, 'Coordinators cannot send reminders for a past meeting.');
     assert.equal((await pastResponse.json()).error, 'Coordinators cannot skip, restore or send reminders for a meeting that has already taken place.');
-    assert.equal((await pastReminder(pi)).status, 200, 'PIs keep full rights on past meetings.');
+    assert.equal((await pastReminder(pi)).status, 400, 'Missing-update reminders stop at the submission cutoff for every role.');
 
     console.log('Release hardening check passed.');
-    console.log(JSON.stringify({ missingUserRejected: true, inactiveUserRejected: true, manualReminderCount: 1 }, null, 2));
+    console.log(JSON.stringify({ missingUserRejected: true, inactiveUserTolerated: true, manualReminderCount: 1 }, null, 2));
   } finally {
     await cleanup();
   }

@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { AuthError, canSeeAll, isUserName, requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
+import { visiblePlanForUser } from '../../../../src/mastra/theme-meetings/access';
 import { submitThemeMeetingUpdate } from '../../../../src/mastra/theme-meetings/planner';
 import { themeUpdateTypeSchema } from '../../../../src/mastra/theme-meetings/schema';
 
@@ -71,7 +72,8 @@ export async function POST(request: Request) {
         hasQuestions: Boolean(text(body.questions)),
       },
     });
-    return NextResponse.json(result);
+    // Other members' draft submissions stay visible only to their authors and the theme's managers.
+    return NextResponse.json({ update: result.update, plan: visiblePlanForUser(result.plan, result.config, user) });
   } catch (error) {
     return errorResponse(error, 400);
   }

@@ -303,6 +303,8 @@ export async function saveChatTurn(input: {
   assistantStatus: 'answer' | 'refusal';
   sources: ChatSourceRecord[];
   requiresPrivateSession?: boolean;
+  /** The caller saw this session before the model call; it is then never recreated if deleted meanwhile. */
+  sessionExisted?: boolean;
 }): Promise<void> {
   await ensureChatTables();
   const postgres = createPostgresClient('vioscope-chat');
@@ -339,6 +341,9 @@ export async function saveChatTurn(input: {
         [input.sessionId, title],
       );
     } else {
+      if (input.sessionExisted) {
+        throw new AuthError('This conversation was deleted while the answer was being prepared.', 409, 'conflict');
+      }
       await postgres.pool.query(
         'INSERT INTO chat_sessions (id, owner_user_id, title) VALUES ($1, $2, $3)',
         [input.sessionId, input.actor.id, title],
@@ -440,11 +445,12 @@ export async function importLocalChatSessions(input: {
       if (!inserted.rowCount) continue;
       imported += 1;
 
-      for (const message of messages) {
+      // Messages without their own timestamp share one; the index offset keeps their stored order.
+      for (const [index, message] of messages.entries()) {
         await postgres.pool.query(
           `
             INSERT INTO chat_messages (session_id, role, content, actor_user_id, status, sources, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+            VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz + $8::int * interval '1 microsecond')
           `,
           [
             sessionId,
@@ -454,6 +460,7 @@ export async function importLocalChatSessions(input: {
             message.role === 'assistant' ? message.status || 'answer' : null,
             JSON.stringify(message.sources || []),
             validDate(message.createdAt || session.updatedAt),
+            index,
           ],
         );
       }
@@ -594,7 +601,7 @@ export async function listChatSessionsForUser(userId: string): Promise<ChatSessi
         FROM chat_messages msg
         LEFT JOIN users actor ON actor.id = msg.actor_user_id
         WHERE msg.session_id = ANY($1::text[])
-        ORDER BY msg.created_at ASC
+        ORDER BY msg.created_at ASC, msg.role DESC, msg.id
       `,
       [sessionIds],
     );

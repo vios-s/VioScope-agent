@@ -5,7 +5,8 @@ import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
 import { ensureUsersTable, upsertPublicTeamProfiles } from '../../../src/mastra/db/users';
 import { parsePublicTeamProfilesMarkdown } from '../../../src/mastra/team/public-profiles';
-import { readTeamProfileMarkdown, writeTeamProfileMarkdown } from '../../../src/mastra/team/profile-markdown-store';
+import { readTeamProfileMarkdown, teamProfileMarkdownPath, writeTeamProfileMarkdown } from '../../../src/mastra/team/profile-markdown-store';
+import { withFileLock } from '../../../src/mastra/atomic-file';
 
 export const runtime = 'nodejs';
 
@@ -45,13 +46,18 @@ export async function PATCH(request: Request) {
       throw new Error('No public team profiles parsed from markdown.');
     }
 
-    const result = await writeTeamProfileMarkdown(body.markdown);
-    let importedCount: number | undefined;
-    if (shouldImport) {
-      await ensureUsersTable();
-      const records = await upsertPublicTeamProfiles(profiles, { sourceUrl: sourceUrlFromMarkdown(result.markdown) });
-      importedCount = records.length;
-    }
+    const markdown = body.markdown;
+    const baseRevision = typeof body.baseRevision === 'string' ? body.baseRevision : undefined;
+    await ensureUsersTable();
+    // Compare, import and replace under one lock and transaction: a stale editor gets a conflict, and a failed
+    // import or write leaves both the accounts and the file unchanged.
+    const { result, importedCount } = await withFileLock(teamProfileMarkdownPath(), async () => {
+      if (baseRevision && baseRevision !== (await readTeamProfileMarkdown()).revision) {
+        throw new AuthError('The team profiles changed while you were editing. Load the latest version before saving.', 409, 'conflict');
+      }
+      const records = shouldImport ? await upsertPublicTeamProfiles(profiles, { sourceUrl: sourceUrlFromMarkdown(markdown) }) : undefined;
+      return { result: await writeTeamProfileMarkdown(markdown), importedCount: records?.length };
+    });
 
     await recordAuditLog({
       actor,

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { createSessionToken, sessionCookieName } from '../src/mastra/auth/session';
@@ -195,6 +196,17 @@ async function main() {
     assert.equal(findSetting(changedPayload, 'WIKI_MIN_SCORE').value, nextWikiValue);
     assert.equal(findSetting(changedPayload, 'WIKI_MIN_SCORE').source, 'database');
     assert.equal((await readRuntimeSettings()).WIKI_MIN_SCORE, nextWikiValue, 'Runtime cache should contain changed WIKI_MIN_SCORE.');
+    if (!process.env.VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH) {
+      // A lost cache file must not hide saved settings from a newly started process.
+      await rm(runtimeConfigCachePath, { force: true });
+      const runtimeConfigUrl = new URL('../src/mastra/runtime-config.ts', import.meta.url).href;
+      const freshValue = execFileSync(
+        process.execPath,
+        [...process.execArgv, '-e', `import(${JSON.stringify(runtimeConfigUrl)}).then((m) => process.stdout.write(m.runtimeEnv('WIKI_MIN_SCORE')))`],
+        { encoding: 'utf8' },
+      );
+      assert.equal(freshValue, nextWikiValue, 'Saved settings should apply without the cache file.');
+    }
 
     const originalWikiStored = snapshots.find((snapshot) => snapshot.key === 'WIKI_MIN_SCORE')?.value ?? null;
     const revertedWikiResponse = await configRoute.PATCH(

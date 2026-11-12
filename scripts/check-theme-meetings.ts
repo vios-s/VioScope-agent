@@ -1,11 +1,12 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
   buildThemeMeetingPlan,
   buildThemeMeetingReminderRun,
+  reminderRunSkipReason,
   submitThemeMeetingUpdate,
 } from '../src/mastra/theme-meetings/planner';
 import { readThemeMeetingPlanTool, submitThemeMeetingUpdateTool } from '../src/mastra/tools/theme-meetings';
@@ -20,6 +21,7 @@ import {
   readThemeMeetingUpdates,
   releaseThemeMeetingEmailDeliveryClaim,
   saveThemeMeetingEmailDelivery,
+  saveThemeMeetingUpdate,
 } from '../src/mastra/theme-meetings/store';
 import { createPostgresClient } from '../src/mastra/db/postgres';
 import { upsertLocalUser } from '../src/mastra/db/users';
@@ -529,6 +531,25 @@ async function main() {
   if (!configReminder.notifications.some((notification) => notification.body.includes('Tuesday 13:00'))) {
     throw new Error('Expected reminder cutoff text to come from theme meeting config, not legacy admin/env settings.');
   }
+  assert.ok(configReminder.notifications.every((notification) => notification.id.endsWith(':2026-06-23T10:00')),
+    'Each manual reminder is a new notification, so a repeated reminder is unread and emailed again.');
+
+  // Timer runs: the cutoff (Tuesday 13:00 UK time here) is due from that time until the first meeting starts; a
+  // catch-up run in another week, or a reminder after submissions closed, sends nothing.
+  const dueReason = (action: Parameters<typeof reminderRunSkipReason>[1], now: string) =>
+    reminderRunSkipReason(configReminder.config, action, checkMeetingDate, new Date(now));
+  assert.equal(dueReason('agenda_cutoff', '2026-06-23T12:00:00.000Z'), null);
+  assert.match(dueReason('agenda_cutoff', '2026-06-18T09:00:00.000Z') || '', /not due until 2026-06-23T13:00/);
+  assert.match(dueReason('agenda_cutoff', '2026-06-24T09:00:00.000Z') || '', /window closed at 2026-06-24T10:00/);
+  assert.match(dueReason('manual_missing_update_reminder', '2026-06-23T12:00:00.000Z') || '', /window closed at 2026-06-23T13:00/);
+
+  // Two members with the same display name keep separate slots: the account username is the identity.
+  const sameNamePaths = { ...storePaths, updatesPath: join(checkDir, 'same-name-updates.yaml') };
+  for (const member_username of [themeUsers.alice, themeUsers.bob]) {
+    await saveThemeMeetingUpdate({ meeting_date: checkMeetingDate, theme_id: 'A', member: 'Sam Lee', member_username, update_type: 'short_update',
+      progress_text: 'Same display name.', questions: '', submitted_at: '2026-06-22T08:00:00.000Z', submitted_via: 'api' }, sameNamePaths);
+  }
+  assert.equal((await readThemeMeetingUpdates(sameNamePaths)).updates.length, 2);
 
   const manualReminder = await buildThemeMeetingReminderRun('manual_missing_update_reminder', {
     ...storePaths,
@@ -566,6 +587,11 @@ async function main() {
   if (!(await claimThemeMeetingEmailDelivery(claimId, storePaths))) {
     throw new Error('Expected released email delivery claim to be claimable again.');
   }
+  // A claim left by an interrupted send expires after 15 minutes.
+  const staleClaim = new Date(Date.now() - 16 * 60_000);
+  await utimes(join(`${storePaths.emailDeliveriesPath}.claims`, encodeURIComponent(claimId)), staleClaim, staleClaim);
+  assert.equal(await claimThemeMeetingEmailDelivery(claimId, storePaths), true, 'An expired email claim can be taken over.');
+  assert.equal(await claimThemeMeetingEmailDelivery(claimId, storePaths), false, 'A live email claim still blocks a second sender.');
   await saveThemeMeetingEmailDelivery({ id: claimId, sent_at: '2026-06-23T12:00:00.000Z' }, storePaths);
   await releaseThemeMeetingEmailDeliveryClaim(claimId, storePaths);
   if (await claimThemeMeetingEmailDelivery(claimId, storePaths)) {

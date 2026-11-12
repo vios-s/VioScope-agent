@@ -128,15 +128,10 @@ try {
     // The theme's current meeting: coordinators cannot act on past meetings.
     body: JSON.stringify({ action, themeId: 'C', meetingDate: planner.nextThemeMeetingDate(config, 'C') }),
   });
-  assert.equal((await reminderRoute.POST(request(observer, 'agenda_preview'))).status, 403);
-  const api = await reminderRoute.POST(request(coordinator, 'agenda_preview'));
-  assert.equal(api.status, 200, await api.clone().text());
-  const body = await api.json();
-  assert.equal(body.notificationCount, 0);
-  assert.deepEqual(body.recipients, []);
-  assert.equal(body.agendaEmails.sent, 1);
-  assert.equal(sent.length, beforeApi + 1);
-  assert.match(sent.at(-1)!.subject, /^\[DRAFT\]/);
+  assert.equal((await reminderRoute.POST(request(observer, 'manual_missing_update_reminder'))).status, 403);
+  // Agenda circulation is sent by the timers only; the manual route accepts missing-update reminders.
+  assert.equal((await reminderRoute.POST(request(coordinator, 'agenda_preview'))).status, 400);
+  assert.equal(sent.length, beforeApi);
   await assert.rejects(readFile(process.env.THEME_MEETING_NOTIFICATIONS_PATH!), /ENOENT/);
   const emptyDraft = renderThemeMeetingAgendaEmail(cancelled, { phase: 'preview', cutoff: { weekday: 'Wednesday', time: '08:00' } });
   assert.doesNotMatch(emptyDraft.html, /Theme D &mdash;/);

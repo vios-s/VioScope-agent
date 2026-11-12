@@ -13,6 +13,8 @@ import type { ProjectTask, WorkflowCommand } from '../src/mastra/projects/workfl
 type Payload=Awaited<ReturnType<typeof getInternalReviews>>;
 type Round=Payload['rounds'][number];
 const value=(form:FormData,key:string)=>String(form.get(key)||'').trim();
+// PostgreSQL text timestamps ("YYYY-MM-DD HH:MM:SS+00") are not ISO; normalise as app/format.ts does and never throw while rendering.
+const reviewDue=(createdAt:string)=>{const at=Date.parse(createdAt.replace(' ','T').replace(/([+-]\d{2})$/,'$1:00'));return Number.isNaN(at)?null:new Date(at+48*3600000);};
 const emptyReview=():MetaReview=>({summary:'',score:5,confidence:3,strengths:'',weaknesses:'',questions:'',checklist:internalChecklist.map(([key])=>({key,verdict:'no',evidence:''})),changes:[]});
 
 function TextAreaField({label,number,...props}:TextareaHTMLAttributes<HTMLTextAreaElement>&{label:string;number?:number}) {
@@ -71,7 +73,7 @@ function ReviewProject({projectId}:{projectId:string}) {
   async function workflow(command:WorkflowCommand){await requestJson(`/api/projects/${projectId}/workflow`,'Could not save project record.',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(command)});await load();setMessage('Project record saved.');}
   if(!data)return <p className={error?'ops-notice error':'checklist-hint'} role={error?'alert':'status'}>{error||'Loading reviews…'}</p>;
   const round=data.rounds.find(r=>r.id===selected)||data.rounds[0];
-  const docs=data.evidence.filter(e=>e.data.state==='completed');
+  const docs=manuscriptEvidence(data);
   return <div className="checklist-record ir-record">
     <div className="checklist-record-main">
     <header className="checklist-record-head">
@@ -94,7 +96,7 @@ function ReviewProject({projectId}:{projectId:string}) {
       </ReviewForm></details>}
     {round&&<>
       <div className="ir-round"><SelectField label="Review round" value={round.id} onChange={e=>setSelected(e.target.value)}>{data.rounds.map(r=><option key={r.id} value={r.id}>{r.data.manuscript.label} · {formatDayTime(r.createdAt)}</option>)}</SelectField>
-      <p className="checklist-hint"><span className={`checklist-status is-${round.current?'accent':'warn'}`}>{round.current?'Current round':'Historical round'}</span> · Submitted {formatDayTime(round.createdAt)}<br/>Required review due {formatDayTime(new Date(Date.parse(round.createdAt)+48*3600000).toISOString())}</p>
+      <p className="checklist-hint"><span className={`checklist-status is-${round.current?'accent':'warn'}`}>{round.current?'Current round':'Historical round'}</span> · Submitted {formatDayTime(round.createdAt)}<br/>Required review due {formatDayTime(reviewDue(round.createdAt))}</p>
       {!round.current&&<p className="checklist-hint">Start a new round after changes to the submission plan or project context.</p>}
       <EvidenceLink id={round.data.manuscript.evidenceId} evidence={data.evidence}/>
       </div>
@@ -166,15 +168,18 @@ function MetaReviewEditor({initial,onSave}:{initial:MetaReview;onSave:(content:M
   </fieldset></form></details>;
 }
 
+// Mirrors the server: completed document evidence whose project material or source URL is still available.
+const manuscriptEvidence=(data:Payload)=>data.evidence.filter(e=>e.data.state==='completed'&&e.data.kind==='document'&&(e.data.artifactId?data.project.artifacts.some(a=>a.id===e.data.artifactId):!!e.data.url));
+
 function Revisions({data,round,save,workflow}:Actions&{workflow:(command:WorkflowCommand)=>Promise<void>}) {
   const base={roundId:round.id,revision:round.revision,confirmed:true as const};
   const tasks=data.tasks.filter(t=>round.current||t.sourceId===round.id);
   return <>
     <div className="checklist-block"><div className="checklist-block-head"><span className="checklist-block-num" aria-hidden="true">01</span><h3>Revision Tracker</h3></div><p className="checklist-hint">Required revisions need evidence and PDRA acceptance. Suggested revisions do not block approval.</p></div>
     {Object.entries(round.data.reviews).flatMap(([reviewId,review])=>review.versions.map(version=><details key={`${reviewId}:${version.version}`} open={version===review.versions.at(-1)}><summary>@{review.username} · Review v{version.version}{version!==review.versions.at(-1)?' · Historical':''}</summary>
-      {version.content.changes.map(finding=>{const disposition=round.data.dispositions.find(d=>d.reviewId===reviewId&&d.version===version.version&&d.findingId===finding.id);return <article className="ir-card" key={finding.id}><h4>{finding.text}</h4><p className="ir-prose">Evidence: {finding.evidence}</p><p>{disposition?`${disposition.kind} · @${disposition.by}: ${disposition.reason}`:'Awaiting PDRA classification'}</p>
+      {version.content.changes.map(finding=>{const disposition=round.data.dispositions.find(d=>d.reviewId===reviewId&&d.version===version.version&&d.findingId===finding.id),task=data.tasks.find(t=>t.id===disposition?.taskId);return <article className="ir-card" key={finding.id}><h4>{finding.text}</h4><p className="ir-prose">Evidence: {finding.evidence}</p><p>{disposition?`${disposition.kind} · @${disposition.by}: ${disposition.reason}`:'Awaiting PDRA classification'}</p>
         {round.current&&data.viewer.lead&&<details><summary>Classify or revise requirement</summary><ReviewForm label="Save revision requirement" onSave={form=>save({operation:'triage',...base,reviewId,version:version.version,findingId:finding.id,kind:value(form,'kind') as 'required'|'suggested'|'declined',reason:value(form,'reason'),owner:value(form,'owner'),dueDate:value(form,'dueDate')||null})}>
-          <SelectField label="Classification" name="kind" defaultValue={disposition?.kind||'required'}><option value="required">Required</option><option value="suggested">Suggested</option><option value="declined">Declined with reason</option></SelectField><TextAreaField label="Reason and resolution of conflicting advice" required name="reason" defaultValue={disposition?.reason||''}/><label>Assignee username<input required name="owner" defaultValue={data.project.ownerUsername}/></label><label>Due date<input name="dueDate" type="date"/></label>
+          <SelectField label="Classification" name="kind" defaultValue={disposition?.kind||'required'}><option value="required">Required</option><option value="suggested">Suggested</option><option value="declined">Declined with reason</option></SelectField><TextAreaField label="Reason and resolution of conflicting advice" required name="reason" defaultValue={disposition?.reason||''}/><label>Assignee username<input required name="owner" defaultValue={task?.data.owner||data.project.ownerUsername}/></label><label>Due date<input name="dueDate" type="date" defaultValue={task?.data.dueDate||''}/></label>
         </ReviewForm></details>}
       </article>;})}
     </details>))}
@@ -183,7 +188,7 @@ function Revisions({data,round,save,workflow}:Actions&{workflow:(command:Workflo
     <section className="ir-card checklist-step"><div className="checklist-block-head"><span className="checklist-block-num" aria-hidden="true">03</span><h3>Revision Lock</h3></div><p className={`checklist-status is-${round.lockValid?'ok':'warn'}`}>{round.lockValid?'Passed — current reviews and tasks verified.':round.data.lock?'Previous pass is historical; reviews, tasks or project context changed.':'Not passed.'}</p>
       {round.blockers.length>0&&<ul>{round.blockers.map((b,i)=><li key={i}>{b}</li>)}</ul>}
       {round.data.lock&&<><p>@{round.data.lock.by} · {formatDayTime(round.data.lock.at)} · {round.data.lock.reason}</p><EvidenceLink id={round.data.lock.finalManuscript.evidenceId} evidence={data.evidence}/></>}
-      {round.current&&data.viewer.lead&&!round.blockers.length&&<ReviewForm label="Pass Revision Lock" confirm onSave={form=>save({operation:'lock',...base,reason:value(form,'reason'),finalManuscript:{label:value(form,'label'),evidenceId:value(form,'evidenceId')}})}><ManuscriptFields evidence={data.evidence.filter(e=>e.data.state==='completed')}/><TextAreaField label="Verification and remaining limitations" name="reason" required/></ReviewForm>}
+      {round.current&&data.viewer.lead&&!round.lockBlockers.length&&<ReviewForm label="Pass Revision Lock" confirm onSave={form=>save({operation:'lock',...base,reason:value(form,'reason'),finalManuscript:{label:value(form,'label'),evidenceId:value(form,'evidenceId')}})}><ManuscriptFields evidence={manuscriptEvidence(data)}/><TextAreaField label="Verification and remaining limitations" name="reason" required/></ReviewForm>}
     </section>
     <section className="ir-card checklist-step ir-clearance"><div className="checklist-block-head"><span className="checklist-block-num" aria-hidden="true">04</span><h3>Final PI clearance</h3></div><p className={`checklist-status is-${round.clearanceValid?'ok':'warn'}`}>{round.clearanceValid?'Approved for submission.':round.data.clearance?.outcome==='defer'&&round.lockValid?'Deferred by PI.':round.data.clearance?'Previous clearance is historical; fresh confirmation is required.':'Awaiting final PI decision.'}</p>
       {round.data.clearance&&<p>@{round.data.clearance.by} · {formatDayTime(round.data.clearance.at)} · {round.data.clearance.reason}</p>}
@@ -200,7 +205,7 @@ function RevisionTask({task,data,round,save,workflow}:{task:ProjectTask}&Actions
     <p>{task.data.verification?.accepted&&task.data.verification.revision===task.revision?`Accepted by @${task.data.verification.by}`:'Not accepted by PDRA'}</p>
     {task.data.evidenceIds.map(id=><EvidenceLink key={id} id={id} evidence={data.evidence}/>)}
     {editable&&<details><summary>Update progress and evidence</summary><ReviewForm label="Save revision progress" onSave={form=>workflow({operation:'task_update',confirmed:true,id:task.id,revision:task.revision,status:value(form,'status') as 'open'|'in_progress'|'blocked'|'done',note:value(form,'note'),evidenceIds:form.getAll('evidenceIds').map(String)})}><SelectField label="Status" name="status" defaultValue={task.data.status==='cancelled'?'open':task.data.status}>{['open','in_progress','blocked','done'].map(s=><option value={s} key={s}>{s.replaceAll('_',' ')}</option>)}</SelectField><TextAreaField label="Completion evidence or progress" required name="note" defaultValue={task.data.note}/><fieldset><legend>Completed evidence</legend>{data.evidence.filter(e=>e.data.state==='completed').map(e=><label className="checklist-confirm" key={e.id}><input type="checkbox" name="evidenceIds" value={e.id} defaultChecked={task.data.evidenceIds.includes(e.id)}/>{e.data.title}</label>)}</fieldset></ReviewForm></details>}
-    {round.current&&data.viewer.lead&&<details><summary>PDRA verification</summary><ReviewForm label="Record PDRA verification" confirm onSave={form=>save({operation:'verify',roundId:round.id,revision:round.revision,confirmed:true,taskId:task.id,taskRevision:task.revision,accepted:value(form,'accepted')==='yes',reason:value(form,'reason')})}><SelectField label="Verification" name="accepted"><option value="yes">Accept completed revision</option><option value="no">Return for further work</option></SelectField><TextAreaField label="Verification evidence and reason" required name="reason"/></ReviewForm></details>}
+    {round.current&&data.viewer.lead&&task.data.status!=='cancelled'&&<details><summary>PDRA verification</summary><ReviewForm label="Record PDRA verification" confirm onSave={form=>save({operation:'verify',roundId:round.id,revision:round.revision,confirmed:true,taskId:task.id,taskRevision:task.revision,accepted:value(form,'accepted')==='yes',reason:value(form,'reason')})}><SelectField label="Verification" name="accepted"><option value="yes">Accept completed revision</option><option value="no">Return for further work</option></SelectField><TextAreaField label="Verification evidence and reason" required name="reason"/></ReviewForm></details>}
     {round.current&&data.viewer.lead&&supersededReviewTask(round,task)&&task.data.status!=='cancelled'&&<details><summary>Retire superseded requirement</summary><ReviewForm label="Retire superseded requirement" confirm onSave={form=>save({operation:'retire_task',roundId:round.id,revision:round.revision,confirmed:true,taskId:task.id,taskRevision:task.revision,reason:value(form,'reason')})}><TextAreaField label="Reason this requirement no longer applies" required name="reason"/></ReviewForm></details>}
     <details><summary>Task history</summary>{task.data.history.map((h,i)=><p className="ir-prose" key={i}>@{h.by} · {formatDayTime(h.at)} · {h.status}: {h.note}</p>)}</details>
   </article>;

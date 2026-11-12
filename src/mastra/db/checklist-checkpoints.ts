@@ -11,7 +11,7 @@ export async function checklistCheckpoints(project:ProjectRecord):Promise<Checkl
  const items:ChecklistCheckpoint[]=[];
  if(available.idea){
   const origin=(await db.pool.query('SELECT snapshot FROM project_idea_origins WHERE project_id=$1',[project.id])).rows[0]?.snapshot;
-  if(origin?.decision?.outcome==='proceed')items.push({checkpoint:'idea_lock',outcome:'proceed',by:origin.approvedBy,at:origin.approvedAt,note:origin.decision.reason||origin.decision.evidence||origin.decision.nextMilestone||'',version:`Idea Pitch v${origin.version}`,current:!research?.revision});
+  if(origin?.decision?.outcome==='proceed')items.push({checkpoint:'idea_lock',outcome:'proceed',by:origin.approvedBy,at:origin.approvedAt,note:origin.decision.rationale||origin.decision.nextMilestone||'',version:`Idea Pitch v${origin.version}`,current:!research?.revision});
  }
  if(available.skeleton){
   const review=(await db.pool.query('SELECT id,revision,created_at,project_snapshot,decisions FROM skeleton_reviews WHERE project_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1',[project.id])).rows[0];

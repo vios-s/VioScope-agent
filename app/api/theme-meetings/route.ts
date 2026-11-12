@@ -17,7 +17,7 @@ import {
   visibleNotificationsForUser,
   visiblePlanForUser,
 } from '../../../src/mastra/theme-meetings/access';
-import { buildThemeMeetingPlan, configuredReminderSchedule, submissionDeadline } from '../../../src/mastra/theme-meetings/planner';
+import { buildThemeMeetingPlan, configuredReminderSchedule, scheduledMeetingDate, submissionDeadline } from '../../../src/mastra/theme-meetings/planner';
 import type { ThemeMeetingNotification, ThemeMeetingPlan } from '../../../src/mastra/theme-meetings/schema';
 
 export const dynamic = 'force-dynamic';
@@ -115,7 +115,13 @@ export async function GET(request: Request) {
   try {
     const user = await requireSessionUser(request);
     const url = new URL(request.url);
-    const meetingDate = url.searchParams.get('date') || undefined;
+    const requestedDate = url.searchParams.get('date');
+    let meetingDate: string | undefined;
+    try {
+      meetingDate = requestedDate ? scheduledMeetingDate(requestedDate) : undefined;
+    } catch (error) {
+      return errorResponse(error, 400);
+    }
     const payload = await buildThemeMeetingPlan({ meetingDate, validateUsers: true });
     const subscriptions = await listThemeAgendaSubscriptions(user.id);
     const visiblePlan = visiblePlanForUser(payload.plan, payload.config, user);

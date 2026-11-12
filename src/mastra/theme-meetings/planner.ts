@@ -286,36 +286,21 @@ function configuredThemeUsernames(config: ThemeMeetingConfig): string[] {
     .filter((username, index, usernames) => usernames.indexOf(username) === index);
 }
 
-function assertConfiguredUsersActive(
+// Referenced accounts must exist. An inactive account stays configured but is left out of rosters and email
+// audiences and cannot sign in, so it grants nothing and does not block the other members.
+function assertConfiguredUsersExist(
   config: ThemeMeetingConfig,
   usersByUsername: Map<string, Pick<AuthUser, 'username' | 'displayName' | 'aliases' | 'provisioningStatus'>>,
 ) {
-  const missing: string[] = [];
-  const inactive: string[] = [];
-
-  for (const username of configuredThemeUsernames(config)) {
-    const user = usersByUsername.get(username);
-    if (!user) {
-      missing.push(username);
-    } else if (user.provisioningStatus !== 'active') {
-      inactive.push(username);
-    }
-  }
-
-  if (missing.length || inactive.length) {
-    const parts = [
-      missing.length ? `missing users: ${missing.join(', ')}` : '',
-      inactive.length ? `inactive users: ${inactive.join(', ')}` : '',
-    ].filter(Boolean);
-    throw new Error(`Theme meeting config references ${parts.join('; ')}.`);
+  const missing = configuredThemeUsernames(config).filter((username) => !usersByUsername.has(username));
+  if (missing.length) {
+    throw new Error(`Theme meeting config references missing users: ${missing.join(', ')}.`);
   }
 }
 
+// An update belongs to its account username; only legacy records without one are found by display name.
 function updateLookupKeys(update: Pick<ThemeMeetingUpdate, 'member' | 'member_username'>): string[] {
-  return [
-    update.member_username ? `u:${normalizeUsername(update.member_username)}` : '',
-    update.member ? `n:${normalizeName(update.member)}` : '',
-  ].filter(Boolean);
+  return [update.member_username ? `u:${normalizeUsername(update.member_username)}` : `n:${normalizeName(update.member)}`];
 }
 
 function entryLookupKeys(entry: { username?: string; displayName: string }): string[] {
@@ -350,23 +335,14 @@ function canonicalMember(
   const normalized = normalizeName(member);
   const normalizedUsername = normalizeUsername(member);
   const entries = memberEntries(theme, usersByUsername);
-  const direct = entries.find(
-    (candidate) => normalizeName(candidate.displayName) === normalized || candidate.username === normalizedUsername,
-  );
+  // Identity is the exact account username. A display name is only a label for legacy roster entries without an
+  // account and for on-behalf entry by name; it never redirects a string that is itself an account username.
+  const namesAccount = usersByUsername.has(normalizedUsername);
+  const direct =
+    entries.find((candidate) => candidate.username === normalizedUsername) ||
+    entries.find((candidate) => normalizeName(candidate.displayName) === normalized && !(candidate.username && namesAccount));
   if (direct) {
     return direct;
-  }
-
-  const coordinatorNames = [theme.coordinator, theme.coordinator_user || '', ...theme.coordinator_aliases].map(normalizeName);
-  if (coordinatorNames.includes(normalized) || normalizeUsername(theme.coordinator_user || '') === normalizedUsername) {
-    const coordinatorUsername = theme.coordinator_user ? normalizeUsername(theme.coordinator_user) : undefined;
-    const coordinatorFirst = normalizeName(theme.coordinator).split(' ')[0];
-    return (
-      entries.find((candidate) => candidate.username === coordinatorUsername) ||
-      entries.find((candidate) => normalizeName(candidate.displayName).split(' ')[0] === coordinatorFirst) || {
-        displayName: member.trim(),
-      }
-    );
   }
 
   const user = usersByUsername.get(normalizedUsername);
@@ -420,11 +396,61 @@ export function configuredReminderSchedule(config: ThemeMeetingConfig) {
   };
 }
 
-export function submissionDeadline(config: ThemeMeetingConfig, meetingDate: string): string {
-  const cutoff = configuredReminderSchedule(config).agendaCutoff;
+/** Local date-time of the last `slot` weekday and time on or before the meeting day. */
+function scheduledBefore(meetingDate: string, slot: { weekday: string; time: string }): string {
   const meetingWeekday = parseDateOnly(meetingDate).getUTCDay();
-  const cutoffWeekday = (weekdays.indexOf(cutoff.weekday as (typeof weekdays)[number]) + 1) % 7;
-  return `${addDays(meetingDate, -modulo(meetingWeekday - cutoffWeekday, 7))}T${cutoff.time}`;
+  const slotWeekday = (weekdays.indexOf(slot.weekday as (typeof weekdays)[number]) + 1) % 7;
+  return `${addDays(meetingDate, -modulo(meetingWeekday - slotWeekday, 7))}T${slot.time}`;
+}
+
+export function submissionDeadline(config: ThemeMeetingConfig, meetingDate: string): string {
+  return scheduledBefore(meetingDate, configuredReminderSchedule(config).agendaCutoff);
+}
+
+/** True from the submission cutoff of that meeting (theme timezone): updates are locked and reminders are pointless. */
+export function submissionClosed(config: ThemeMeetingConfig, meetingDate: string, now = new Date()): boolean {
+  return localDateTimeString(now, config.timezone) >= submissionDeadline(config, meetingDate);
+}
+
+/** Meetings take place on Wednesdays only; rejects malformed and other dates. */
+export function scheduledMeetingDate(value: string): string {
+  const meetingDate = meetingDateSchema.parse(value);
+  if (parseDateOnly(meetingDate).getUTCDay() !== targetWeekday) throw new Error('Choose a scheduled Wednesday meeting date.');
+  return meetingDate;
+}
+
+/** True once the theme's meeting on that date has finished (start time plus duration, theme timezone). */
+export function themeMeetingEnded(config: ThemeMeetingConfig, themeId: string, meetingDate: string, now = new Date()): boolean {
+  const theme = config.themes.find((candidate) => candidate.theme_id === themeId);
+  if (!theme) return false;
+  const [hours, minutes] = theme.time.split(':').map(Number);
+  const end = hours * 60 + minutes + theme.duration_minutes;
+  const endTime = `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`;
+  return localDateTimeString(now, config.timezone) >= `${meetingDate}T${endTime}`;
+}
+
+/**
+ * Why a timer-triggered run of `action` must not send for `meetingDate` now, or null when it is due.
+ * The systemd timers decide when a run starts; the configured weekday and time only open its window. The window
+ * closes when submissions lock (for the agenda cutoff: when the first meeting of the day starts), so a late
+ * catch-up run, or a timer that fires before the configured time, sends nothing.
+ */
+export function reminderRunSkipReason(config: ThemeMeetingConfig, action: ThemeReminderAction, meetingDate: string, now = new Date()): string | null {
+  const schedule = configuredReminderSchedule(config);
+  const slot = {
+    first_reminder: schedule.firstReminder,
+    gentle_missing_update_reminder: schedule.gentleReminder,
+    agenda_preview: schedule.agendaPreview,
+    agenda_cutoff: schedule.agendaCutoff,
+    manual_missing_update_reminder: null,
+  }[action];
+  const local = localDateTimeString(now, config.timezone);
+  const from = slot ? scheduledBefore(meetingDate, slot) : '';
+  if (local < from) return `it is not due until ${from} (${config.timezone})`;
+  const cycleGroup = cycleGroupForDate(config, meetingDate);
+  const firstMeeting = config.themes.filter((theme) => theme.cycle_group === cycleGroup).map((theme) => theme.time).sort()[0];
+  const until = action === 'agenda_cutoff' ? `${meetingDate}T${firstMeeting || '23:59'}` : submissionDeadline(config, meetingDate);
+  return local >= until ? `its window closed at ${until} (${config.timezone})` : null;
 }
 
 export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOptions = {}): Promise<{
@@ -443,9 +469,9 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
   const { path: notificationsPath, notifications } = await readThemeMeetingNotifications(options);
   const usersByUsername = await userDirectory();
   if (options.validateUsers) {
-    assertConfiguredUsersActive(config, usersByUsername);
+    assertConfiguredUsersExist(config, usersByUsername);
   }
-  const meetingDate = options.meetingDate || upcomingWednesday(options.now, config.timezone);
+  const meetingDate = options.meetingDate ? meetingDateSchema.parse(options.meetingDate) : upcomingWednesday(options.now, config.timezone);
   const cycleGroup = cycleGroupForDate(config, meetingDate);
   const activeThemes = config.themes.filter((theme) => theme.cycle_group === cycleGroup);
   const generatedAt = (options.now || new Date()).toISOString();
@@ -520,7 +546,7 @@ export async function buildThemeMeetingPlan(options: BuildThemeMeetingPlanOption
 
 export async function cancelThemeMeeting(input: CancelThemeMeetingInput): Promise<ThemeMeetingCancellation> {
   const { config } = await readThemeMeetingConfig(input);
-  const cycleGroup = cycleGroupForDate(config, input.meetingDate);
+  const cycleGroup = cycleGroupForDate(config, scheduledMeetingDate(input.meetingDate));
   if (!config.themes.some((theme) => theme.theme_id === input.themeId && theme.cycle_group === cycleGroup)) {
     throw new Error(`Theme ${input.themeId} is not active on ${input.meetingDate}.`);
   }
@@ -538,12 +564,14 @@ export async function cancelThemeMeeting(input: CancelThemeMeetingInput): Promis
 
 export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateInput): Promise<{
   update: ThemeMeetingUpdate;
+  /** Unfiltered: pass it through visiblePlanForUser before returning it to a user. */
   plan: ThemeMeetingPlan;
+  config: ThemeMeetingConfig;
 }> {
   const { config } = await readThemeMeetingConfig(input);
   const usersByUsername = await userDirectory();
   if (input.validateUsers) {
-    assertConfiguredUsersActive(config, usersByUsername);
+    assertConfiguredUsersExist(config, usersByUsername);
   }
   const meetingDate = meetingDateSchema.parse(input.meetingDate || upcomingWednesday(input.now, config.timezone));
   const scheduledTheme = config.themes.find((theme) => theme.theme_id === input.themeId);
@@ -589,7 +617,7 @@ export async function submitThemeMeetingUpdate(input: SubmitThemeMeetingUpdateIn
 
   await saveThemeMeetingUpdate(update, input);
   const { plan } = await buildThemeMeetingPlan({ ...input, meetingDate });
-  return { update, plan };
+  return { update, plan, config };
 }
 
 function notificationBody(
@@ -614,9 +642,13 @@ export async function buildThemeMeetingReminderRun(
   action: ThemeReminderAction,
   options: BuildThemeMeetingReminderRunOptions = {},
 ): Promise<ThemeMeetingReminderRun> {
+  if (options.meetingDate) scheduledMeetingDate(options.meetingDate);
   const { config, plan } = await buildThemeMeetingPlan({ ...options, rawAgenda: action === 'agenda_preview' });
   const reminderSchedule = configuredReminderSchedule(config);
   const createdAt = (options.now || new Date()).toISOString();
+  // Scheduled reminders are idempotent per meeting and member. Each manual reminder is a new unread notification
+  // with its own email delivery; the minute stamp only absorbs a double click.
+  const idSuffix = action === 'manual_missing_update_reminder' ? `:${createdAt.slice(0, 16)}` : '';
   const meetings = (options.themeId
     ? plan.meetings.filter((meeting) => meeting.theme_id === options.themeId)
     : plan.meetings
@@ -637,7 +669,7 @@ export async function buildThemeMeetingReminderRun(
 
     return members.map(({ member, username }) =>
       themeMeetingNotificationSchema.parse({
-        id: `${action}:${plan.meeting_date}:${meeting.theme_id}:${(username || normalizeName(member)).replace(/\s+/g, '-')}`,
+        id: `${action}:${plan.meeting_date}:${meeting.theme_id}:${(username || normalizeName(member)).replace(/\s+/g, '-')}${idSuffix}`,
         action,
         meeting_date: plan.meeting_date,
         cycle_group: plan.cycle_group,

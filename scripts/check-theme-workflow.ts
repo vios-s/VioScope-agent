@@ -211,6 +211,10 @@ try {
   saved = await ok(await get('chair'));
   const item = saved.actions[0];
   assert.equal((await ok(await get('bob'))).actions.length, 0, 'Member cannot see someone else’s actions.');
+  // A description lengthened in Project → Tasks (up to 4,000 characters) must not block a status update here.
+  const longAction = { ...item, task: 'x'.repeat(2500), history: [] };
+  workflow.updateMeetingAction(longAction, 'done', 'Done.', 'chair', true);
+  assert.equal(longAction.status, 'done');
   const update = { operation: 'update_action', id: item.id, version: item.version, status: 'done', note: 'Baseline results: artifact/example.' };
   assert.equal((await post('bob', update)).status, 403);
   assert.equal((await post('alice', { ...update, note: '' })).status, 400);

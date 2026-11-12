@@ -13,16 +13,56 @@ function runtimeCachePath(): string {
 
 export const runtimeConfigCachePath = runtimeCachePath();
 
+function builtinModule<T>(name: string): T | undefined {
+  return (process as typeof process & { getBuiltinModule?: (name: string) => unknown }).getBuiltinModule?.(name) as T | undefined;
+}
+
+// Setting keys equal their environment names, so the stored rows map directly to overrides.
+const storedSettingsScript = `
+const { Client } = require('pg');
+const client = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 3000 });
+client.connect()
+  .then(() => client.query('SELECT key, value FROM app_settings'))
+  .then((result) => result.rows, (error) => (error.code === '42P01' ? [] : Promise.reject(error)))
+  .then((rows) => { process.stdout.write(JSON.stringify(Object.fromEntries(rows.map((row) => [row.key, row.value])))); return client.end(); })
+  .catch(() => process.exit(1));
+`;
+
+/**
+ * The cache file can be lost (cleanup of `.local`, another checkout); the saved database settings then
+ * remain the source of truth. An explicitly configured cache path (checks, isolated previews) stays
+ * file-only, so a copied database never redirects an isolated run to live paths.
+ */
+// ponytail: one synchronous child process per start while no cache file exists; write the cache at startup if that ever matters.
+function loadStoredOverrides(): Record<string, string> {
+  if (process.env.VIOSCOPE_RUNTIME_CONFIG_CACHE_PATH || !process.env.DATABASE_URL?.trim()) {
+    return {};
+  }
+  try {
+    const childProcess = builtinModule<typeof import('node:child_process')>('node:child_process');
+    if (!childProcess) {
+      return {};
+    }
+    const output = childProcess.execFileSync(process.execPath, ['-e', storedSettingsScript], {
+      encoding: 'utf8',
+      timeout: 10000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return JSON.parse(output) as Record<string, string>;
+  } catch {
+    console.warn('Saved admin settings could not be read from the database; environment values are in use.');
+    return {};
+  }
+}
+
 function loadRuntimeOverrides(): Record<string, string> {
   try {
-    const fs = (process as typeof process & { getBuiltinModule?: (name: string) => unknown }).getBuiltinModule?.(
-      'node:fs',
-    ) as typeof import('node:fs') | undefined;
+    const fs = builtinModule<typeof import('node:fs')>('node:fs');
     if (!fs) {
       return {};
     }
     if (!fs.existsSync(runtimeConfigCachePath)) {
-      return {};
+      return loadStoredOverrides();
     }
 
     const parsed = JSON.parse(fs.readFileSync(runtimeConfigCachePath, 'utf8'));

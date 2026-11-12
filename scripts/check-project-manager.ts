@@ -379,6 +379,11 @@ async function main() {
       projectContext(project.id),
     );
     assert.equal(forbiddenOwnerChange.status, 403, 'Owner must not be allowed to transfer ownership.');
+    const usernameLabel = await projectRoute.PATCH(
+      jsonRequest(`/api/projects/${project.id}`, { collaborators: [collaborator.username, 'External Advisor', 'no.such.account'] }, owner, 'PATCH'),
+      projectContext(project.id),
+    );
+    assert.equal(usernameLabel.status, 400, 'An unknown username-shaped collaborator must be rejected, not stored as a label.');
 
     const collaboratorDetailResponse = await projectRoute.GET(getRequest(`/api/projects/${project.id}`, collaborator), projectContext(project.id));
     assert.equal(collaboratorDetailResponse.status, 200, 'An active named collaborator should see project detail.');
@@ -538,6 +543,7 @@ async function main() {
     const deleteUpdateBody = await bodyOf<{ project?: any }>(deleteUpdateResponse);
     assert.equal(deleteUpdateResponse.status, 200, deleteUpdateBody.error || 'Project update deletion failed.');
     assert.equal(deleteUpdateBody.project?.updates?.some((update: any) => update.id === updateId), false, 'Deleted update should be absent.');
+    assert.equal(deleteUpdateBody.project?.artifacts?.filter((artifact: any) => artifact.isCurrent).length, 1, 'The previous artifact version should become current again.');
     const archiveRoute = await import('../app/api/projects/[projectId]/comment-history/route');
     const projectId = deleteUpdateBody.project!.id;
     const archiveContext = { params: Promise.resolve({ projectId }) };

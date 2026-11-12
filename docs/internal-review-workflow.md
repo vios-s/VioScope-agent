@@ -49,7 +49,7 @@ The submission plan stores an exact UTC deadline and an IANA display timezone. M
 | T−28 days | Owner | Submit a current manuscript review round |
 | 48 hours after manuscript submission | Assigned PDRA | Return the required Meta-Review |
 | T−14 days | Owner and assigned PDRA | Complete and verify revisions |
-| T−48 hours | Assigned PI, or active admins when no PI is assigned | Final PI clearance; unresolved lock blockers remain visible |
+| T−48 hours | Assigned PIs other than the owner, or active administrators when there is none | Final PI clearance; unresolved lock blockers remain visible |
 | T−24 hours | Owner | Submit the approved manuscript and record the outcome |
 
 These are web notifications in the bell's Messages view and Briefing; clicking opens Internal Review for the project. They follow the existing Project progress reminders web preference. A five-minute systemd user timer runs `scripts/submission-reminders.ts`, so generation does not require an open browser. The same timer also sends email using the existing SMTP settings and the independent Project progress reminders email preference. Disabling web notifications or marking one read does not suppress email.

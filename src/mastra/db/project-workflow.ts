@@ -37,7 +37,7 @@ export async function getProjectWorkflow(projectId:string,user:AuthUser) {
   return revisionBlockers(latestRound,tasks).length>0 || (await reviewEvidenceBlockers(project.id,latestRound,tasks)).length>0 || latestRound.data.lock?.fingerprint!==fingerprint || (item.data.checkpoint==='submission_clearance' && latestRound.data.clearance?.fingerprint!==fingerprint);
  };
  const sources=await checklistCheckpoints(project);
- const names=new Set([project.ownerUsername,...project.collaborators,...(project.pdraUsernames||[]),project.pdraUsername].filter(Boolean).map(name=>name!.trim().toLowerCase()));
+ const names=new Set([project.ownerUsername,...project.collaborators,...(project.pdraUsernames||[]),project.pdraUsername].filter(Boolean));
  const assignees=(await listActiveAccountDirectory()).filter(account=>account.role==='pi'||account.role==='administrator'||names.has(account.username)).map(({username,displayName})=>({username,displayName}));
  return {project,checklistCheckpoints:sources,assignees,skeletonReviews:await projectSkeletonReviewChoices(project.id,user),research:{...research,profile:researchSchema.parse(research.profile)},submissions:submissions.map(item=>({...item,timeline:submissionTimeline(item.plan)})),evidence,decisions:await Promise.all(decisions.map(async item=>({...item,contextChanged:!isDeepStrictEqual(item.data.projectSnapshot,skeletonProjectSnapshot(project))||await reviewDecisionStale(item)}))),tasks,viewer:{username:user.username,manager:canSeeAll(user),reviewer:user.username===project.pdraUsername||canSeeAll(user)}};
 }
@@ -126,6 +126,8 @@ async function recordDecision(projectId:string,command:Extract<WorkflowCommand,{
   if(user.username===project.ownerUsername)throw new AuthError('Owners cannot approve their own project reviews.',403,'forbidden');
   throw new Error('Use Internal Review and its Revision Tracker for this submission attempt.');
  }
+ // Owners never approve their own project, including owners who are PI/administrator or a legacy owner-lead PDRA.
+ if(command.outcome==='proceed'&&user.username===project.ownerUsername)throw new AuthError('Owners cannot approve their own project checkpoints.',403,'forbidden');
  if(command.skeletonReviewId)throw new Error('Skeleton review references are managed in Checklists.');
  if(command.checkpoint==='skeleton_lock')throw new Error('Record Skeleton Lock judgments in Checklists; the confirmed result is shown here automatically.');
  if(command.checkpoint==='idea_lock'&&(await checklistCheckpoints(project)).some(item=>item.checkpoint==='idea_lock'&&item.current))throw new Error('This project already retains its confirmed Idea Pitch decision.');

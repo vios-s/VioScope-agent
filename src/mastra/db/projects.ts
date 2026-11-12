@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { AuthError, canSeeAll } from '../auth/session';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import { ensureUsersTable, getUserByUsername, type AuthUser } from './users';
+import { claimProjectArtifactRoots } from '../projects/artifacts';
 
 export const projectStatuses = ['on_track', 'blocked', 'stale', 'needs_input'] as const;
 export const projectLifecycles = ['active', 'paused', 'finished', 'archived'] as const;
@@ -256,7 +257,9 @@ function cleanUsername(value: string): string {
 }
 
 // Account usernames are normalised; external collaborator labels keep the case they were typed in.
-async function cleanCollaborators(values?: string[]): Promise<string[]> {
+// Access matches the stored string exactly, so only a label typed as a lower-case username could match an
+// account created later; such a new label is rejected. Entries already saved are kept, so unrelated edits still save.
+async function cleanCollaborators(values?: string[], current: string[] = []): Promise<string[]> {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const value of values || []) {
@@ -264,7 +267,11 @@ async function cleanCollaborators(values?: string[]): Promise<string[]> {
     const key = cleanUsername(label);
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    result.push((await getUserByUsername(key)) ? key : label);
+    if (current.includes(label)) result.push(label);
+    else if (await getUserByUsername(key)) result.push(key);
+    else if (label === key && /^[a-z0-9][a-z0-9._-]{1,62}[a-z0-9]$/.test(key)) {
+      throw new Error(`No account is named "${label}". Enter an existing username, or write an external collaborator as a name with a capital letter or a space.`);
+    } else result.push(label);
   }
   return result;
 }
@@ -436,7 +443,7 @@ function accessReason(row: ProjectRow, user: AuthUser): ProjectRecord['access'][
   const username = cleanUsername(user.username);
   if (canSeeAll(user)) return 'pi_admin';
   if (cleanUsername(row.owner_username) === username) return 'owner';
-  if (user.provisioningStatus === 'active' && (row.collaborator_usernames || []).some((name) => cleanUsername(name) === username)) return 'collaborator';
+  if (user.provisioningStatus === 'active' && (row.collaborator_usernames || []).includes(username)) return 'collaborator';
   if (user.provisioningStatus === 'active' && (row.pdra_username === username || (row.pdra_usernames || []).includes(username))) return 'collaborator';
   return null;
 }
@@ -528,7 +535,8 @@ function toProject(
     updatedAt: new Date(row.updated_at).toISOString(),
     artifacts,
     updates,
-    todos: cleanProjectTodos(parseProjectTodos(row.todos)),
+    // Hydration has replaced the legacy column with canonical task records; the 100-item limit applies to writes only.
+    todos: Array.isArray(row.todos) ? row.todos : [],
     ...derived,
     access: {
       canEdit,
@@ -801,7 +809,7 @@ async function projectRowsByIdOrSlug(projectId: string): Promise<ProjectRow[]> {
           watch_path, notes, todos, archived_at, created_at, updated_at
         FROM project_records
         WHERE id::text = $1 OR slug = $1 OR lower(title) = lower($1)
-        ORDER BY updated_at DESC
+        ORDER BY (id::text = $1) DESC, (slug = $1) DESC, updated_at DESC
       `,
       [projectId],
     );
@@ -1002,9 +1010,11 @@ async function updateProjectInTransaction(projectId: string, input: ProjectUpdat
   const teamChanged = input.piUsername !== undefined || input.pdraUsername !== undefined || input.piUsernames !== undefined || input.pdraUsernames !== undefined || nextOwnerUsername !== current.ownerUsername;
   const reviewers = teamChanged ? await validateProjectReviewers(input, nextOwnerUsername, current)
     : {piUsername:current.piUsername,pdraUsername:current.pdraUsername,piUsernames:projectPIs(current),pdraUsernames:projectPDRAs(current)};
-  const nextCollaborators = input.collaborators === undefined ? current.collaborators : await cleanCollaborators(input.collaborators);
+  const nextCollaborators = input.collaborators === undefined ? current.collaborators : await cleanCollaborators(input.collaborators, current.collaborators);
   const nextSlug = cleanSlug(input.project || current.project);
   if (!nextSlug) throw new Error('Project slug is required.');
+  // Uploaded files stay under the former owner/slug folder; record that it belongs to this project.
+  if (nextOwnerUsername !== cleanUsername(current.ownerUsername) || nextSlug !== current.project) await claimProjectArtifactRoots(current);
   const nextTitle = cleanText(input.title) || current.title;
   await assertProjectNameAvailable({
     ownerUsername: nextOwnerUsername,
@@ -1106,7 +1116,14 @@ export async function archiveProject(projectId: string, actor: AuthUser): Promis
 }
 
 export async function addProjectUpdate(projectId: string, input: AddProjectUpdateInput, actor: AuthUser): Promise<ProjectRecord> {
-  const project = await getProjectForUser(projectId, actor);
+  await ensureProjectTables();
+  return withDatabaseTransaction(() => addProjectUpdateInTransaction(projectId, input, actor));
+}
+async function addProjectUpdateInTransaction(projectId: string, input: AddProjectUpdateInput, actor: AuthUser): Promise<ProjectRecord> {
+  // Defaults for omitted fields come from the locked row, not from a snapshot a concurrent edit may have replaced.
+  const resolved = await getProjectForUser(projectId, actor);
+  await createPostgresClient().pool.query('SELECT id FROM project_records WHERE id=$1 FOR UPDATE',[resolved.id]);
+  const project = await getProjectForUser(resolved.id, actor);
   if (!project.access.canAddUpdate) {
     throw new AuthError('You do not have permission to add project updates.', 403, 'forbidden');
   }
@@ -1186,7 +1203,7 @@ export async function addProjectUpdate(projectId: string, input: AddProjectUpdat
           blocker = $5,
           target = $6,
           stage_since = $7::date,
-          last_update = COALESCE($8::date, CURRENT_DATE),
+          last_update = GREATEST(last_update, COALESCE($8::date, CURRENT_DATE)),
           updated_at = now()
         WHERE id = $1
       `,
@@ -1195,6 +1212,17 @@ export async function addProjectUpdate(projectId: string, input: AddProjectUpdat
 
     return getProjectForUser(project.id, actor);
   });
+}
+
+// After a version is removed, the newest surviving version of its key becomes current again.
+function restoreCurrentArtifacts(projectId: string) {
+  return createPostgresClient().pool.query(`
+    UPDATE project_artifacts a SET is_current = true
+    WHERE a.project_id = $1 AND a.deleted_at IS NULL AND NOT EXISTS (
+      SELECT 1 FROM project_artifacts b
+      WHERE b.project_id = a.project_id AND b.artifact_key = a.artifact_key AND b.deleted_at IS NULL
+        AND (b.is_current OR (b.created_at, b.id) > (a.created_at, a.id)))
+  `, [projectId]);
 }
 
 export async function editProjectUpdate(updateId: string, input: EditProjectUpdateInput, actor: AuthUser): Promise<ProjectRecord> {
@@ -1267,6 +1295,7 @@ export async function deleteProjectUpdate(updateId: string, actor: AuthUser): Pr
       FROM project_update_comments c JOIN project_updates u ON u.id=c.update_id WHERE u.id=$1
     `, [updateId]);
     await client.query('UPDATE project_artifacts SET deleted_at = now(), is_current = false WHERE source_update_id = $1 AND deleted_at IS NULL', [updateId]);
+    await restoreCurrentArtifacts(project.id);
     await client.query('DELETE FROM project_updates WHERE id = $1', [updateId]);
 
     return getProjectForUser(project.id, actor);
@@ -1307,8 +1336,8 @@ export async function addProjectUpdateComment(updateId: string, textValue: strin
 
 // Row-level access check without hydrating the whole project; same rule as getProjectForUser.
 async function accessibleProjectRow(projectId: string, actor: AuthUser): Promise<ProjectRow> {
-  const [row] = await projectRowsByIdOrSlug(projectId);
-  if (!row || !accessReason(row, actor)) throw new AuthError('Project not found or access denied.', 404, 'not_found');
+  const row = (await projectRowsByIdOrSlug(projectId)).find((candidate) => accessReason(candidate, actor));
+  if (!row) throw new AuthError('Project not found or access denied.', 404, 'not_found');
   return row;
 }
 
@@ -1427,6 +1456,7 @@ export async function removeProjectArtifact(artifactId: string, actor: AuthUser)
     const { project } = await getProjectArtifactForUser(artifactId, actor);
     if (!project.access.canEdit) throw new AuthError('You do not have permission to remove this artifact.', 403, 'forbidden');
     await db.query('UPDATE project_artifacts SET deleted_at=now(),is_current=false WHERE id=$1 AND deleted_at IS NULL', [artifactId]);
+    await restoreCurrentArtifacts(project.id);
     await db.query('UPDATE project_records SET updated_at=now() WHERE id=$1', [project.id]);
     return getProjectForUser(project.id, actor);
   });

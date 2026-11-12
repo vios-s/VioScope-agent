@@ -110,7 +110,7 @@ async function main() {
     const ownerSessions = await listChatSessionsForUser(owner.id);
     const ownerSession = ownerSessions.find((session) => session.threadId === sessionId);
     assert.equal(ownerSession?.membershipKind, 'owner', 'Owner should see the session in owned history.');
-    assert.ok(ownerSession?.messages.length, 'Owner history should include server-side messages.');
+    assert.deepEqual(ownerSession?.messages.map((message) => message.role), ['user', 'assistant'], 'A turn should list the question before its answer.');
     const ownerUserMessage = ownerSession?.messages.find((message) => message.role === 'user');
     assert.equal(ownerUserMessage?.actorUsername, owner.username, 'Owner user message should expose actor username.');
     assert.equal(ownerUserMessage?.actorDisplayName, owner.displayName, 'Owner user message should expose actor display name.');
@@ -159,6 +159,11 @@ async function main() {
       ],
     });
     assert.equal(imported, 1, 'Legacy chat import should create a server-side owner session.');
+    assert.deepEqual(
+      (await listChatSessionsForUser(owner.id)).find((session) => session.threadId.endsWith(legacyThreadId))?.messages.map((message) => message.text),
+      [`Old local browser message mentioning @${receiver.username}`, 'Imported response.'],
+      'Imported messages without timestamps should keep their order.',
+    );
     notifications = await listChatNotificationsForUser(receiver.id);
     assert.equal(notifications.length, 1, 'Legacy import must not send mention notifications.');
 
@@ -344,6 +349,11 @@ async function main() {
       (await listChatSessionsForUser(owner.id)).some((session) => session.threadId === sessionId),
       false,
       'Deleted owned session should disappear from owner history.',
+    );
+    await assert.rejects(
+      saveChatTurn({ sessionId, actor: owner, userText: 'Late turn', assistantText: 'Late answer.', assistantStatus: 'answer', sources: [], sessionExisted: true }),
+      /deleted while the answer was being prepared/,
+      'A turn prepared for a session deleted meanwhile must not recreate it.',
     );
 
     console.log('Chat collaboration check passed.');

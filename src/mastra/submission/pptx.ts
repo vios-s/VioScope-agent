@@ -19,6 +19,8 @@ const parser = new XMLParser({
   attributeNamePrefix: '@_',
   textNodeName: '#text',
   trimValues: true,
+  // Keep numeric and true/false text runs as strings; parsed values would be dropped from the extracted text.
+  parseTagValue: false,
 });
 
 function asArray<T>(value: T | T[] | undefined): T[] {

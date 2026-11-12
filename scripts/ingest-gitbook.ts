@@ -39,19 +39,26 @@ export async function ingestGitBook() {
       return { pages: pageSummaries.length, chunks: 0 };
     }
 
+    // Embed everything before touching the live index, so an embedding failure leaves the old index intact.
+    const vectors: number[][] = [];
+    for (let start = 0; start < chunks.length; start += batchSize) {
+      const { embeddings } = await embedMany({
+        model: elmEmbeddingModel,
+        values: chunks.slice(start, start + batchSize).map((chunk) => chunk.text),
+      });
+      vectors.push(...embeddings);
+      console.log(`Embedded ${vectors.length} / ${chunks.length} chunks.`);
+    }
+
     await vectorStore.truncateIndex({ indexName: wikiVectorIndexName });
 
     for (let start = 0; start < chunks.length; start += batchSize) {
       const batch = chunks.slice(start, start + batchSize);
-      const { embeddings } = await embedMany({
-        model: elmEmbeddingModel,
-        values: batch.map((chunk) => chunk.text),
-      });
 
       await vectorStore.upsert({
         indexName: wikiVectorIndexName,
         ids: batch.map((chunk) => chunk.id),
-        vectors: embeddings,
+        vectors: vectors.slice(start, start + batchSize),
         metadata: batch.map((chunk) => ({
           ...chunk.metadata,
           text: chunk.text,

@@ -465,6 +465,7 @@ type FeedbackPayload = {
 
 type MarkdownFilePayload = {
   markdown?: string;
+  revision?: string;
   path?: string;
   slug?: string;
   imported?: boolean;
@@ -707,9 +708,10 @@ const updateTypeLabels: Record<ThemeUpdateType, string> = {
 };
 
 const themeMeetingSlotTypes: ThemeUpdateType[] = ['short_update', 'deep_dive', 'nothing_to_report'];
+// Fallbacks shown when the stored configuration has no value; they mirror configuredReminderSchedule on the server.
 const themeMeetingReminderRows = [
-  { name: 'first_reminder', label: 'Update reminder', help: 'Sent to all theme members.', weekday: 'Monday', time: '08:00' },
-  { name: 'gentle_missing_update_reminder', label: 'Missing-update reminder', help: 'Sent only to members who have not submitted.', weekday: 'Tuesday', time: '04:00' },
+  { name: 'first_reminder', label: 'Update reminder', help: 'Sent to all theme members.', weekday: 'Monday', time: '10:00' },
+  { name: 'gentle_missing_update_reminder', label: 'Missing-update reminder', help: 'Sent only to members who have not submitted.', weekday: 'Tuesday', time: '10:00' },
   { name: 'agenda_preview', label: 'Draft agenda preview', help: 'Draft agenda sent to members only.', weekday: 'Tuesday', time: '13:00' },
   { name: 'agenda_cutoff', label: 'Submission deadline', help: 'Submissions close and the agenda is sent.', weekday: 'Wednesday', time: '08:00' },
 ];
@@ -805,6 +807,11 @@ function daysSinceDate(value: string | null) {
   return Math.max(0, Math.floor((Date.now() - timestamp) / 86_400_000));
 }
 
+// Today's calendar day in UK time ("YYYY-MM-DD"), never the browser or UTC day.
+function londonToday() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
+}
+
 function projectDraftFromProject(project: ManagedProject | null, viewer: CurrentUser): ProjectDraft {
   const ownerUsername = project?.ownerUsername || viewer.username;
   const projectSlug = project?.project || '';
@@ -822,7 +829,7 @@ function projectDraftFromProject(project: ManagedProject | null, viewer: Current
     stageProgress: String(project?.stageProgress ?? 0),
     lifecycle: project?.lifecycle || 'active',
     status: project?.status || 'on_track',
-    stageSince: project?.stageSince || new Date().toISOString().slice(0, 10),
+    stageSince: project?.stageSince || londonToday(),
     lastUpdate: project?.lastUpdate || '',
     blocker: project?.blocker || '',
     target: project?.target || '',
@@ -833,8 +840,12 @@ function projectDraftFromProject(project: ManagedProject | null, viewer: Current
   };
 }
 
-function projectRequestBody(draft: ProjectDraft) {
+// `current` is the project being edited (null when creating). The editor has no controls for the progress fields,
+// so an edit never sends them, and sends venue/deadline only when changed: a stale tab must not revert newer updates.
+function projectRequestBody(draft: ProjectDraft, current: ManagedProject | null) {
   const projectSlug = slugifyProjectName(draft.project || draft.title);
+  const venue = draft.venue || null;
+  const submissionDeadline = draft.submissionDeadline || null;
   return {
     project: projectSlug,
     title: draft.title,
@@ -844,16 +855,23 @@ function projectRequestBody(draft: ProjectDraft) {
     pdraUsernames: draft.pdraUsernames,
     pdraUsername: draft.pdraUsername || null,
     track: draft.track,
-    stage: Number(draft.stage),
-    stageProgress: Number(draft.stageProgress || 0),
     lifecycle: draft.lifecycle,
-    status: draft.status,
-    stageSince: draft.stageSince || null,
-    lastUpdate: draft.lastUpdate || null,
-    blocker: draft.blocker || null,
-    target: draft.target || null,
-    venue: draft.venue || null,
-    submissionDeadline: draft.submissionDeadline || null,
+    ...(current
+      ? {
+          ...(venue !== (current.venue || null) ? { venue } : {}),
+          ...(submissionDeadline !== (current.submissionDeadline || null) ? { submissionDeadline } : {}),
+        }
+      : {
+          stage: Number(draft.stage),
+          stageProgress: Number(draft.stageProgress || 0),
+          status: draft.status,
+          stageSince: draft.stageSince || null,
+          lastUpdate: draft.lastUpdate || null,
+          blocker: draft.blocker || null,
+          target: draft.target || null,
+          venue,
+          submissionDeadline,
+        }),
     watchPath: generatedWatchPath(draft.ownerUsername, projectSlug) || null,
     notes: draft.notes || null,
   };
@@ -862,7 +880,7 @@ function projectRequestBody(draft: ProjectDraft) {
 function defaultTimelineDraft(project?: ManagedProject | null): ProjectTimelineDraft {
   return {
     type: 'progress',
-    date: new Date().toISOString().slice(0, 10),
+    date: londonToday(),
     text: '',
     stage: String(project?.stage || 1),
     stageProgress: String(project?.stageProgress ?? 0),
@@ -1373,7 +1391,7 @@ function MarkdownText({ text }: { text: string }) {
     while (
       index < lines.length &&
       lines[index].trim() &&
-      !/^(#{1,3})\s+/.test(lines[index]) &&
+      !/^(#{1,3})\s+(.+)$/.test(lines[index]) &&
       !/^\s*[-*]\s+/.test(lines[index]) &&
       !/^\s*\d+\.\s+/.test(lines[index]) &&
       !lines[index].trim().startsWith('```')
@@ -2319,6 +2337,8 @@ function ProjectEditorModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const backdropPressed = useRef(false);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(projectDraftFromProject(project, viewer));
   const isNew = !project;
   const canEditOwner = !isNew && canSeeAllRole(viewer.role);
   const titleId = 'project-editor-title';
@@ -2328,7 +2348,9 @@ function ProjectEditorModal({
     setDraft(projectDraftFromProject(project, viewer));
     setSlugTouched(Boolean(project));
     setError(null);
-  }, [project, viewer]);
+    // Keyed on identity: a refreshed copy of the same project must not discard what is being typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id, viewer.id]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2361,7 +2383,7 @@ function ProjectEditorModal({
         {
           method: isNew ? 'POST' : 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(projectRequestBody(draft)),
+          body: JSON.stringify(projectRequestBody(draft, project)),
         },
       );
       if (!body.project) throw new Error('Could not save project.');
@@ -2374,7 +2396,13 @@ function ProjectEditorModal({
   }
 
   return (
-    <div className="users-modal-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className="users-modal-backdrop"
+      role="presentation"
+      // Only a press and release on the backdrop itself closes, and never over unsaved input (a text selection dragged outside is not a click-away).
+      onMouseDown={(event) => { backdropPressed.current = event.target === event.currentTarget; }}
+      onClick={(event) => { if (backdropPressed.current && event.target === event.currentTarget && !dirty) onClose(); }}
+    >
       <form
         className="users-modal user-edit-modal project-modal vs-dialog-wide"
         role="dialog"
@@ -2592,6 +2620,8 @@ function ProjectDetailModal({
   const [notice, setNotice] = useState<{ kind: 'edit' | 'update'; text: string } | null>(null);
   const [artifactToRemove, setArtifactToRemove] = useState<ManagedProjectArtifact | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const backdropPressed = useRef(false);
+  const dirty = Boolean(draft.text.trim() || draft.artifactFile || editingUpdateId || editingComment || Object.values(commentDrafts).some((text) => text.trim()));
   const titleId = 'project-detail-title';
   const currentArtifacts = currentProjectArtifacts(project);
   const oldArtifacts = project.artifacts.filter((artifact) => !artifact.isCurrent);
@@ -2606,7 +2636,9 @@ function ProjectDetailModal({
     setDraft(defaultTimelineDraft(project));
     setEditingUpdateId(null);
     setError(null);
-  }, [project, viewer]);
+    // Keyed on identity: comments, summaries and other refreshes of the same project keep the unsent update draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id, viewer.id]);
 
   useEffect(() => {
     setMode(initialMode);
@@ -2631,7 +2663,12 @@ function ProjectDetailModal({
         }
       };
       request.onload = () => {
-        const body = JSON.parse(request.responseText || '{}') as ProjectsPayload;
+        let body: ProjectsPayload = {};
+        try {
+          body = JSON.parse(request.responseText || '{}') as ProjectsPayload;
+        } catch {
+          // A proxy error page is not JSON; fall through to the generic message.
+        }
         if (request.status >= 200 && request.status < 300) {
           resolvePromise(body);
         } else {
@@ -2670,7 +2707,7 @@ function ProjectDetailModal({
             if (draft.date) formData.set('date', draft.date);
             formData.set('text', draft.text);
             formData.set('stage', draft.stage);
-            formData.set('stageProgress', draft.stageProgress);
+            formData.set('stageProgress', String(Number(draft.stageProgress)));
             formData.set('status', draft.status);
             formData.set('blocker', draft.blocker);
             formData.set('target', draft.target);
@@ -2833,7 +2870,13 @@ function ProjectDetailModal({
 
   return (
     <>
-    <div className="users-modal-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className="users-modal-backdrop"
+      role="presentation"
+      // Same rule as the project editor: no click-away from a drag that started inside, or over an unsent update or comment.
+      onMouseDown={(event) => { backdropPressed.current = event.target === event.currentTarget; }}
+      onClick={(event) => { if (backdropPressed.current && event.target === event.currentTarget && !dirty) onClose(); }}
+    >
       <div
         className="users-modal user-edit-modal project-modal project-detail-modal vs-dialog-record"
         role="dialog"
@@ -3111,6 +3154,8 @@ function ProjectDetailModal({
                   id={`artifact-upload-${project.id}`}
                   type="file"
                   accept="image/png,image/jpeg,image/gif,image/webp,.docx,.pptx,.pdf,.zip,.md,.markdown,.txt,.tex,.latex,.rst,.csv,.json,.yaml,.yml"
+                  // Cleared before each pick so choosing the same file again after a save or an edit still fires onChange.
+                  onClick={(event) => { event.currentTarget.value = ''; }}
                   onChange={(event) => {
                     const file = event.currentTarget.files?.[0] || null;
                     if (file && file.size > projectArtifactMaxBytes) {
@@ -3700,6 +3745,13 @@ function ThemeMeetingPanel({
     : '';
   const londonNow = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date()).replace(' ', 'T');
   const submissionsClosed = Boolean(deadline && londonNow >= deadline);
+  // Manual reminders stop at the cutoff of the meeting on screen. The payload carries only the viewer's own submission
+  // cutoff, which sits the same interval before its meeting, so shift it by whole days; without one the server decides.
+  const ownMeetingDate = payload?.submissionPlan?.meeting_date;
+  const viewedCutoff = deadline && ownMeetingDate && plan
+    ? `${new Date(Date.parse(`${deadline.slice(0, 10)}T00:00:00Z`) + Date.parse(`${plan.meeting_date}T00:00:00Z`) - Date.parse(`${ownMeetingDate}T00:00:00Z`)).toISOString().slice(0, 10)}T${deadline.slice(11)}`
+    : null;
+  const remindersClosed = Boolean(viewedCutoff && londonNow >= viewedCutoff);
   // The server moves a member past a skipped meeting to their next one; say so instead of silently changing the date.
   const skippedForUpdate = Boolean(updatePlan && plan && updatePlan.meeting_date > plan.meeting_date && plan.meetings.some((meeting) =>
     meeting.cancelled && meeting.member_usernames.some((username) => normalizedName(username) === normalizedName(viewer.username))));
@@ -3810,9 +3862,9 @@ function ThemeMeetingPanel({
                         <button
                           className="ops-secondary"
                           type="button"
-                          disabled={!activeMeeting.missing_members.length}
+                          disabled={remindersClosed || !activeMeeting.missing_members.length}
                           aria-label="Send reminder to members without an update"
-                          title={activeMeeting.missing_members.length ? 'Send a reminder to members without an update' : 'All updates received'}
+                          title={remindersClosed ? 'Updates are closed' : activeMeeting.missing_members.length ? 'Send a reminder to members without an update' : 'All updates received'}
                           onClick={() => setRemindTheme(activeMeeting)}
                         >
                           <Bell aria-hidden="true" />
@@ -4582,7 +4634,8 @@ function ProjectsView({
         body: JSON.stringify({ lifecycle: 'active' }),
       });
       if (!body.project) throw new Error('Could not unarchive project.');
-      setDetailProject(body.project);
+      const restored = body.project;
+      setDetailProject((current) => (current?.id === project.id ? restored : current));
       await onProjectsChanged();
     } catch (caught) {
       setActionError(caught instanceof Error ? caught.message : 'Could not unarchive project.');
@@ -4737,7 +4790,7 @@ function ProjectsView({
                             </button>
                             {archived
                               ? project.access.canArchive && (
-                                  <button className="vs-row-action outlined" type="button" onClick={() => void unarchiveProject(project)} aria-label={`Unarchive ${project.title}`}>
+                                  <button className="vs-row-action outlined" type="button" onClick={() => void unarchiveProject(project)} aria-label={`Unarchive ${project.title}`} title="Restore as an Active project">
                                     <RotateCcw aria-hidden="true" />
                                     Unarchive
                                   </button>
@@ -4837,7 +4890,7 @@ function ProjectsView({
         id="archive-project-confirm"
         open={Boolean(projectToArchive)}
         title="Archive project?"
-        message={projectToArchive ? `Archiving removes ${projectToArchive.title} from active lists and planning. Its history, updates and materials are kept, and it can be restored from the Archived list.` : ''}
+        message={projectToArchive ? `Archiving removes ${projectToArchive.title} from active lists and planning. Its history, updates and materials are kept, and it can be restored from the Archived list, where it returns as an Active project.` : ''}
         confirmLabel="Archive project"
         confirmPhrase={projectToArchive ? { value: projectToArchive.title, label: 'Type the project title to confirm' } : undefined}
         busy={archiveBusy}
@@ -4928,6 +4981,9 @@ function ChatView({
   const [draft, setDraft] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [threadId, setThreadId] = useState(newChatThreadId);
+  // The chat on screen right now, for replies that arrive after the user has switched to another one.
+  const threadIdRef = useRef(threadId);
+  threadIdRef.current = threadId;
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [historyMode, setHistoryMode] = useState<ChatHistoryMode>('owned');
@@ -5020,13 +5076,29 @@ function ChatView({
   }, [messages]);
 
   useEffect(() => {
-    if (!openThreadId) return;
-    const session = sessions.find((candidate) => candidate.threadId === openThreadId);
-    if (!session) return;
-    restoreChat(session);
-    setHistoryMode(session.membershipKind === 'shared' ? 'shared' : 'owned');
-    onOpenThreadHandled();
-  }, [openThreadId, onOpenThreadHandled, sessions]);
+    // After the first load, refetch on every request: the chat may have been shared, or added to, since the list was read.
+    if (!openThreadId || !sessionsLoaded) return;
+    let cancelled = false;
+    void requestJson<ChatSessionsPayload>('/api/chat/sessions', 'Could not load chat sessions.')
+      .then((body) => body.sessions || [], () => null)
+      .then((fresh) => {
+        if (cancelled) return;
+        if (fresh) setSessions(fresh);
+        const session = (fresh || sessions).find((candidate) => candidate.threadId === openThreadId);
+        if (session) {
+          restoreChat(session);
+          setHistoryMode(session.membershipKind === 'shared' ? 'shared' : 'owned');
+        } else {
+          setSendError('That chat session is no longer available.');
+        }
+        // Always clear the request, so it cannot take over the conversation later.
+        onOpenThreadHandled();
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openThreadId, sessionsLoaded]);
 
   const mentionQuery = activeMentionQuery(draft);
   const mentionOptions = useMemo(() => {
@@ -5186,6 +5258,7 @@ function ChatView({
     if (!trimmed || isSending) return;
     const assistantId = chatMessageId('assistant');
     const userMessageId = chatMessageId('user');
+    const sentThreadId = threadId;
     pendingAssistantIdRef.current = assistantId;
     setDraft('');
     setDraftHistoryCursor(null);
@@ -5217,7 +5290,9 @@ function ChatView({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed, threadId }),
       });
-      if (body.threadId) {
+      // The user may have opened another chat while waiting; never pull the composer back to the one this was sent to.
+      const stillHere = threadIdRef.current === sentThreadId;
+      if (body.threadId && stillHere) {
         setThreadId(body.threadId);
       }
       const answer = body.text || '';
@@ -5231,7 +5306,7 @@ function ChatView({
       );
       const sharedNames = body.mentions?.shared.map((user) => `@${user.username}`) || [];
       const unknownNames = body.mentions?.unknown.map((username) => `@${username}`) || [];
-      if (sharedNames.length || unknownNames.length) {
+      if (stillHere && (sharedNames.length || unknownNames.length)) {
         setSendStatus(
           [
             sharedNames.length ? `Shared with ${sharedNames.join(', ')}` : '',
@@ -5245,8 +5320,13 @@ function ChatView({
     } catch (caught) {
       // Nothing was saved: drop the pending pair, show the error once beside the composer and keep the text for a retry.
       setMessages((current) => current.filter((message) => message.id !== userMessageId && message.id !== assistantId));
-      setDraft((current) => current || trimmed);
-      setSendError(caught instanceof Error ? caught.message : 'Could not reach VioScope.');
+      if (threadIdRef.current === sentThreadId) {
+        setDraft((current) => current || trimmed);
+        setSendError(caught instanceof Error ? caught.message : 'Could not reach VioScope.');
+      } else {
+        // Do not put the unsent text into a different chat's composer.
+        setSendError('Your message in the previous chat was not sent.');
+      }
     } finally {
       setIsSending(false);
     }
@@ -5834,7 +5914,7 @@ function aliasesFromText(value: string): string[] {
 }
 
 function profileEmail(user: CurrentUser): string {
-  return user.email || user.profile?.email || [...user.aliases, ...(user.profile?.publicInfo || [])].find((item) => item.includes('@')) || '-';
+  return user.email || user.profile?.email || [...user.aliases, ...(user.profile?.publicInfo || [])].find((item) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.trim())) || '-';
 }
 
 function roleLabel(role: CurrentUser['role']) {
@@ -5960,7 +6040,10 @@ function AdminConfigurationPanel() {
         body: JSON.stringify({ settings: { [key]: null } }),
       });
       if (!body.settings) throw new Error('Could not reset configuration.');
-      applyPayload(body);
+      // Only this setting's draft is replaced; unsaved edits to other settings stay pending.
+      setPayload(body);
+      const value = body.settings.find((setting) => setting.key === key)?.value;
+      if (value !== undefined) setDrafts((current) => ({ ...current, [key]: value }));
       setMessage('Setting reset to its default. Settings marked “Needs restart” apply after a service restart.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not reset configuration.');
@@ -6365,6 +6448,7 @@ function ThemeMeetingSettingsPanel() {
                     </div>
                   </div>
                 ))}
+                <p className="ops-muted-line" role="note">Send times are fixed by the server schedule: Monday 10:00, Tuesday 10:00, Tuesday 13:00 and Wednesday 08:00 (UK time). The times set here define the submission deadline and the reminder wording; a reminder set later than its server run is skipped that week.</p>
               </section>
 
               <section className="ops-panel theme-settings-section">
@@ -6564,18 +6648,23 @@ function AuditLogSettingsPanel() {
   }, [day]);
   useEffect(() => setPage(0), [day, actorFilter, actionFilter]);
 
+  const logRequestRef = useRef(0);
   const loadLogs = useCallback(async () => {
+    // Only the latest request may fill the list, so a slower earlier day never appears under the new day's heading.
+    const request = ++logRequestRef.current;
     setError(null);
     try {
       const body = await requestJson<AuditLogPayload>(
         `/api/audit-log?day=${encodeURIComponent(day)}`,
         'Could not load audit log.',
       );
+      if (request !== logRequestRef.current) return;
       if (!body.logs) throw new Error('Could not load audit log.');
       setLogs(body.logs);
       setDays(body.days || []);
       setLoaded(true);
     } catch (caught) {
+      if (request !== logRequestRef.current) return;
       setError(caught instanceof Error ? caught.message : 'Could not load audit log.');
       setLoaded(true);
     }
@@ -6798,6 +6887,7 @@ function MarkdownEditorPanel({
   const dirty = markdown !== savedMarkdown;
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const revisionRef = useRef<string | undefined>(undefined);
 
   const loadMarkdown = useCallback(async () => {
     setBusy(true);
@@ -6807,6 +6897,7 @@ function MarkdownEditorPanel({
       if (typeof body.markdown !== 'string') throw new Error('Could not load markdown.');
       setMarkdown(body.markdown);
       setSavedMarkdown(body.markdown);
+      revisionRef.current = body.revision;
       setLoadFailed(false);
       setLoaded(true);
     } catch (caught) {
@@ -6827,7 +6918,8 @@ function MarkdownEditorPanel({
     setError(null);
     setMessage(null);
     try {
-      const payload: Record<string, unknown> = { markdown };
+      // The server rejects the save with a conflict if the file changed since this revision was loaded.
+      const payload: Record<string, unknown> = { markdown, baseRevision: revisionRef.current };
       if (importAfterSave && importFlag) {
         payload[importFlag] = true;
       }
@@ -6839,6 +6931,7 @@ function MarkdownEditorPanel({
       if (typeof body.markdown !== 'string') throw new Error('Could not save markdown.');
       setMarkdown(body.markdown);
       setSavedMarkdown(body.markdown);
+      revisionRef.current = body.revision;
       if (importAfterSave && typeof body.importedCount === 'number') {
         setMessage(`Saved and imported ${body.importedCount} profiles.`);
       } else {
@@ -7966,32 +8059,26 @@ function FeedbackView({ viewer, focusId, onFocused }: { viewer: CurrentUser; foc
   const [editingFeedback, setEditingFeedback] = useState<{ id: string; title: string; description: string; originalTitle: string; originalDescription: string } | null>(null);
   const [managerDrafts, setManagerDrafts] = useState<Record<string, { status: FeedbackStatus; adminNote: string }>>({});
 
-  const applyQueries = useCallback((nextQueries: FeedbackQuery[]) => {
-    setQueries(nextQueries);
-    setManagerDrafts(Object.fromEntries(nextQueries.map((query) => [query.id, { status: query.status, adminNote: query.adminNote }])));
-  }, []);
-
   const queriesRef = useRef<FeedbackQuery[]>([]);
   queriesRef.current = queries;
 
-  // A quiet (on-focus) refetch keeps any reply an administrator has typed but not saved.
+  // Every refresh keeps any reply an administrator has typed but not saved; `savedId` is the card whose draft was just saved.
+  const applyQueries = useCallback((nextQueries: FeedbackQuery[], savedId?: string) => {
+    const previous = new Map(queriesRef.current.map((query) => [query.id, query]));
+    setQueries(nextQueries);
+    setManagerDrafts((current) => Object.fromEntries(nextQueries.map((query) => {
+      const before = previous.get(query.id);
+      const draft = current[query.id];
+      const dirty = query.id !== savedId && before && draft && (draft.status !== before.status || draft.adminNote !== before.adminNote);
+      return [query.id, dirty ? draft : { status: query.status, adminNote: query.adminNote }];
+    })));
+  }, []);
+
   const loadQueries = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     try {
       const body = await requestJson<FeedbackPayload>('/api/feedback', 'Could not load feedback requests.');
-      const nextQueries = body.queries || [];
-      if (quiet) {
-        const previous = new Map(queriesRef.current.map((query) => [query.id, query]));
-        setQueries(nextQueries);
-        setManagerDrafts((current) => Object.fromEntries(nextQueries.map((query) => {
-          const before = previous.get(query.id);
-          const draft = current[query.id];
-          const dirty = before && draft && (draft.status !== before.status || draft.adminNote !== before.adminNote);
-          return [query.id, dirty ? draft : { status: query.status, adminNote: query.adminNote }];
-        })));
-      } else {
-        applyQueries(nextQueries);
-      }
+      applyQueries(body.queries || []);
       setCanManage(Boolean(body.canManage));
       setError(null);
     } finally {
@@ -8075,7 +8162,7 @@ function FeedbackView({ viewer, focusId, onFocused }: { viewer: CurrentUser; foc
         body: JSON.stringify(draft),
       });
       if (!body.query) throw new Error('Could not update feedback.');
-      applyQueries(queries.map((item) => (item.id === body.query?.id ? body.query : item)));
+      applyQueries(queries.map((item) => (item.id === body.query?.id ? body.query : item)), query.id);
       setMessage('Feedback request updated.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not update feedback.');
@@ -8595,6 +8682,13 @@ export function OperationsConsole() {
   useEffect(() => {
     if (activeView !== 'projects') setProjectsFilterRequest('active');
   }, [activeView]);
+  // A past meeting opened from a notification belongs to Meetings only; leaving restores the current meeting for the
+  // Briefing, the sidebar card and the bell, as "Close details" does.
+  useEffect(() => {
+    if (activeView === 'meeting' || !openMeetingNotification) return;
+    setOpenMeetingNotification(null);
+    void loadThemeMeetings().catch((caught) => setError(caught instanceof Error ? caught.message : 'Could not load theme meetings.'));
+  }, [activeView, openMeetingNotification, loadThemeMeetings]);
   const handleProjectOpenRequestHandled = useCallback(() => setProjectOpenRequest(null), []);
 
   const [reviewFocus, setReviewFocus] = useState<{projectId: string; request: number} | null>(null);
@@ -8665,9 +8759,15 @@ export function OperationsConsole() {
   }
 
   async function logout() {
+    // Only the server can clear the session cookie, so stay signed in (drafts kept) unless it confirms.
+    const response = await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null);
+    if (!response?.ok) {
+      setAccountMenuOpen(false);
+      setError('Sign-out failed. Please try again.');
+      return;
+    }
     if (user) clearChecklistDrafts(user.id);
     resetThemeMeetingWorkflowCache();
-    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => undefined);
     setUser(null);
     setAccountMenuOpen(false);
     setNotificationsOpen(false);

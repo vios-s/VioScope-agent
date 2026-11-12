@@ -234,13 +234,6 @@ function normalizeUpdatePart(value: string | null | undefined): string {
   return value ? value.trim().toLowerCase().replace(/\s+/g, ' ') : '';
 }
 
-function updateMemberKeys(update: Pick<ThemeMeetingUpdate, 'member' | 'member_username'>): string[] {
-  return [
-    update.member_username ? `u:${normalizeUpdatePart(update.member_username)}` : '',
-    update.member ? `n:${normalizeUpdatePart(update.member)}` : '',
-  ].filter(Boolean);
-}
-
 function updateKey(update: Pick<ThemeMeetingUpdate, 'meeting_date' | 'theme_id' | 'member' | 'member_username'>): string {
   return [
     update.meeting_date,
@@ -259,8 +252,12 @@ function sameUpdateSlot(
     return false;
   }
 
-  const rightKeys = new Set(updateMemberKeys(right));
-  return updateMemberKeys(left).some((key) => rightKeys.has(key));
+  // The account username is the identity. Display names only match a legacy record that has no username.
+  const leftUsername = normalizeUpdatePart(left.member_username);
+  const rightUsername = normalizeUpdatePart(right.member_username);
+  return leftUsername && rightUsername
+    ? leftUsername === rightUsername
+    : normalizeUpdatePart(left.member) === normalizeUpdatePart(right.member);
 }
 
 export async function saveThemeMeetingUpdate(
@@ -374,15 +371,19 @@ export async function saveThemeMeetingEmailDelivery(
   });
 }
 
-export async function claimThemeMeetingEmailDelivery(
-  id: string,
-  options: ThemeMeetingStoreOptions = {},
-): Promise<boolean> {
-  if (await hasThemeMeetingEmailDelivery(id, options)) return false;
+// A claim left by an interrupted send expires, like submission email claims. A send that succeeded but could not
+// record its delivery may therefore be repeated once after this time.
+const emailClaimLifetimeMs = 15 * 60_000;
 
-  const path = themeMeetingEmailDeliveryClaimPath(id, options);
-  await mkdir(/*turbopackIgnore: true*/ dirname(path), { recursive: true });
+async function emailClaimIsLive(path: string): Promise<boolean> {
+  try {
+    return Date.now() - (await stat(/*turbopackIgnore: true*/ path)).mtimeMs < emailClaimLifetimeMs;
+  } catch {
+    return false;
+  }
+}
 
+async function createEmailClaim(path: string): Promise<boolean> {
   try {
     await mkdir(/*turbopackIgnore: true*/ path);
     return true;
@@ -394,9 +395,27 @@ export async function claimThemeMeetingEmailDelivery(
   }
 }
 
-/** A claim without a recorded delivery (send in progress, or delivery not recorded) still blocks a resend. */
+export async function claimThemeMeetingEmailDelivery(
+  id: string,
+  options: ThemeMeetingStoreOptions = {},
+): Promise<boolean> {
+  if (await hasThemeMeetingEmailDelivery(id, options)) return false;
+
+  const path = themeMeetingEmailDeliveryClaimPath(id, options);
+  await mkdir(/*turbopackIgnore: true*/ dirname(path), { recursive: true });
+  if (await createEmailClaim(path)) return true;
+
+  // Replacing an expired claim is serialized so only one sender takes it over.
+  return withFileLock(path, async () => {
+    if (await emailClaimIsLive(path)) return false;
+    await rm(/*turbopackIgnore: true*/ path, { recursive: true, force: true });
+    return createEmailClaim(path);
+  });
+}
+
+/** A live claim without a recorded delivery (send in progress, or delivery not recorded) still blocks a resend. */
 export async function hasThemeMeetingEmailDeliveryClaim(id: string, options: ThemeMeetingStoreOptions = {}): Promise<boolean> {
-  return pathExists(themeMeetingEmailDeliveryClaimPath(id, options));
+  return emailClaimIsLive(themeMeetingEmailDeliveryClaimPath(id, options));
 }
 
 export async function releaseThemeMeetingEmailDeliveryClaim(

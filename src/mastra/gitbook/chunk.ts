@@ -5,7 +5,9 @@ export function chunkWikiPage(page: WikiPage, spaceId: string): WikiChunk[] {
   const paragraphs = page.text
     .split(/\n{2,}/)
     .map((part) => part.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    // Paragraphs are otherwise never split: cut an oversized one hard so it cannot exceed the embedding input limit.
+    .flatMap((part) => part.match(new RegExp(`[\\s\\S]{1,${wikiChunkSize}}`, 'g')) ?? []);
 
   const chunks: string[] = [];
   let current = '';

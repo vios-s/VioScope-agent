@@ -91,8 +91,9 @@ async function updateInputFromForm(
       stage: integer(formText(formData, 'stage')),
       stageProgress: integer(formText(formData, 'stageProgress')),
       status: formText(formData, 'status') as AddProjectUpdateInput['status'],
-      blocker: optionalText(formText(formData, 'blocker')),
-      target: optionalText(formText(formData, 'target')),
+      // A field sent empty clears the value; a field not sent keeps it.
+      blocker: formData.has('blocker') ? formText(formData, 'blocker') || null : undefined,
+      target: formData.has('target') ? formText(formData, 'target') || null : undefined,
       milestone: booleanValue(formText(formData, 'milestone')),
       artifact: uploadDigest?.artifact || null,
     },

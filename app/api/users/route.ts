@@ -96,7 +96,9 @@ export async function POST(request: Request) {
       position,
       passwordResetRequired: true,
       source: 'manual',
-      metadata: { aliases: textArray(body.aliases), email, position, created_by: 'admin-ui' },
+      // Metadata is merged into a profile-only record on activation: omitted aliases keep the stored ones.
+      metadata: { ...(textArray(body.aliases).length ? { aliases: textArray(body.aliases) } : {}), email, position, created_by: 'admin-ui' },
+      actorRole: actor.role,
     }, 'create-or-activate');
 
     await recordAuditLog({

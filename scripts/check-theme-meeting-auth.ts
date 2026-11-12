@@ -12,7 +12,7 @@ import {
   type AuthUser,
   type UserRole,
 } from '../src/mastra/db/users';
-import { coordinatorEditWindowOpen, nextThemeMeetingDate } from '../src/mastra/theme-meetings/planner';
+import { buildThemeMeetingReminderRun, coordinatorEditWindowOpen, nextThemeMeetingDate, sendThemeMeetingAgendaEmails } from '../src/mastra/theme-meetings/planner';
 import type { ThemeMeetingConfig } from '../src/mastra/theme-meetings/schema';
 
 const themeConfigForWindow = { timezone: 'Europe/London' } as ThemeMeetingConfig;
@@ -280,6 +280,11 @@ async function main() {
         await configRoute.GET(requestFor(user, '/api/theme-meetings/config')),
       );
       assert.equal(coordinatorSettings.access.canEditGlobal, false);
+      assert.deepEqual(
+        [...new Set(coordinatorSettings.users.flatMap((entry: object) => Object.keys(entry)))].sort(),
+        ['displayName', 'id', 'provisioningStatus', 'role', 'username'],
+        'Theme settings list directory fields only, never administrative account records.',
+      );
       assert.deepEqual(coordinatorSettings.config.themes.map((theme: { theme_id: string }) => theme.theme_id), [coordinator.themeId]);
 
       const coordinatorDraft = coordinatorSettings.config;
@@ -331,8 +336,9 @@ async function main() {
         'Reminder email delivery should respect disabled email transport in smoke tests.',
       );
 
-      const agendaCutoff = await expectJson<any>(
-        `${coordinator.username} agenda cutoff`,
+      // Scheduled actions belong to the timers: the manual route refuses them, so the cutoff run is built directly.
+      await expectJson(
+        `${coordinator.username} manual agenda cutoff blocked`,
         await remindersRoute.POST(
           requestFor(user, '/api/theme-meetings/reminders', {
             method: 'POST',
@@ -343,7 +349,10 @@ async function main() {
             }),
           }),
         ),
+        400,
       );
+      const cutoffRun = await buildThemeMeetingReminderRun('agenda_cutoff', { themeId: coordinator.themeId, meetingDate: coordinator.meetingDate });
+      const agendaCutoff = { agendaEmails: await sendThemeMeetingAgendaEmails(cutoffRun.plan, cutoffRun.config, { themeId: coordinator.themeId }) };
       assert.equal(agendaCutoff.agendaEmails.sent, 0, 'Agenda email should not send while email transport is disabled.');
       assert.equal(agendaCutoff.agendaEmails.failed, 0, 'Disabled agenda email transport should not fail.');
       assert.ok(agendaCutoff.agendaEmails.skipped > 0, 'Agenda email should find recipients and skip them while disabled.');
@@ -486,7 +495,7 @@ async function main() {
       await remindersRoute.POST(
         requestFor(coordinatorB, '/api/theme-meetings/reminders', {
           method: 'POST',
-          body: jsonBody({ themeId: 'B', meetingDate: '2027-06-23', action: 'agenda_cutoff' }),
+          body: jsonBody({ themeId: 'B', meetingDate: '2027-06-23', action: 'manual_missing_update_reminder' }),
         }),
       ),
       400,
@@ -553,6 +562,14 @@ async function main() {
       ),
     );
     assert.equal(memberUpdate.update.member_username, 'alice');
+    assert.ok(
+      memberUpdate.plan.meetings.every((meeting: { member_usernames: string[] }) => meeting.member_usernames.every((username) => username === 'alice')),
+      'A member submitting an update receives only their own part of the plan.',
+    );
+    for (const [label, response] of [
+      ['skip on a non-meeting day', await cancellationsRoute.POST(requestFor(coordinatorB, '/api/theme-meetings/cancellations', { method: 'POST', body: jsonBody({ themeId: 'B', meetingDate: '2027-06-24' }) }))],
+      ['dashboard for a malformed date', await themeMeetingsRoute.GET(requestFor(member, '/api/theme-meetings?date=abc'))],
+    ] as const) await expectJson(label, response, 400);
 
     await expectJson(
       'member submit as another user blocked',
@@ -625,6 +642,8 @@ async function main() {
     const after = (days: number, time: string) => new Date(`${new Date(Date.parse(`${held}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)}T${time}Z`);
     const piAccount = await activeUser('theme.pi');
     assert.equal(isHeldMeetingForCoordinator(windowConfig, 'A', held, coordinatorA, after(1, '09:00:00')), true);
+    assert.equal(isHeldMeetingForCoordinator(windowConfig, 'A', held, coordinatorA, after(0, '00:30:00')), false, 'Meeting day before the meeting: not held.');
+    assert.equal(isHeldMeetingForCoordinator(windowConfig, 'A', held, coordinatorA, after(0, '23:30:00')), true, 'Meeting day after the meeting has finished: held.');
     assert.equal(isPastMeetingReadOnly(windowConfig, 'A', held, coordinatorA, after(1, '09:00:00')), false, 'Thursday after the meeting: still editable.');
     assert.equal(isPastMeetingReadOnly(windowConfig, 'A', held, coordinatorA, after(2, '15:59:00')), false, 'Friday 15:59: still editable.');
     assert.equal(isPastMeetingReadOnly(windowConfig, 'A', held, coordinatorA, after(2, '16:00:00')), true, 'Friday 16:00: read-only.');
@@ -638,6 +657,9 @@ async function main() {
         await themeMeetingsRoute.GET(requestFor(account, `/api/theme-meetings?date=${pastDate}`)))).access.readOnlyThemeIds, []);
       await expectJson(`${leader} past skip`, await cancellationsRoute.POST(requestFor(account, '/api/theme-meetings/cancellations', { method: 'POST', body: pastBody({ reason: 'Leader check' }) })));
       await expectJson(`${leader} past restore`, await cancellationsRoute.DELETE(requestFor(account, '/api/theme-meetings/cancellations', { method: 'DELETE', body: pastBody() })));
+      const lateReminder = await expectJson<{ error: string }>(`${leader} reminder after the cutoff`,
+        await remindersRoute.POST(requestFor(account, '/api/theme-meetings/reminders', { method: 'POST', body: pastBody({ action: 'manual_missing_update_reminder' }) })), 400);
+      assert.equal(lateReminder.error, 'Reminders can only be sent before the submission cutoff.');
     }
 
     const pi = await activeUser('theme.pi');

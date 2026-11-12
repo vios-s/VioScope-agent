@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { AuthError, requireSessionUser } from '../../../../src/mastra/auth/session';
 import { errorResponse } from '../../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../../src/mastra/db/audit-log';
-import { assertMeetingNotHeld, canManageTheme } from '../../../../src/mastra/theme-meetings/access';
+import { assertMeetingNotHeld, canManageTheme, visiblePlanForUser } from '../../../../src/mastra/theme-meetings/access';
 import { buildThemeMeetingPlan, cancelThemeMeeting } from '../../../../src/mastra/theme-meetings/planner';
 import { removeThemeMeetingCancellation } from '../../../../src/mastra/theme-meetings/store';
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       summary: 'Theme meeting cancelled.',
       metadata: { meetingDate, reason: cancellation.reason || null },
     });
-    return NextResponse.json({ cancellation, plan: payload.plan });
+    return NextResponse.json({ cancellation, plan: visiblePlanForUser(payload.plan, payload.config, user) });
   } catch (error) {
     return errorResponse(error, 400);
   }
@@ -68,7 +68,7 @@ export async function DELETE(request: Request) {
       summary: 'Theme meeting cancellation reversed.',
       metadata: { meetingDate },
     });
-    return NextResponse.json({ plan: payload.plan });
+    return NextResponse.json({ plan: visiblePlanForUser(payload.plan, payload.config, user) });
   } catch (error) {
     return errorResponse(error, 400);
   }

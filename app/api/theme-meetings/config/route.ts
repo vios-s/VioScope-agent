@@ -32,7 +32,8 @@ async function activeUserMap(): Promise<Map<string, ThemeSettingsUser>> {
   return new Map(
     users
       .filter((user) => user.provisioningStatus === 'active' && user.role !== 'service')
-      .map((user) => [normalizeUsername(user.username), user]),
+      // Coordinators read this list: only the directory fields, never the administrative account record.
+      .map(({ id, username, displayName, role, provisioningStatus }) => [normalizeUsername(username), { id, username, displayName, role, provisioningStatus }]),
   );
 }
 

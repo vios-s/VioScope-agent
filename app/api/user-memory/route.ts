@@ -1,9 +1,11 @@
 import 'dotenv/config';
 import { NextResponse } from 'next/server';
-import { requireSessionUser } from '../../../src/mastra/auth/session';
+import { join } from 'node:path';
+import { AuthError, requireSessionUser } from '../../../src/mastra/auth/session';
+import { withFileLock } from '../../../src/mastra/atomic-file';
 import { errorResponse } from '../../../src/mastra/http/error-response';
 import { recordAuditLog } from '../../../src/mastra/db/audit-log';
-import { readOwnUserMemory, writeOwnUserMemory } from '../../../src/mastra/users/datastore';
+import { readOwnUserMemory, userDatastoreRoot, writeOwnUserMemory } from '../../../src/mastra/users/datastore';
 
 export const runtime = 'nodejs';
 
@@ -24,7 +26,17 @@ export async function PATCH(request: Request) {
       throw new Error('markdown is required.');
     }
 
-    const result = await writeOwnUserMemory(user, body.markdown);
+    const markdown = body.markdown;
+    const baseRevision = typeof body.baseRevision === 'string' ? body.baseRevision : undefined;
+    const root = userDatastoreRoot(user);
+    if (!root) throw new Error('DATASTORE_DIR is required for user memory.');
+    // A stale tab or device that sends the revision it loaded gets a conflict instead of overwriting newer notes.
+    const result = await withFileLock(join(root, 'memory.md'), async () => {
+      if (baseRevision && baseRevision !== (await readOwnUserMemory(user)).revision) {
+        throw new AuthError('Your memory changed in another tab or device. Load the latest version before saving.', 409, 'conflict');
+      }
+      return writeOwnUserMemory(user, markdown);
+    });
     const imported = body.importMemory === true;
     await recordAuditLog({
       actor: user,

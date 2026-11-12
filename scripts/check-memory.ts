@@ -103,6 +103,22 @@ async function main() {
     roots.push(await writePrivateMemory(alice, aliceCode));
     roots.push(await writePrivateMemory(bob, bobCode));
 
+    // A stale editor that sends the revision it loaded must get a conflict, not overwrite newer notes.
+    const memoryRoute = await import('../app/api/user-memory/route');
+    const memoryRequest = (method: string, body?: unknown) => new Request('http://localhost/api/user-memory', {
+      method,
+      headers: { 'content-type': 'application/json', cookie: `${sessionCookieName}=${createSessionToken(alice)}` },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const loaded = (await (await memoryRoute.GET(memoryRequest('GET'))).json()) as { markdown: string; revision: string };
+    const current = await memoryRoute.PATCH(memoryRequest('PATCH', { markdown: `${loaded.markdown}\n- Saved from the first tab.`, baseRevision: loaded.revision }));
+    assert.equal(current.status, 200, 'A save based on the current revision should succeed.');
+    const stale = await memoryRoute.PATCH(memoryRequest('PATCH', { markdown: 'Stale tab.', baseRevision: loaded.revision }));
+    assert.equal(stale.status, 409, 'A save based on a stale revision should conflict.');
+    const reloaded = (await (await memoryRoute.GET(memoryRequest('GET'))).json()) as { markdown: string; revision: string };
+    assert.match(reloaded.markdown, /Saved from the first tab\./);
+    assert.equal(reloaded.revision, ((await current.json()) as { revision: string }).revision, 'A save returns the revision of the next read.');
+
     await chat(
       alice,
       sessionThread,

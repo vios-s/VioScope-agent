@@ -1,5 +1,6 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { basename, extname, join, relative, resolve } from 'node:path';
+import { atomicWrite, contentHash } from '../atomic-file';
 import type { AuthUser } from '../db/users';
 import { runtimeEnv } from '../runtime-config';
 
@@ -90,25 +91,29 @@ async function readFirstExisting(root: string, names: string[]): Promise<{ path:
   return undefined;
 }
 
-export async function readOwnUserMemory(user: AuthUser): Promise<{ slug: string; root: string; path: string; markdown: string }> {
+type UserMemory = { slug: string; root: string; path: string; markdown: string; revision: string };
+
+export async function readOwnUserMemory(user: AuthUser): Promise<UserMemory> {
   const root = userDatastoreRoot(user);
   if (!root) {
     throw new Error('DATASTORE_DIR is required for user memory.');
   }
 
   const existing = await readFirstExisting(root, ['memory.md', 'memory.txt', 'memory.json']);
+  const markdown = existing?.text || defaultUserMemoryMarkdown(user);
   return {
     slug: userDatastoreSlug(user),
     root,
     path: existing?.path || 'memory.md',
-    markdown: existing?.text || defaultUserMemoryMarkdown(user),
+    markdown,
+    revision: contentHash(markdown),
   };
 }
 
 export async function writeOwnUserMemory(
   user: AuthUser,
   markdown: string,
-): Promise<{ slug: string; root: string; path: string; markdown: string }> {
+): Promise<UserMemory> {
   if (markdown.length > maxMemoryChars) {
     throw new Error('Memory markdown is too large.');
   }
@@ -120,12 +125,14 @@ export async function writeOwnUserMemory(
 
   await mkdir(root, { recursive: true });
   const cleanMarkdown = `${markdown.trimEnd()}\n`;
-  await writeFile(join(root, 'memory.md'), cleanMarkdown, 'utf8');
+  // Temporary file plus rename: readers and a failed write never see a truncated memory file.
+  await atomicWrite(join(root, 'memory.md'), cleanMarkdown);
   return {
     slug: userDatastoreSlug(user),
     root,
     path: 'memory.md',
     markdown: cleanMarkdown,
+    revision: contentHash(cleanMarkdown.trim()), // matches the next read, which trims
   };
 }
 

@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { runtimeConfigCachePath } from '../runtime-config';
 import { createPostgresClient, withDatabaseTransaction } from './postgres';
@@ -348,11 +348,14 @@ export async function syncAppSettingsRuntimeCache(): Promise<void> {
   }
 
   await mkdir(dirname(runtimeConfigCachePath), { recursive: true });
+  // Replace atomically: a process starting mid-write must never read a truncated file.
+  const temporaryPath = `${runtimeConfigCachePath}.${process.pid}.tmp`;
   await writeFile(
-    runtimeConfigCachePath,
+    temporaryPath,
     `${JSON.stringify({ updatedAt: new Date().toISOString(), settings }, null, 2)}\n`,
     { mode: 0o600 },
   );
+  await rename(temporaryPath, runtimeConfigCachePath);
 }
 
 export async function listAdminAppSettings(): Promise<AdminAppSetting[]> {

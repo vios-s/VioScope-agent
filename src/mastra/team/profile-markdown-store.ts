@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { atomicWrite, contentHash } from '../atomic-file';
 import { runtimeEnv } from '../runtime-config';
 
 const maxTeamProfileMarkdownChars = 500_000;
@@ -35,16 +36,17 @@ export function teamProfileMarkdownPath(): string {
     : join(tmpdir(), 'vioscope-agent', 'team', 'vios-team-public.md');
 }
 
-export async function readTeamProfileMarkdown(): Promise<{ path: string; markdown: string; exists: boolean }> {
+export async function readTeamProfileMarkdown(): Promise<{ path: string; markdown: string; exists: boolean; revision: string }> {
   const path = teamProfileMarkdownPath();
   try {
-    return { path, markdown: await readFile(path, 'utf8'), exists: true };
+    const markdown = await readFile(path, 'utf8');
+    return { path, markdown, exists: true, revision: contentHash(markdown) };
   } catch {
-    return { path, markdown: placeholderMarkdown, exists: false };
+    return { path, markdown: placeholderMarkdown, exists: false, revision: contentHash(placeholderMarkdown) };
   }
 }
 
-export async function writeTeamProfileMarkdown(markdown: string): Promise<{ path: string; markdown: string }> {
+export async function writeTeamProfileMarkdown(markdown: string): Promise<{ path: string; markdown: string; revision: string }> {
   if (markdown.length > maxTeamProfileMarkdownChars) {
     throw new Error('Team profile markdown is too large.');
   }
@@ -52,6 +54,6 @@ export async function writeTeamProfileMarkdown(markdown: string): Promise<{ path
   const path = teamProfileMarkdownPath();
   const cleanMarkdown = `${markdown.trimEnd()}\n`;
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, cleanMarkdown, 'utf8');
-  return { path, markdown: cleanMarkdown };
+  await atomicWrite(path, cleanMarkdown);
+  return { path, markdown: cleanMarkdown, revision: contentHash(cleanMarkdown) };
 }

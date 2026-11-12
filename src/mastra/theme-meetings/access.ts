@@ -1,7 +1,7 @@
 import { isAgendaPlaceholder } from './schema';
 import { AuthError, canSeeAll } from '../auth/session';
 import type { AuthUser } from '../db/users';
-import { coordinatorEditWindowOpen, nextThemeMeetingDate } from './planner';
+import { coordinatorEditWindowOpen, nextThemeMeetingDate, themeMeetingEnded } from './planner';
 import type { ThemeMeetingConfig, ThemeMeetingNotification, ThemeMeetingPlan } from './schema';
 
 function themeById(config: ThemeMeetingConfig, themeId: string) {
@@ -21,11 +21,11 @@ export function canManageTheme(config: ThemeMeetingConfig, themeId: string, user
   return Boolean(theme && [theme.coordinator_user, ...theme.additional_coordinator_users].some(username => normalizeUsername(username) === normalizeUsername(user.username)));
 }
 
-/** True when a coordinator (theme manager without PI/admin rights) acts on a meeting before the theme's current/next one, i.e. already held. */
+/** True when a coordinator (theme manager without PI/admin rights) acts on a meeting that is already held: one before the theme's current/next meeting, or that meeting once it has finished on the day. */
 export function isHeldMeetingForCoordinator(config: ThemeMeetingConfig, themeId: string, meetingDate: string, user: AuthUser, now = new Date()): boolean {
   if (canSeeAll(user) || !canManageTheme(config, themeId, user)) return false;
   const current = nextThemeMeetingDate(config, themeId, now);
-  return Boolean(current && meetingDate < current);
+  return Boolean(current && (meetingDate < current || themeMeetingEnded(config, themeId, meetingDate, now)));
 }
 
 /** Held meetings stay editable for coordinators (agenda, email, actions) until 16:00 on the following Friday. */

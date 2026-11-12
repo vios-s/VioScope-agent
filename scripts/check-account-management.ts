@@ -7,6 +7,7 @@ import {
   ensureUsersTable,
   getUserByUsername,
   upsertLocalUser,
+  upsertPublicTeamProfiles,
   type AuthUser,
   type UserRole,
 } from '../src/mastra/db/users';
@@ -309,6 +310,17 @@ async function main() {
     const auditRoute = await import('../app/api/audit-log/route');
     const projectsRoute = await import('../app/api/projects/route');
 
+    // A team-profile import refreshes public metadata only: it never activates, renames or re-keys an existing account.
+    await upsertPublicTeamProfiles([{
+      name: 'Imported Name', username: users.profileOnly.username, group: 'Check', role: 'Researcher', sourceId: 'another-folder.md',
+      researchInterests: [], publicLinks: [], publicInfo: ['Twitter: @handle'],
+    }], { sourceUrl: 'https://example.test/team' });
+    const imported = await getUserByUsername(users.profileOnly.username);
+    assert.equal(imported?.provisioningStatus, 'profile_only', 'Import must not activate a profile-only account.');
+    assert.equal(imported?.sourceProfileId, null, 'Import must not change the storage identity of an existing account.');
+    assert.equal(imported?.displayName, users.profileOnly.username, 'Import must not rename an account that did not come from the team page.');
+    assert.equal(imported?.email, null, 'Public text that merely contains "@" is not an account email.');
+
     const badLogin = await loginRoute.POST(jsonRequest('/api/auth/login', {
       username: users.member.username,
       password: 'Wrong123!',
@@ -461,6 +473,17 @@ async function main() {
     assert.equal(piOverwritesAdmin.status, 400, 'Add member must not overwrite an existing account.');
     assert.match((await jsonBody(piOverwritesAdmin)).error, /already exists/);
     assert.equal((await login(users.admin.username, users.admin.password)).response.status, 200, 'Existing password must be unchanged.');
+
+    // A PI cannot take over a profile-only PI, administrator or service account through Add member.
+    const postgres = createPostgresClient('account-management-privileged-profile');
+    await postgres.pool.query("UPDATE users SET provisioning_status = 'profile_only', role = 'pi' WHERE username = $1", [users.disabled.username]);
+    const piActivatesPi = await usersRoute.POST(jsonRequest('/api/users', {
+      username: users.disabled.username, role: 'member', temporaryPassword: 'Takeover1!',
+    }, cookieFor(pi)));
+    assert.equal(piActivatesPi.status, 400, 'PI must not activate a profile-only PI account.');
+    const stillProfileOnly = await getUserByUsername(users.disabled.username);
+    assert.equal(stillProfileOnly?.provisioningStatus, 'profile_only');
+    assert.equal(stillProfileOnly?.role, 'pi');
 
     const adminDisablesSelf = await userRoute.PATCH(
       jsonRequest(`/api/users/${admin.id}`, { provisioningStatus: 'disabled' }, cookieFor(admin)),

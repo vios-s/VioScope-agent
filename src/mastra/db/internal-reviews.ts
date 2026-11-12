@@ -76,7 +76,7 @@ async function completedEvidence(projectId:string,id:string) {
   return row.data;
 }
 /** Used by approval writes, project/checklist displays and reminders, including legacy saved locks. */
-export async function reviewEvidenceBlockers(projectId:string,round:ReviewRound,tasks:ProjectTask[],finalManuscript=round.data.lock?.finalManuscript) {
+export async function reviewEvidenceBlockers(projectId:string,round:ReviewRound,tasks:ProjectTask[],finalManuscript:ReviewRoundData['manuscript']|null|undefined=round.data.lock?.finalManuscript) {
   const documents=[round.data.manuscript,...(finalManuscript?[finalManuscript]:[])];
   const ids=[...new Set([...documents.map(m=>m.evidenceId),...tasks.filter(t=>t.sourceKind==='internal_review'&&t.data.priority==='high'&&t.data.status!=='cancelled').flatMap(t=>t.data.evidenceIds)])];
   const rows=await availableEvidence(projectId,ids);
@@ -93,12 +93,14 @@ async function decision(round:ReviewRound,project:Project,user:AuthUser,checkpoi
 export async function getInternalReviews(projectId:string,user:AuthUser) {
   const project=await getProjectForUser(projectId,user);
   const context=await currentContext(projectId), rounds=await reviewRounds(projectId), tasks=await listProjectTasks(projectId);
-  const evidence=(await db().query(`SELECT id::text,data FROM project_evidence WHERE project_id=$1 ORDER BY created_at DESC`,[projectId])).rows as {id:string;data:{title:string;state:string;url?:string;artifactId?:string}}[];
+  const evidence=(await db().query(`SELECT id::text,data FROM project_evidence WHERE project_id=$1 ORDER BY created_at DESC`,[projectId])).rows as {id:string;data:{title:string;state:string;kind?:string;url?:string|null;artifactId?:string|null}}[];
   const current=rounds[0];
   const visible=await Promise.all(rounds.map(async round=>{
     const valid=project.lifecycle==='active'&&isCurrent(round,current,context,project);
     const fingerprint=reviewFingerprint(round,tasks);
-    const blockers=[...revisionBlockers(round,tasks),...await reviewEvidenceBlockers(projectId,round,tasks)];
+    const revision=revisionBlockers(round,tasks), blockers=[...revision,...await reviewEvidenceBlockers(projectId,round,tasks)];
+    // A new lock names a new final manuscript, so the saved lock's unavailable manuscript must not hide the lock form.
+    const lockBlockers=round.data.lock?[...revision,...await reviewEvidenceBlockers(projectId,round,tasks,null)]:blockers;
     const lockValid=valid&&!blockers.length&&round.data.lock?.fingerprint===fingerprint;
     // Unsubmitted drafts never leave the server except to their own reviewer, including for PI/admin.
     const reviews=Object.fromEntries(Object.entries(round.data.reviews).flatMap(([id,review])=>{
@@ -107,7 +109,7 @@ export async function getInternalReviews(projectId:string,user:AuthUser) {
     }));
     return {...round,data:{...round.data,reviews},current:valid,lockValid,
       clearanceValid:lockValid&&round.data.clearance?.fingerprint===fingerprint&&round.data.clearance.outcome==='submit',
-      blockers,canReview:valid&&canReview(project,user,round),
+      blockers,lockBlockers,canReview:valid&&canReview(project,user,round),
     };
   }));
   return {project:{id:project.id,title:project.title,ownerUsername:project.ownerUsername,pdraUsername:project.pdraUsername,piUsername:project.piUsername,piUsernames:projectPIs(project),pdraUsernames:projectPDRAs(project),collaborators:project.collaborators,artifacts:project.artifacts},
@@ -174,10 +176,16 @@ export async function changeInternalReview(projectId:string,input:unknown,user:A
           const assignee=await activeAccessible(projectId,command.owner);
           const existing=tasks.find(t=>t.id===taskId);
           taskId ||= randomUUID();
-          const taskData={task:finding.text,owner:assignee.username,dueDate:command.dueDate,priority:command.kind==='required'?'high':'normal',status:'open',note:command.reason,evidenceIds:[],
-            history:[...(existing?.data.history||[]),{by:user.username,at,status:'open',note:command.reason}]};
-          await db().query(`INSERT INTO project_tasks(id,project_id,source_kind,source_id,data) VALUES($1,$2,'internal_review',$3,$4::jsonb)
-            ON CONFLICT(id) DO UPDATE SET data=EXCLUDED.data,revision=project_tasks.revision+1`,[taskId,projectId,round.id,JSON.stringify(taskData)]);
+          // Re-triage keeps the task's progress, evidence and note; only a new or previously declined task starts open.
+          // An unchanged requirement is not rewritten, so its PDRA acceptance stands; any change lapses it through the revision.
+          const kept=existing&&existing.data.status!=='cancelled'?existing.data:undefined;
+          const fields={task:finding.text,owner:assignee.username,dueDate:command.dueDate,priority:command.kind==='required'?'high':'normal'};
+          if(!kept||Object.entries(fields).some(([key,value])=>value!==kept[key as keyof typeof fields])) {
+            const taskData={...(kept||{status:'open',note:command.reason,evidenceIds:[]}),...fields,
+              history:[...(existing?.data.history||[]),{by:user.username,at,status:kept?.status||'open',note:command.reason}]};
+            await db().query(`INSERT INTO project_tasks(id,project_id,source_kind,source_id,data) VALUES($1,$2,'internal_review',$3,$4::jsonb)
+              ON CONFLICT(id) DO UPDATE SET data=EXCLUDED.data,revision=project_tasks.revision+1`,[taskId,projectId,round.id,JSON.stringify(taskData)]);
+          }
         } else if(taskId) {
           const existing=tasks.find(t=>t.id===taskId)!;
           await db().query('UPDATE project_tasks SET data=$2::jsonb,revision=revision+1 WHERE id=$1',[taskId,JSON.stringify({...existing.data,status:'cancelled',verification:undefined,history:[...existing.data.history,{by:user.username,at,status:'cancelled',note:command.reason}]})]);
@@ -195,6 +203,7 @@ export async function changeInternalReview(projectId:string,input:unknown,user:A
         if(!lead)throw forbidden();
         const task=tasks.find(t=>t.id===command.taskId&&t.sourceKind==='internal_review');
         if(!task||task.revision!==command.taskRevision)throw conflict();
+        if(task.data.status==='cancelled')throw new Error('This requirement was declined or retired and cannot be verified.');
         if(command.accepted){
           if(task.data.status!=='done'||!task.data.evidenceIds.length)throw new Error('Complete the task and link evidence before PDRA acceptance.');
           for(const id of task.data.evidenceIds)await completedEvidence(projectId,id);

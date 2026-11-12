@@ -124,7 +124,7 @@ export function updateMeetingAction(action: MeetingAction, status: Exclude<Meeti
   if (!canManage && action.owner !== by) throw new Error('Only the assignee or theme manager can update this action.');
   if (action.status === 'cancelled') throw new Error('This action was removed from the project task list.');
   if (!note.trim()) throw new Error('Add a progress or completion note, including evidence where available.');
-  const at = new Date().toISOString();
-  const next = actionSchema.parse({ ...action, status, note: note.trim(), history: [...action.history, { by, at, status, note: note.trim() }] });
-  Object.assign(action, next);
+  // Only the new note is validated: fields stored through Project → Tasks follow that editor's limits.
+  const saved = actionSchema.shape.note.parse(note.trim());
+  Object.assign(action, { status, note: saved, history: [...action.history, { by, at: new Date().toISOString(), status, note: saved }] });
 }

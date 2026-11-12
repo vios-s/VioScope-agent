@@ -117,6 +117,9 @@ try {
   task=(await get()).tasks[0];
   await assert.rejects(change({operation:'verify',taskId:task.id,taskRevision:task.revision,accepted:true,reason:'Looks fine.'},owner),/permission/);
   await change({operation:'verify',taskId:task.id,taskRevision:task.revision,accepted:true,reason:'Table 3 now isolates the module gain.'},pdra);
+  // Re-saving an unchanged requirement keeps the completed task, its evidence and the PDRA acceptance.
+  await change({...triage,reason:'Needed to support the central claim (clarified).'},pdra);
+  const kept=(await get()).tasks[0];assert.equal(kept.revision,task.revision+1);assert.equal(kept.data.status,'done');assert.deepEqual(kept.data.evidenceIds,[evidenceId]);assert.equal(kept.data.verification?.accepted,true);
   await change(lock,pdra);
   assert.equal((await get()).rounds[0].lockValid,true,'An unsubmitted optional review does not block the lock.');
   await change({operation:'review',content,publish:false},other);
@@ -136,6 +139,8 @@ try {
   await change({operation:'review',content:{...content,score:6},publish:true},pdra);
   assert.equal((await get()).rounds[0].data.reviews[reviewId].versions.length,2);
   await change({...triage,version:1,kind:'declined',reason:'Superseded by review v2.'},pdra);
+  const declined=(await get()).tasks.find(t=>t.data.status==='cancelled')!;
+  await assert.rejects(change({operation:'verify',taskId:declined.id,taskRevision:declined.revision,accepted:false,reason:'Must not revive a declined requirement.'},pdra),/declined or retired/);
   await change({...triage,version:2,kind:'required'},pdra);
   // Scheduler uses exact UTC instants, deduplicates, resolves state changes, and does not grant access.
   const scheduleStart=new Date(Date.parse(deadline)-42*86400000);
@@ -225,7 +230,8 @@ try {
   const aiProject=await projects.createProject({title:'Synthetic document extraction',pdraUsername:pdra.username,piUsername:pi.username},owner);
   const aiWork=(command:unknown)=>changeProjectWorkflow(aiProject.id,command,owner);
   await aiWork({operation:'submission',confirmed:true,currentId:null,plan:{venue:'Synthetic venue',cycle:'Extraction test',deadline,timezone:'Europe/London'},reason:'Synthetic test'});
-  const folder=join(directory,'uploads');await mkdir(folder,{recursive:true});
+  // Stored files are only readable from the project's own <owner>/<slug> folder.
+  const folder=join(directory,'uploads',owner.username,aiProject.project);await mkdir(folder,{recursive:true});
   const manuscriptPath=join(folder,'paper.txt'),paperText='Abstract: A synthetic module improves the baseline. Introduction: We study distribution shift. Results: The table reports three seeds and no ablation.\n'.repeat(900);
   await writeFile(manuscriptPath,paperText);
   const artifact=(await db.pool.query(`INSERT INTO project_artifacts(project_id,title,path,artifact_key,summary) VALUES($1,'paper.txt',$2,'paper','Synthetic manuscript') RETURNING id::text`,[aiProject.id,manuscriptPath])).rows[0].id;

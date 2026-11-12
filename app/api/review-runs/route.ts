@@ -59,11 +59,20 @@ export async function POST(request: Request) {
     const requestedRunId = text(body.id);
     const canManageSignoff = canSeeAll(user);
 
+    let existingReviewer: string | null | undefined;
     if (requestedRunId) {
       const existingRun = await getReviewRun(requestedRunId);
       if (!canAccessRun(existingRun, user)) {
         throw new AuthError('You can only update review runs you can access.', 403, 'forbidden');
       }
+      // Members replace only runs they started, and never over a recorded PI or administrator sign-off.
+      if (!canManageSignoff && !isUserName(existingRun.initiator, user)) {
+        throw new AuthError('Only the initiator, a PI or an administrator can update this review run.', 403, 'forbidden');
+      }
+      if (!canManageSignoff && existingRun.checks.some((check) => check.signoffStatus !== 'pending')) {
+        throw new AuthError('This review run has a recorded sign-off. Only a PI or an administrator can update it.', 409, 'conflict');
+      }
+      existingReviewer = existingRun.reviewer;
     }
 
     const parsedChecks = checks.map((rawCheck) => {
@@ -113,7 +122,7 @@ export async function POST(request: Request) {
       initiator: canSeeAll(user) ? text(body.initiator) : user.username,
       piOrSeniorReviewer: text(body.piOrSeniorReviewer),
       cooperators: textArray(body.cooperators),
-      reviewer: canSeeAll(user) ? text(body.reviewer) : user.username,
+      reviewer: canSeeAll(user) ? text(body.reviewer) : existingReviewer || user.username,
       metadata: typeof body.metadata === 'object' && body.metadata !== null ? (body.metadata as Record<string, unknown>) : {},
       checks: parsedChecks,
     });

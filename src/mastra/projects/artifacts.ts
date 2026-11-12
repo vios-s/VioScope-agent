@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { readFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { generateText } from 'ai';
 import JSZip from 'jszip';
@@ -48,6 +48,8 @@ function dateTimeFolder(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
+type ArtifactProject = Pick<ProjectRecord, 'id' | 'ownerUsername' | 'project'>;
+
 async function projectStorageRoot(project: Pick<ProjectRecord, 'ownerUsername' | 'project'>): Promise<string> {
   const configuredUploadRoot = runtimeEnv('PROJECT_ARTIFACT_UPLOAD_DIR').trim();
   if (configuredUploadRoot) {
@@ -85,14 +87,48 @@ function assertInside(root: string, target: string) {
   }
 }
 
+// Stored paths outlive owner and slug changes. An empty marker named after the immutable project id
+// records that a storage root holds that project's uploads, so the root stays readable after a rename.
+function rootMarker(root: string, project: Pick<ProjectRecord, 'id'>): string {
+  return join(root, `.project-${sanitizePathPart(project.id)}`);
+}
+
+async function currentProjectRoots(project: Pick<ProjectRecord, 'ownerUsername' | 'project'>): Promise<string[]> {
+  return [
+    resolve(legacyUploadRoot(), sanitizePathPart(project.ownerUsername), sanitizePathPart(project.project)),
+    await projectStorageRoot(project),
+  ];
+}
+
+// The <owner>/<slug> storage root a path would belong to, whoever the owner and slug were at upload time.
+function storageRootOf(target: string): string | null {
+  const store = datastoreRoot();
+  if (store) {
+    const [owner, folder, slug, ...rest] = relative(resolve(store, 'users'), target).split(sep);
+    if (owner && owner !== '..' && folder === 'projects' && slug && rest.length) return resolve(store, 'users', owner, 'projects', slug);
+  }
+  const [owner, slug, ...rest] = relative(legacyUploadRoot(), target).split(sep);
+  return owner && owner !== '..' && slug && rest.length ? resolve(legacyUploadRoot(), owner, slug) : null;
+}
+
+// Call before a project's owner or slug changes, so files uploaded before markers existed stay readable.
+export async function claimProjectArtifactRoots(project: ArtifactProject): Promise<void> {
+  for (const root of await currentProjectRoots(project)) {
+    await writeFile(/* turbopackIgnore: true */ rootMarker(root, project), '', { flag: 'a' }).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; // Nothing was ever uploaded there.
+    });
+  }
+}
+
 export async function assertStoredProjectArtifactPath(
   filePath: string | null | undefined,
-  project?: Pick<ProjectRecord, 'ownerUsername' | 'project'>,
+  project: ArtifactProject,
 ): Promise<string> {
   if (!filePath) throw new Error('Artifact has no stored file path.');
-  const roots = [legacyUploadRoot()];
-  if (project) roots.push(await projectStorageRoot(project));
   const target = resolve(filePath);
+  const roots = await currentProjectRoots(project);
+  const former = storageRootOf(target);
+  if (former && (await stat(/* turbopackIgnore: true */ rootMarker(former, project)).catch(() => null))?.isFile()) roots.push(former);
   for (const root of roots) {
     try {
       assertInside(root, target);
@@ -322,6 +358,7 @@ export async function saveProjectArtifactUpload(project: ProjectRecord, file: Fi
   const projectDir = await projectStorageRoot(project);
   const uploadDir = resolve(projectDir, `${dateTimeFolder()}-${randomUUID()}`);
   await mkdir(/* turbopackIgnore: true */ uploadDir, { recursive: true });
+  await writeFile(/* turbopackIgnore: true */ rootMarker(projectDir, project), '', { flag: 'a' });
 
   const storedName = `${Date.now()}-${sanitizeFileName(file.name)}`;
   const targetPath = resolve(uploadDir, storedName);
@@ -349,7 +386,7 @@ export async function saveProjectArtifactUpload(project: ProjectRecord, file: Fi
 
 export async function digestStoredProjectArtifact(
   artifact: ProjectArtifactRecord,
-  project?: Pick<ProjectRecord, 'ownerUsername' | 'project'>,
+  project: ArtifactProject,
 ): Promise<ProjectArtifactUploadDigest> {
   const storedPath = await assertStoredProjectArtifactPath(artifact.path, project);
   const buffer = await readFile(/* turbopackIgnore: true */ storedPath);

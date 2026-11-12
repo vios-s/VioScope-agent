@@ -200,6 +200,7 @@ export async function POST(request: Request) {
         answer: text,
         status: 'refusal',
         sources: [],
+        sessionExisted: Boolean(access),
       });
       return NextResponse.json({
         threadId,
@@ -219,7 +220,6 @@ export async function POST(request: Request) {
     const requestContext = new RequestContext<VioScopeRequestContext>();
     requestContext.set('vioscope-user', user);
     let response: Awaited<ReturnType<typeof agent.generate>>;
-    let responseThreadId = threadId;
 
     const generate = (input: string) => agent.generate(input, {
       maxSteps: 5,
@@ -236,7 +236,6 @@ export async function POST(request: Request) {
         throw error;
       }
 
-      responseThreadId = `web-${randomUUID()}`;
       response = await generate(agentMessage);
     }
     // System-owned answers are English whatever language is requested; regenerate once if the answer is not.
@@ -246,17 +245,18 @@ export async function POST(request: Request) {
 
     const sources = answerSources(response.text, mergeSources(extractSources(response.toolResults || []), preloadedWikiContext?.sources || []));
     const mentions = await persistChatAndMentions({
-      threadId: responseThreadId,
+      threadId,
       user,
       message,
       answer: response.text,
       status: refusalPattern.test(response.text) ? 'refusal' : 'answer',
       sources,
       requiresPrivateSession: privateSession,
+      sessionExisted: Boolean(access),
     });
 
     return NextResponse.json({
-      threadId: responseThreadId,
+      threadId,
       text: response.text,
       sources,
       mentions,
@@ -285,6 +285,7 @@ async function persistChatAndMentions(input: {
   status: 'answer' | 'refusal';
   sources: ChatSource[];
   requiresPrivateSession?: boolean;
+  sessionExisted?: boolean;
 }): Promise<ChatMentionResult> {
   await saveChatTurn({
     sessionId: input.threadId,
@@ -294,6 +295,7 @@ async function persistChatAndMentions(input: {
     assistantStatus: input.status,
     sources: input.sources,
     requiresPrivateSession: input.requiresPrivateSession,
+    sessionExisted: input.sessionExisted,
   });
   const mentions = await shareChatSessionWithMentions({
     sessionId: input.threadId,

@@ -1,8 +1,9 @@
 import { randomBytes, scrypt, timingSafeEqual, type BinaryLike } from 'node:crypto';
 import { isValidTemporaryPassword, temporaryPasswordHint } from '../auth/temporary-password';
 import { promisify } from 'node:util';
-import { createPostgresClient } from './postgres';
+import { createPostgresClient, withDatabaseTransaction } from './postgres';
 import type { PublicTeamProfile } from '../team/public-profiles';
+import { userDatastoreSlug } from '../users/datastore';
 
 const scryptAsync = promisify(scrypt) as (password: BinaryLike, salt: BinaryLike, keylen: number) => Promise<Buffer>;
 
@@ -111,6 +112,8 @@ type LocalUserInput = {
   passwordResetRequired?: boolean;
   source?: string;
   metadata?: Record<string, unknown>;
+  /** Add member only: a PI may not activate a profile-only administrator, PI or service account. */
+  actorRole?: UserRole;
 };
 
 let ensureUsersTablePromise: Promise<void> | null = null;
@@ -265,7 +268,7 @@ function profileFromMetadata(value: Record<string, unknown> | string | null, ema
   const metadataEmail = typeof metadata.email === 'string' && metadata.email.trim() ? metadata.email.trim() : undefined;
   const avatarUrl = typeof metadata.avatar_url === 'string' && metadata.avatar_url.trim() ? metadata.avatar_url.trim() : undefined;
   return {
-    email: email || metadataEmail || [...aliases, ...publicInfo].find((item) => item.includes('@')),
+    email: email || metadataEmail || [...aliases, ...publicInfo].map((item) => item.trim()).find(isValidEmail),
     avatarUrl,
     publicRole: typeof metadata.public_role === 'string' && metadata.public_role.trim() ? metadata.public_role.trim() : undefined,
     publicGroup: typeof metadata.public_group === 'string' && metadata.public_group.trim() ? metadata.public_group.trim() : undefined,
@@ -473,6 +476,8 @@ async function getAuthUserBy(
   value: string,
 ): Promise<{
   user: AuthUser;
+  /** The email column itself; `user.email` may be inferred from public profile text. */
+  storedEmail: string;
   passwordHash: string | null;
   passwordResetHash: string | null;
   passwordResetExpiresAt: string | null;
@@ -512,6 +517,7 @@ async function getAuthUserBy(
     return row
       ? {
           user: toAuthUser(row),
+          storedEmail: row.email || '',
           passwordHash: row.password_hash,
           passwordResetHash: row.password_reset_hash || null,
           passwordResetExpiresAt: row.password_reset_expires_at || null,
@@ -644,7 +650,8 @@ export async function changeLocalUserPassword(
   if (!record || record.user.provisioningStatus !== 'active') {
     throw new Error('User is not active.');
   }
-  const nextEmail = record.user.email || assertRequiredEmail(email);
+  // An inferred profile email is only the default when the form offered no email field; it is never trusted unvalidated.
+  const nextEmail = record.storedEmail || assertRequiredEmail(email || record.user.email);
 
   const currentPasswordMatches = await verifyPassword(currentPassword, record.passwordHash);
   const temporaryPasswordMatches = Boolean(record.user.passwordResetRequired
@@ -761,6 +768,8 @@ export async function updateOwnUserProfile(input: {
   notificationPreferences?: NotificationPreferences;
 }): Promise<AuthUser> {
   await ensureUsersTable();
+  // The row lock keeps concurrent profile, preference and admin edits from overwriting each other's metadata.
+  return withDatabaseTransaction(async () => {
   const postgres = createPostgresClient('vioscope-users');
 
   try {
@@ -783,6 +792,7 @@ export async function updateOwnUserProfile(input: {
           last_login_at::text
         FROM users
         WHERE id = $1
+        FOR UPDATE
       `,
       [input.userId],
     );
@@ -844,6 +854,20 @@ export async function updateOwnUserProfile(input: {
   } finally {
     await postgres.disconnect();
   }
+  });
+}
+
+// Private memory and project attachments live in users/<userDatastoreSlug>, which prefers the Source id over the
+// username. A new account must never resolve to a folder another account already uses.
+// ponytail: checked before the insert, not under a lock; add a unique storage-slug column if account creation becomes concurrent.
+async function storageFolderOwners(): Promise<{ usernames: Set<string>; owners: Map<string, string> }> {
+  const result = await createPostgresClient('vioscope-users').pool.query<{ username: string; source_profile_id: string | null }>(
+    'SELECT username, source_profile_id FROM users',
+  );
+  return {
+    usernames: new Set(result.rows.map((row) => row.username)),
+    owners: new Map(result.rows.map((row): [string, string] => [userDatastoreSlug({ username: row.username, sourceProfileId: row.source_profile_id }), row.username])),
+  };
 }
 
 export async function upsertLocalUser(input: LocalUserInput, mode: 'upsert' | 'create-or-activate' = 'upsert'): Promise<UserSeedRecord> {
@@ -880,6 +904,10 @@ export async function upsertLocalUser(input: LocalUserInput, mode: 'upsert' | 'c
   const postgres = createPostgresClient('vioscope-users');
 
   try {
+    const folders = await storageFolderOwners();
+    if (!folders.usernames.has(username) && folders.owners.has(userDatastoreSlug({ username, sourceProfileId: null }))) {
+      throw new Error('This username is already used as the private folder of another account. Choose a different username.');
+    }
     const result = await postgres.pool.query<UserSeedRow>(
       `
         INSERT INTO users (
@@ -914,7 +942,10 @@ export async function upsertLocalUser(input: LocalUserInput, mode: 'upsert' | 'c
           source = EXCLUDED.source,
           metadata = users.metadata || EXCLUDED.metadata,
           updated_at = now()
-        WHERE $9::boolean OR users.provisioning_status = 'profile_only'
+        WHERE $9::boolean OR (
+          users.provisioning_status = 'profile_only'
+          AND NOT ($10::boolean AND users.role IN ('administrator', 'pi', 'service'))
+        )
         RETURNING
           id::text,
           username,
@@ -929,7 +960,7 @@ export async function upsertLocalUser(input: LocalUserInput, mode: 'upsert' | 'c
           session_version,
           last_login_at::text
       `,
-      [username, displayName, email, input.role, passwordHash, passwordResetRequired, input.source || 'manual', JSON.stringify(metadata), mode === 'upsert'],
+      [username, displayName, email, input.role, passwordHash, passwordResetRequired, input.source || 'manual', JSON.stringify(metadata), mode === 'upsert', input.actorRole === 'pi'],
     );
 
     const row = result.rows[0];
@@ -958,6 +989,8 @@ export async function updateUserByAdmin(input: {
   passwordResetRequired?: boolean;
 }): Promise<UserAdminRecord> {
   await ensureUsersTable();
+  // Same row lock as updateOwnUserProfile; session_version alone does not change on profile edits.
+  return withDatabaseTransaction(async () => {
   const postgres = createPostgresClient('vioscope-users');
 
   try {
@@ -981,6 +1014,7 @@ export async function updateUserByAdmin(input: {
           last_login_at::text
         FROM users
         WHERE id = $1
+        FOR UPDATE
       `,
       [input.userId],
     );
@@ -1099,6 +1133,7 @@ export async function updateUserByAdmin(input: {
   } finally {
     await postgres.disconnect();
   }
+  });
 }
 
 export async function upsertPublicTeamProfiles(
@@ -1107,11 +1142,26 @@ export async function upsertPublicTeamProfiles(
     sourceUrl: string;
   },
 ): Promise<UserSeedRecord[]> {
+  // One transaction: a failed import leaves no half-imported accounts.
+  return withDatabaseTransaction(async () => {
   const postgres = createPostgresClient('vioscope-users');
 
   try {
     const records: UserSeedRecord[] = [];
+    const folders = await storageFolderOwners();
     for (const profile of profiles) {
+      // An existing account keeps its status, credentials and storage identity (source_profile_id); the import only
+      // refreshes public metadata, plus the display name of accounts that came from the team page. Activation stays
+      // with Add member / Edit, which replace the password and are audited per account.
+      if (!folders.usernames.has(profile.username)) {
+        const slug = userDatastoreSlug({ username: profile.username, sourceProfileId: profile.sourceId || null });
+        const owner = folders.owners.get(slug);
+        if (owner) {
+          throw new Error(`The Source id of "${profile.name}" would share the private folder of account ${owner}. Change the Source id and import again.`);
+        }
+        folders.usernames.add(profile.username);
+        folders.owners.set(slug, profile.username);
+      }
       const metadata = {
         public_group: profile.group,
         public_role: profile.role,
@@ -1138,18 +1188,12 @@ export async function upsertPublicTeamProfiles(
           VALUES ($1, $2, '', 'viewer', NULL, true, 'local', 'active', 'vios_public_team', $3, $4, $5::jsonb)
           ON CONFLICT (username) DO UPDATE
           SET
-            display_name = EXCLUDED.display_name,
-            provisioning_status = CASE
-              WHEN users.provisioning_status = 'profile_only' THEN 'active'
-              ELSE users.provisioning_status
-            END,
+            display_name = CASE WHEN users.source = 'vios_public_team' THEN EXCLUDED.display_name ELSE users.display_name END,
             password_reset_required = CASE
               WHEN users.email = '' AND users.password_hash IS NULL THEN true
               ELSE users.password_reset_required
             END,
-            source = EXCLUDED.source,
-            source_url = EXCLUDED.source_url,
-            source_profile_id = EXCLUDED.source_profile_id,
+            source_url = CASE WHEN users.source = 'vios_public_team' THEN EXCLUDED.source_url ELSE users.source_url END,
             metadata = users.metadata || EXCLUDED.metadata,
             updated_at = now()
           RETURNING
@@ -1178,6 +1222,7 @@ export async function upsertPublicTeamProfiles(
   } finally {
     await postgres.disconnect();
   }
+  });
 }
 
 // Public account directory for authenticated collaboration pickers.

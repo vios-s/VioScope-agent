@@ -161,6 +161,17 @@ async function main() {
   if (intruderResponse.status !== 403) {
     throw new Error(`Expected cross-user review run overwrite to be forbidden, got ${intruderResponse.status}.`);
   }
+  // A cooperator can read the run but not replace it; the initiator cannot replace it over a recorded sign-off.
+  const shareResponse = await reviewRunsRoute.POST(routeRequest(owner, { ...routeCheckBody(), id: routeRun.id, cooperators: [intruder.username] }));
+  const cooperatorResponse = await reviewRunsRoute.POST(routeRequest(intruder, { ...routeCheckBody(), id: routeRun.id }));
+  if (shareResponse.status !== 200 || cooperatorResponse.status !== 403) {
+    throw new Error(`Expected a cooperator overwrite to be forbidden, got ${shareResponse.status}/${cooperatorResponse.status}.`);
+  }
+  await updateReviewCheckSignoff({ runId: routeRun.id, skillName: 'vios-skeleton-lock', signoffStatus: 'rejected', signedOffBy: 'Smoke PI' });
+  const signedResponse = await reviewRunsRoute.POST(routeRequest(owner, { ...routeCheckBody(), id: routeRun.id }));
+  if (signedResponse.status !== 409 || (await getReviewRun(routeRun.id)).checks[0].signoffStatus !== 'rejected') {
+    throw new Error(`Expected a member save over a recorded sign-off to be rejected, got ${signedResponse.status}.`);
+  }
 
   const deleted = await deleteRun(saved.id);
   const deletedRouteRun = await deleteRun(routeRun.id);

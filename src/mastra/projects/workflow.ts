@@ -4,13 +4,15 @@ export const researchPhases = ['unclassified', 'initial_validation', 'idea_lock'
 export const checkpointTypes = ['idea_lock', 'skeleton_lock', 'code_lock', 'internal_review', 'revision_lock', 'submission_clearance'] as const;
 const text = z.string().trim().max(4000);
 const required = text.min(1);
+// Research fields are seeded from approved Idea Pitch blocks, which allow up to 24,000 characters.
+const longText = z.string().trim().max(24000);
 export const dateSchema = z.iso.date();
 const ids = z.array(z.string().uuid()).max(100).default([]);
 export const resourceSchema = z.object({ id: z.string().uuid(), kind: z.enum(['compute','data','people','approval']), need: required,
   status: z.enum(['needed','requested','available','blocked','not_applicable']), owner: z.string().trim().max(100), evidence: text, dueDate: dateSchema.nullable() }).strict();
-export const researchSchema = z.object({ question: text.default(''), claim: text.default(''), validation: text.default(''),
+export const researchSchema = z.object({ question: longText.default(''), claim: longText.default(''), validation: longText.default(''),
   researchType: z.enum(['empirical','theoretical','translational','mixed','unspecified']).default('unspecified'),
-  phase: z.enum(researchPhases).default('unclassified'), resourceNotes: text.default(''), risks: text.default(''), fallback: text.default(''),
+  phase: z.enum(researchPhases).default('unclassified'), resourceNotes: longText.default(''), risks: text.default(''), fallback: text.default(''),
   resources: z.array(resourceSchema).max(100).default([]) }).strict();
 export type ResearchProfile = z.infer<typeof researchSchema>;
 export const projectSetupSchema = z.object({ track: z.enum(['A','B']), piUsername: z.string().trim().nullable(), pdraUsername: z.string().trim().nullable(), piUsernames: z.array(z.string().trim().min(1)).max(100).optional(), pdraUsernames: z.array(z.string().trim().min(1)).max(100).optional(), collaborators: z.array(z.string().trim().min(1)).max(100) }).strict();

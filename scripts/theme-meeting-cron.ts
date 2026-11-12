@@ -1,10 +1,13 @@
 import 'dotenv/config';
 import {
   buildThemeMeetingReminderRun,
+  reminderRunSkipReason,
   renderThemeMeetingPlan,
   sendThemeMeetingAgendaEmails,
   sendThemeMeetingReminderEmails,
+  upcomingWednesday,
 } from '../src/mastra/theme-meetings/planner';
+import { readThemeMeetingConfig } from '../src/mastra/theme-meetings/store';
 import { themeReminderActionSchema, type ThemeReminderAction } from '../src/mastra/theme-meetings/schema';
 
 function argValue(name: string): string | undefined {
@@ -15,7 +18,7 @@ function argValue(name: string): string | undefined {
 async function main() {
   const rawAction = argValue('action') || 'agenda_cutoff';
   const parsedAction = themeReminderActionSchema.safeParse(rawAction);
-  const meetingDate = argValue('date');
+  let meetingDate = argValue('date');
 
   if (!parsedAction.success) {
     throw new Error(
@@ -24,6 +27,18 @@ async function main() {
   }
 
   const action: ThemeReminderAction = parsedAction.data;
+  // Timer runs (no --date) target the upcoming Wednesday. The systemd timers set the actual send time; the
+  // configured reminder times only open the window, so a late catch-up run (Persistent=true) or a timer that
+  // fires before the configured time sends nothing. An explicit --date is an operator's decision and always runs.
+  if (!meetingDate) {
+    const { config } = await readThemeMeetingConfig();
+    meetingDate = upcomingWednesday(new Date(), config.timezone);
+    const skipReason = reminderRunSkipReason(config, action, meetingDate);
+    if (skipReason) {
+      console.log(`Skipped ${action} for the ${meetingDate} meeting: ${skipReason}. Nothing was sent. Keep the systemd timers at or after the configured reminder times, or pass --date to run it anyway.`);
+      return;
+    }
+  }
   const run = await buildThemeMeetingReminderRun(action, { meetingDate });
   const emails = await sendThemeMeetingReminderEmails(run.notifications);
   const agendaEmails =

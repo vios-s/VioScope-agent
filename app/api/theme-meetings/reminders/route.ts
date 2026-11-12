@@ -7,10 +7,9 @@ import { assertMeetingNotHeld, canManageTheme } from '../../../../src/mastra/the
 import {
   buildThemeMeetingPlan,
   buildThemeMeetingReminderRun,
-  sendThemeMeetingAgendaEmails,
   sendThemeMeetingReminderEmails,
+  submissionClosed,
 } from '../../../../src/mastra/theme-meetings/planner';
-import { themeReminderActionSchema } from '../../../../src/mastra/theme-meetings/schema';
 
 export const runtime = 'nodejs';
 
@@ -22,11 +21,11 @@ export async function POST(request: Request) {
   try {
     const user = await requireSessionUser(request);
     const body = (await request.json()) as Record<string, unknown>;
-    const parsedAction = themeReminderActionSchema.safeParse(body.action || 'manual_missing_update_reminder');
     const themeId = text(body.themeId);
 
-    if (!parsedAction.success) {
-      throw new Error('Invalid reminder action.');
+    // Scheduled reminders and agenda circulation are sent by the timers only.
+    if ((body.action || 'manual_missing_update_reminder') !== 'manual_missing_update_reminder') {
+      throw new Error('Only missing-update reminders can be sent manually.');
     }
 
     if (!themeId) {
@@ -42,17 +41,16 @@ export async function POST(request: Request) {
     if (payload.plan.meetings.find((meeting) => meeting.theme_id === themeId)?.cancelled) {
       throw new Error(`Theme ${themeId} meeting on ${payload.plan.meeting_date} has been cancelled.`);
     }
+    if (submissionClosed(payload.config, payload.plan.meeting_date)) {
+      throw new Error('Reminders can only be sent before the submission cutoff.');
+    }
 
-    const run = await buildThemeMeetingReminderRun(parsedAction.data, {
+    const run = await buildThemeMeetingReminderRun('manual_missing_update_reminder', {
       meetingDate,
       themeId,
       validateUsers: true,
     });
     const emails = await sendThemeMeetingReminderEmails(run.notifications);
-    const agendaEmails =
-      run.action === 'agenda_cutoff' || run.action === 'agenda_preview'
-        ? await sendThemeMeetingAgendaEmails(run.plan, payload.config, { themeId, phase: run.action === 'agenda_preview' ? 'preview' : 'final' })
-        : { sent: 0, skipped: 0, failed: 0 };
 
     await recordAuditLog({
       actor: user,
@@ -67,9 +65,6 @@ export async function POST(request: Request) {
         emailSent: emails.sent,
         emailSkipped: emails.skipped,
         emailFailed: emails.failed,
-        agendaEmailSent: agendaEmails.sent,
-        agendaEmailSkipped: agendaEmails.skipped,
-        agendaEmailFailed: agendaEmails.failed,
       },
     });
     // Counts and recipients only: reminder texts belong to the addressed members.
@@ -83,7 +78,6 @@ export async function POST(request: Request) {
         displayName: notification.member,
       })),
       emails,
-      agendaEmails,
     });
   } catch (error) {
     return errorResponse(error, 400);

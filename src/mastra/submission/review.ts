@@ -82,7 +82,8 @@ async function resolveSkills(skillNames: string[]): Promise<ViosSkill[]> {
 
   for (const name of skillNames) {
     const { skill, result } = await readViosSkill(name);
-    const validationErrors = result.issues.filter((issue) => issue.severity === 'error');
+    // Issues cover every skill root; only the requested skill's own file can block this review.
+    const validationErrors = result.issues.filter((issue) => issue.severity === 'error' && `/${issue.file?.replaceAll('\\', '/')}`.endsWith(`/${name}/SKILL.md`));
 
     if (validationErrors.length) {
       errors.push(...validationErrors.map((issue) => `${issue.file || name}: ${issue.message}`));

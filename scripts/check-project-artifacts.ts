@@ -356,6 +356,20 @@ async function main() {
       await postgres.disconnect();
     }
 
+    // Stored paths keep the former slug; the upload folder still belongs to this project record.
+    const projectRoute = await import('../app/api/projects/[projectId]/route');
+    const renameResponse = await projectRoute.PATCH(
+      jsonRequest(`/api/projects/${projectId}`, { project: `${slug}-renamed` }, user, 'PATCH'),
+      projectContext(projectId),
+    );
+    assert.equal(renameResponse.status, 200, 'Project slug change should succeed.');
+    const renamedDownload = await downloadRoute.GET(
+      getRequest(`/api/project-artifacts/${pdf.artifact.id}/download`, user),
+      artifactContext(pdf.artifact.id),
+    );
+    assert.equal(renamedDownload.status, 200, 'Uploads should stay downloadable after the project slug changes.');
+    await projectRoute.PATCH(jsonRequest(`/api/projects/${projectId}`, { project: slug }, user, 'PATCH'), projectContext(projectId));
+
     console.log('Project artifact upload/digest check passed.');
     console.log(
       JSON.stringify(

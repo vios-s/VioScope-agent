@@ -128,6 +128,8 @@ try {
   assert.equal(paired.decisions[1].override,undefined);
   assert.equal(latestSkeletonDecisions(paired.decisions).pi?.outcome,'approved');
   await assert.rejects(judge(pair.id,'principal','pdra','SLIDE',2,true),/explicit administrator override|another person/);
+  await judge(pair.id,'bob','pdra','CLEARED',2);
+  await assert.rejects(judge(pair.id,'admincheck','pi','approved',3,true),/another person must record the PI confirmation/,'An earlier PDRA judgment by the same person still counts after it is re-recorded.');
   const multiProject=await projectDb.createProject({title:'Synthetic multiple PI skeleton',stage:4,piUsernames:['principal','otherpi'],pdraUsernames:['bob','carol'],pdraUsername:'bob'},accounts.get('alice')!);
   const multiReview=await records.saveSkeletonReview(multiProject.id,skeletonProjectSnapshot(multiProject),'Synthetic multi-team outline',result,accounts.get('alice')!);
   await assert.rejects(judge(multiReview.id,'carol','pdra','CLEARED',0),/Only the assigned PDRA/);
